@@ -1,0 +1,22 @@
+To do: fortran_wrappers.py
+- turn output dictionaries into xarrays, print them with the output files
+- option for rdcon/stride terminal outputs?
+- function that runs all 3 including pest3, rdcon, and stride
+- function that builds a truncation logic for pest3 after running it once... (get a q vs psi spline, use that for the next run)
+
+To do: cylindrical_wrapper.py
+- cylindrical capability (different file):
+  - function that builds a simple equilibrium from pest3 values for cylindrical delta'
+  - function that calls the julia
+
+To do: environment.py
+- will automatically load the required modules
+- set up python and julia environments
+
+To do: test case functionality
+- make file to run basic test cases
+- make file to run 1D scans
+- make file to run 2D scans  
+
+To do: fixing pest3 .nc files
+- give dimension variables unique names

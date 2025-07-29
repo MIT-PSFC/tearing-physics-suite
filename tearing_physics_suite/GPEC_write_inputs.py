@@ -316,6 +316,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             verbose_performance_output='t',      # Print detailed timing information to terminal
             sing_start_str=0,                    # Start integration at the sing_start'th rational from the axis (psilow). Different from rdcon sing_start since stride finds q_low searching from outside in
             verbose = False,                     # Print verbose output to terminal
+            a_wall=21,                          #Controls ideal conformal shell distance. See vac.in description below.
             **kwargs):
 
     if verbose: print('printing eq_type=',eq_type)
@@ -427,7 +428,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'verbose': verbose
     }
     
-    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,**kwargs)
+    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,**kwargs)
     #combine the dictionaries
     return_dict.update(equil_dict)
     

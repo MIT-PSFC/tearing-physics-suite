@@ -178,9 +178,6 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False
                 if pest3_trunc_ran:
                     pest3_kwargs_dict['psihigh_pest'] = psihigh_trunc_pest
 
-        if True:
-            print(make_working_dir)
-            print(pest3_kwargs_dict)
         pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
             eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
             working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
@@ -225,7 +222,7 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,
         a_wall_pest=20,             # Distance of the conformal ideal wall from the plasma in units of minor radius. a_wall_pest > 10 <=> wall at infinity, a_wall_pest = 0 <=> internal mode only. See pest3.hh for more details. 
         mtheta_pest=129, #DO NOT CHANGE - HARDCODED INTO PEST3 - # Number of poloidal rays for eqdsk mapping. Large values (~800) likely introduce numerical instabilities.
         mpsi_pest=400,                   # Number of radial grid intervals for equilibrium quantities for eqdsk mapping. Large values (~800) likely introduce numerical instabilities.
-        nx_string_pest='''-k"200 100 150 250"''', # String for the number of radial finite elements per non-singular interval. Convergence should obey nx^(-2) going to zero, hence multiple values are specified. Use nxpest for a single value.
+        nx_string_pest='''-k"100 70 140 200"''', # String for the number of radial finite elements per non-singular interval. Convergence should obey nx^(-2) going to zero, hence multiple values are specified. Use nxpest for a single value.
         nx_pest=0,                  # Number of radial finite elements per non-singular interval.
         large_sol_extent_pest=0.9, # See pest3_dir/pest3.hh for details.
         solver_pest=0,             # String for the PEST3 solver options, see pest3_dir/pest3.hh for details.
@@ -389,44 +386,11 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,
         if debug: 
             print(f"Successfully read PEST3 output file: {os.path.join(working_dir, 'pest3.nc')}")
             print(ps3)
-        #Names of dims:
-        if len(ps3.cmatch.dims) > 0:
-            surfdim=ps3.cmatch.dims[0]
-            unknowndim=ps3.x1frbo_re.dims[1]
-        else: #No rational surfaces calculated
-            surfdim=None
-            unknowndim=ps3.x1frbo_re.dims[0]
-        profdim_1=ps3.psinod.dims[0]
-        profdim_2=ps3.qa.dims[0]
-        thetadim=ps3.xjacob.dims[1]
-        #Rename dimensions to standardize & remove duplicates
-        for varname, da in ps3.data_vars.items():
-            new_dims = []
-            for dim_i in da.dims:
-                if (dim_i == surfdim) and ('r' in new_dims):
-                    new_dims.append('r_prime')
-                elif dim_i == surfdim:
-                    new_dims.append('r')
-                elif dim_i == profdim_1:
-                    new_dims.append('psinod_dim')
-                elif dim_i == profdim_2:
-                    new_dims.append('qprof_dim')
-                elif dim_i == thetadim:
-                    new_dims.append('theta_dim')
-                elif dim_i == unknowndim:
-                    new_dims.append('ukn_dim')
-                else:
-                    new_dims.append(dim_i)
-            if debug: print(len(da.dims),new_dims)
-            if len(da.dims) > 0:
-                tempvals = da.values
-                temp_da = xr.DataArray(tempvals, dims=tuple(new_dims))
-                ps3[varname] = temp_da
 
-        pest3_xr = ps3
+        pest3_xr = pest3_clean_netcdf(ps3,debug=debug)
         pest3_ran = True
         #except Exception as e:
-        #    print(f"Error reading PEST3 output file: {e}")
+        #    print(f"Error reading PEST3 output fi`le: {e}")
         #    pest3_xr = None
         #    pest3_ran = False
     else:
@@ -467,6 +431,7 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
                                 mpsi_trunc_loop=129, 
                                 nx_trunc_loop=20,
                                 debug=False,
+                                verbose=True,
                                 truncimax=10,
                                 nx_truncdebug=False, **kwargs):
     """
@@ -485,15 +450,21 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
 
     pest3_kwargs_dict_local=copy.deepcopy(pest3_kwargs_dict)
 
-    psihigh_trunc_single, pest3_trunc_single_ran = pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_dict, **kwargs)
+    #Remove save_terminal_output from pest3_kwargs_dict_local
+    pest3_kwargs_dict_local.pop('save_terminal_output', None)
+    pest3_kwargs_dict_local.pop('verbose',None)
+    kwargs.pop('save_terminal_output', None)
+    kwargs.pop('verbose',None)
+
+    psihigh_trunc_single, pest3_trunc_single_ran = pest3_special_truncation_single(
+        eq_filename, nn, qlim_actual, pest3_kwargs_dict_local, save_terminal_output=True, verbose=False, **kwargs)
     if not pest3_trunc_single_ran:
         print("PEST3 truncation single run failed.")
         return 0, False
 
-    output_prefix_special+='_truncrun_'
+    output_prefix_special+='_truncloop_'
 
     # Setting up a very fast, basic pest run:
-    #pest3_kwargs_dict_local['psihigh_pest'] = psihigh_trunc_single
     pest3_kwargs_dict_local['mpsi_pest'] = mpsi_trunc_loop
     pest3_kwargs_dict_local['mtheta_pest'] = 129
     pest3_kwargs_dict_local['kband_pest'] = 15
@@ -514,6 +485,7 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
         eq_filename,
         1, # nn = 1 is fastest
         output_prefix=output_prefix_special,
+        verbose=False,
         **pest3_kwargs_dict_local
     )
     if abs(pest3_xr['qa'].values[-1]-qlim_actual) < 0.01:
@@ -523,15 +495,18 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
     #Bisection method:
     trunci=0
     pest3_kwargs_dict_local['psihigh_pest'] = psihigh_bounds[0]+(psihigh_bounds[1]-psihigh_bounds[0])/2.0
+
     while trunci < truncimax:
         pest3_xr, pest3_trunc_ran, pest3_input_dict = PEST3_resistive_calculation(
             eq_filename,
             1, # nn = 1 is fastest
+            save_terminal_output=True,
             output_prefix=output_prefix_special,
+            verbose=False,
             **pest3_kwargs_dict_local
         )
 
-        if debug:
+        if verbose:
             print(f"PEST3 run {trunci}: psihigh_pest = {pest3_kwargs_dict_local['psihigh_pest']}, qlim_actual = {qlim_actual}, qa = {pest3_xr['qa'].values[-1]}")
 
         if abs(pest3_xr['qa'].values[-1]-qlim_actual) < 0.01:
@@ -548,7 +523,6 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
         trunci += 1
 
     return psi_trunc_frac, pest3_trunc_ran
-
 
 def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_dict, output_prefix_special='', 
                                 mpsi_trunc=400, 
@@ -571,7 +545,7 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
 
     pest3_kwargs_dict_local=copy.deepcopy(pest3_kwargs_dict)
 
-    output_prefix_special+='_truncrun_single_'
+    output_prefix_special+='_trunc_single_'
 
     # Setting up a high-res spline to get a good starting point
     pest3_kwargs_dict_local['psihigh_pest'] = 1.0 #won't break pest (?)
@@ -620,13 +594,135 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
     #Convert psi_trunc_val to a fraction of pest3_xr['psinew'].values[-1]-pest3_xr['psinew'].values[0]:
     psi_trunc_frac = (psi_trunc_val - pest3_xr['psinew'].values[0]) / (pest3_xr['psinew'].values[-1] - pest3_xr['psinew'].values[0])
 
-    if True:
+    if debug:
         print(" Psi norm values: ", pest3_xr['psinew'].values/(pest3_xr['psinew'].values[-1] - pest3_xr['psinew'].values[0]))
         print(" q values: ", pest3_xr['qa'].values)
 
     if debug:
         return psi_trunc_frac, pest3_trunc_ran, pest3_xr['qa'].values, (pest3_xr['psinew'].values/(pest3_xr['psinew'].values[-1] - pest3_xr['psinew'].values[0]))
     return psi_trunc_frac, pest3_trunc_ran
+
+def pest3_clean_netcdf(ps3, debug=False):
+    """
+    Process the PEST3 netCDF output to standardize dimensions and variable names. If multiple rational
+    surfaces are calculated, redefinies rescaled Delta primes in GPEC units.
+
+    Parameters:
+    ps3 (xarray.Dataset): The PEST3 output dataset.
+    debug (bool): If True, print debug information.
+
+    Returns:
+    xarray.Dataset: The processed PEST3 dataset with standardized dimensions and variable names.
+    """
+
+    #########################################################################################################
+    # Standardize dimensions and variable names in PEST3 output:
+    #########################################################################################################
+    #Names of dims:
+    if len(ps3.cmatch.dims) > 0:
+        surfdim=ps3.cmatch.dims[0]
+        unknowndim=ps3.x1frbo_re.dims[1]
+    else: #No rational surfaces calculated
+        surfdim=None
+        unknowndim=ps3.x1frbo_re.dims[0]
+    profdim_1=ps3.psinod.dims[0]
+    profdim_2=ps3.qa.dims[0]
+    thetadim=ps3.xjacob.dims[1]
+    #Rename dimensions to standardize & remove duplicates
+    for varname, da in ps3.data_vars.items():
+        new_dims = []
+        for dim_i in da.dims:
+            if (dim_i == surfdim) and ('r' in new_dims):
+                new_dims.append('r_prime')
+            elif dim_i == surfdim:
+                new_dims.append('r')
+            elif dim_i == profdim_1:
+                new_dims.append('psinod_dim')
+            elif dim_i == profdim_2:
+                new_dims.append('qprof_dim')
+            elif dim_i == thetadim:
+                new_dims.append('theta_dim')
+            elif dim_i == unknowndim:
+                new_dims.append('ukn_dim')
+            else:
+                new_dims.append(dim_i)
+        if debug: print(len(da.dims),new_dims)
+        if len(da.dims) > 0:
+            tempvals = da.values
+            temp_da = xr.DataArray(tempvals, dims=tuple(new_dims))
+            ps3[varname] = temp_da
+    
+    if len(ps3.cmatch.dims) > 0:
+        return pest3_rescale_deltaprimes(ps3)
+    return ps3
+
+def pest3_rescale_deltaprimes(ps3, debug=False):
+    """
+    Rescale the Delta prime values in the PEST3 output to GPEC units.
+    This function converts the Delta prime values from PEST3's radial flux coordinate to GPEC's radial flux coordinate.
+
+    Parameters:
+    ps3 (xarray.Dataset): The PEST3 output dataset.
+    debug (bool): If True, print debug information.
+
+    Returns:
+    xarray.Dataset: The PEST3 dataset with rescaled Delta prime values.
+
+    More info:
+    PEST3 uses radial flux coordinate = poloidal flux / 2pi, while GPEC uses radial flux coordinate
+    = (poloidal flux/2pi) normalised to be zero at the magnetic axis and one at the edge.
+    Delta prime values (on diagnoal) in GPEC have units psi^{-2sqrt(-Di)} for GPEC flux coordinate
+    psi. For true non-dimensionalisation, we need to multiply the GPEC delta prime values by
+    psi_s^{-2sqrt(-Di)} (on diagnoal) where psi_s is psi at the rational surface.
+    See PEST3/pest/pest3.m for the original version of this non-dimensionalisation.
+    Also A_prime_perr, B_prime_perr, Gamma_prime_perr, Delta_prime_perr are the errors in these values
+    assuming you used multiple nx values in the PEST3 calculation to get convergence (see Rosenburg PoP 2002 Fig. 3).   
+    """
+
+    ps3=ps3.assign(psio=ps3.psimax-ps3.psimin)
+    ps3=ps3.assign(psio_alt=ps3.psia-ps3.psi0)
+
+    assert ps3.psio.values-ps3.psio_alt.values < 1e-4, "Competing values of total (pol. flux/2pi). Check PEST3 output."
+
+    #List of variables to rename:
+    varlista=[['aprim_re','aprim_im'], ['bprim_re', 'bprim_im'], ['gprim_re', 'gprim_im'], ['dprim_re', 'dprim_im']]
+    namelista=['A_prime', 'B_prime', 'Gamma_prime', 'Delta_prime']
+    varlistb=['error_aprim','error_bprim','error_gprim','error_dprim']
+    namelistb=['A_prime_perr', 'B_prime_perr', 'Gamma_prime_perr', 'Delta_prime_perr']
+
+    assert len(varlista) == len(namelista) == len(varlistb) == len(namelistb)
+
+    #Make 2D matrix of ps3.xmu vector as ps3.xmu[0]ps3.xmu[0], ps3.xmu[0]ps3.xmu[1], ..., ps3.xmu[-1]ps3.xmu[-1]:
+    psio_norm_array=xr.DataArray(ps3.psio.values**np.add.outer(ps3.xmu.values, ps3.xmu.values), dims=('r', 'r_prime'))
+    if debug: print("xmu ", ps3.xmu.values)
+    ps3['psio_norm_array']= psio_norm_array
+    #if debug: print("xmu sum matrix ", ps3.xmu_sum_matrix.values)
+    if debug: print("ps3.psio.values ", ps3.psio.values)
+    #ps3 = ps3.assign(psio_norm_array=np.power(ps3.psio.values,ps3.xmu_sum_matrix.values)+0.0*ps3.xmu_sum_matrix.values)  
+    if debug: print("psio_norm_array ", ps3.psio_norm_array.values)
+    ps3 = ps3.assign(cmatch_norm_matrix=(('r', 'r_prime'), np.sqrt(np.outer(ps3.cmatch.values, ps3.cmatch.values))))
+    if debug: print("cmatch_norm_matrix ", ps3.cmatch_norm_matrix.values)
+    ps3 = ps3.assign(norm_matrix=np.multiply(ps3.psio_norm_array,ps3.cmatch_norm_matrix)+0.0*ps3.cmatch_norm_matrix)
+    if debug: print("norm_matrix ", ps3.norm_matrix.values)
+
+    for i in range(len(varlista)): 
+        tempvals1 = np.multiply(ps3[varlista[i][0]].values,ps3.norm_matrix.values)
+        tempvals2 = np.multiply(ps3[varlista[i][1]].values,ps3.norm_matrix.values)
+        if debug and i == 3:
+            print("Delta prime values before rescaling: ", ps3[varlista[i][0]].values)
+            print("Delta prime values after rescaling: ", tempvals1)
+        temp3D = np.zeros((len(ps3.r.values), len(ps3.r_prime.values), 2))
+        temp3D[:, :, 0] = tempvals1
+        temp3D[:, :, 1] = tempvals2
+        temp_DAa = xr.DataArray(temp3D, dims=('r', 'r_prime', 'i'))
+
+        tempvalsb = np.multiply(ps3[varlistb[i]].values,ps3.norm_matrix.values)
+        temp_DAb = xr.DataArray(tempvalsb, dims=('r', 'r_prime'))
+        
+        ps3[namelista[i]] = temp_DAa
+        ps3[namelistb[i]] = temp_DAb
+
+    return ps3
 
 def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False, 
         make_working_dir=True, 

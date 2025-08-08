@@ -30,9 +30,11 @@
   - 2D scans?
   - standardised plot generation?
 
-  To do: 
+  To do: mre_analysis.py 
   - combine MRE calculation with run_resistive_calculation in a new kinetic resistive calculation function
-
+  - pressure vs kinetic sanity check
+  - double check every formula here [for ARC]
+  - add cylindrical Haye MRE for comparison across terms
 
   To do: PEST3
   - [DONE] <no rush> give dimension variables unique names

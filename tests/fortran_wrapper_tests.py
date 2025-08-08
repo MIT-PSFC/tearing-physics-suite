@@ -20,9 +20,8 @@ working_dir = os.path.join(home_dir, 'tests/test_working_dir')
 results_dir = os.path.join(home_dir, 'tests/test_results')
 
 # Choose equilibrium file
-print(" Getting equilibrium file from ", os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT'))
-eq_filename = os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT')
-eq_filename_short= eq_filename.split('/')[-1]
+default_equilibrium =  os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT')
+eq_filename = default_equilibrium
 
 #Options:
 pest3_truncation_test=True
@@ -30,6 +29,8 @@ multi_wrapper_test1=True
 read_write_test=True
 multi_wrapper_test2=True
 
+print(" Getting equilibrium file from ", default_equilibrium)
+eq_filename_short= eq_filename.split('/')[-1]
 
 #########################################################################################################
 # PEST3 truncation test:

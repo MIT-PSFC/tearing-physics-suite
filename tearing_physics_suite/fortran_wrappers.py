@@ -1,16 +1,13 @@
 # Python functions to call GPEC and PEST3 fortran codes for delta prime calculations
 
 import os
-import sys
 import shutil
 import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline
 import pickle as pkl
 import copy
-import netCDF4
 
 from tearing_physics_suite.environment import home_dir
 from tearing_physics_suite.GPEC_write_inputs import write_rdcon_stride_inputs
@@ -98,6 +95,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     psilow_actual = 100
     qlim_actuals = -100
     psilow_actuals = 100
+    q_rationals = None
+    r = None
+    r_prime = None
     # Define maximum poloidal fourier harmonic with the same logic as in GPEC:
     m_max=0
     m_maxs=0
@@ -105,31 +105,52 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     m_mins=0
     delta_mhigh=rdcon_stride_input_dict['delta_mhigh']
     delta_mlow=rdcon_stride_input_dict['delta_mlow']
-    if run_rdcon:
+    num_rat_surfaces=0 
+    if (run_rdcon and rdcon_ran):
         m_max = int(np.ceil(rdcon_xr.qmax*nn+delta_mhigh))
         m_min = int(np.floor(min(rdcon_xr.qmin*nn,0)-4-delta_mlow))
         qlim_actual = max(rdcon_xr.qlim, qlim_actual)
         psilow_actual = min(rdcon_xr.psilow, psilow_actual)
-    if run_stride:
+        q_rationals = rdcon_xr.q_rational.values
+        r = rdcon_xr.r
+        r_prime = rdcon_xr.r_prime
+        # Check if rdcon generated Delta_prime 
+        if "Delta_prime" in rdcon_xr.data_vars:
+            num_rat_surfaces=max(len(rdcon_xr.Delta_prime.isel(i=0,r_prime=0).values),num_rat_surfaces)
+    if (run_stride and stride_ran):
         m_maxs = int(np.ceil(stride_xr.qmax*nn+delta_mhigh))
         m_mins = int(np.floor(min(stride_xr.qmin*nn,0)-4-delta_mlow))
         qlim_actuals = max(stride_xr.qlim, qlim_actuals)
         psilow_actuals = min(stride_xr.psilow, psilow_actuals)
+        if "Delta_prime" in stride_xr.data_vars:
+            num_rat_surfaces=max(len(stride_xr.Delta_prime.isel(i=0,r_prime=0).values),num_rat_surfaces)
+        if q_rationals is None:
+            q_rationals = stride_xr.q_rational.values
+            r = stride_xr.r
+            r_prime = stride_xr.r_prime
+        else:
+            #Check they are close in values:
+            if len(q_rationals) == len(stride_xr.q_rational.values):
+                if np.max(np.abs(q_rationals - stride_xr.q_rational.values)) > 1e-5:
+                    raise ValueError("Rational surfaces from rdcon and stride differ. Cannot match truncation.")
+            else:
+                raise ValueError("Rational surfaces from rdcon and stride differ. Cannot match truncation.")
     m_max = max(m_max, m_maxs)
     m_min = min(m_min, m_mins)
-    if run_stride and run_rdcon and 2*(abs(qlim_actual-qlim_actuals)/(abs(qlim_actual)+abs(qlim_actual))) > 1e-4:
-        print("WARNING, rdcon and stride truncation is differing.")
-        print("qlims: ", qlim_actual, qlim_actuals)
-    if run_stride and run_rdcon and 2*(abs(psilow_actual-psilow_actuals)/(abs(psilow_actuals)+abs(psilow_actuals))) > 1e-4:
-        print("WARNING, rdcon and stride truncation is differing.")
-        print("psilows: ", psilow_actual,psilow_actuals)
-    if run_stride and run_rdcon:
+    m_absmax = max(abs(m_max), abs(m_min))
+    # Set truncation values:
+    if (run_stride and stride_ran) and (run_rdcon and rdcon_ran):
+        if 2*(abs(qlim_actual-qlim_actuals)/(abs(qlim_actual)+abs(qlim_actual))) > 1e-4:
+            print("WARNING, rdcon and stride truncation is differing.")
+            print("qlims: ", qlim_actual, qlim_actuals)
+        if 2*(abs(psilow_actual-psilow_actuals)/(abs(psilow_actuals)+abs(psilow_actuals))) > 1e-4:
+            print("WARNING, rdcon and stride truncation is differing.")
+            print("psilows: ", psilow_actual,psilow_actuals)
         qlim_actual = min(qlim_actual, qlim_actuals)
         psilow_actual = max(psilow_actual,psilow_actuals)
-    elif run_stride:
+    elif (run_stride and stride_ran):
         qlim_actual=qlim_actuals
         psilow_actual=psilow_actuals
-    m_absmax = max(abs(m_max), abs(m_min))
     if verbose: print("Truncation values: psilow", psilow_actual,"qlim", qlim_actual)
 
     # Check for explicit pest inputs, else use the values from rdcon_stride_input_dict:
@@ -149,9 +170,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     if 'a_wall_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['a_wall_pest'] = rdcon_stride_input_dict['a_wall']
 
-    #if 'mtheta_pest' not in pest3_kwargs_dict:
-        #pest3_kwargs_dict['mtheta_pest'] = rdcon_stride_input_dict['mtheta']
-        #mtheta_pest=129 appears to be hardcoded into PEST3, changing this causes issues in my experience.
+    if ('mtheta_pest' not in pest3_kwargs_dict) and pest_pull_mtheta:
+        pest3_kwargs_dict['mtheta_pest'] = rdcon_stride_input_dict['mtheta']
+        #mtheta_pest has to be odd (?)
 
     if 'mpsi_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['mpsi_pest'] = rdcon_stride_input_dict['mpsi']
@@ -162,7 +183,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     
     if run_pest3:
         pest3_trunc_ran = False
-        if pest_match_truncation and (run_rdcon or run_stride) and allow_trunc_loop:
+        if pest_match_truncation and ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)) and allow_trunc_loop:
             if verbose: print("Running pest3 truncation algorithm. qlim_actual = ", qlim_actual)
             if psilow_actual > rdcon_stride_input_dict['psilow'] and (psilow_actual != 100):
                 print("WARNING: axis truncation in RDCON/STRIDE differs from PEST3 truncation. Results may not be comparable.")
@@ -186,7 +207,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
             working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
             fresh_start=fresh_start, output_location=output_location,
             output_prefix=output_prefix, save_input=save_input,
-            save_terminal_output=save_terminal_output, **pest3_kwargs_dict)
+            save_terminal_output=save_terminal_output, q_rationals=q_rationals, r=r, r_prime=r_prime, **pest3_kwargs_dict)
 
         if verbose:
             print("Pest3 ran:",pest3_ran, "Pest3 truncation ran:", pest3_trunc_ran)        

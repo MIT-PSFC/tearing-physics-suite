@@ -177,6 +177,12 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     if 'mpsi_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['mpsi_pest'] = rdcon_stride_input_dict['mpsi']
 
+    if 'rational_surface_control_pest' not in pest3_kwargs_dict:
+        if num_rat_surfaces > 15:
+            pest3_kwargs_dict['rational_surface_control_pest'] = '''-m"''' + 'x'*num_rat_surfaces + '''"''' # Compute Delta's for first num_rat_surfaces rational surfaces
+        if num_rat_surfaces == 0 and nn*5 < 15: # Large n, don't forget to include all these rational surfaces
+            pest3_kwargs_dict['rational_surface_control_pest'] = '''-m"''' + 'x'*nn*5 + '''"''' 
+
     #########################################################################################################
     # Run PEST3 resistive calculation:
     #########################################################################################################

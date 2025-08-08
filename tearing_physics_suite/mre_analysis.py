@@ -1,4 +1,4 @@
-# Python functions to call GPEC and PEST3 fortran codes for delta prime calculations
+# Python functions to construct and analyse the modified Rutherford equation on modes
 
 import os
 import sys

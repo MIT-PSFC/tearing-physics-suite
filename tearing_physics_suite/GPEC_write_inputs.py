@@ -14,7 +14,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         power_r=0,          #del.B ~ B_p**power_bp * B**power_b / R**power_r
         grid_type="""'ldp'""",    #Radial grid packing of equilibrium quantities. Accepts rho, ldp, pow1, pow2, or original. ldp packs points near the core and edge. pow* packs near the edge.
         psilow=1e-4,        #Minimum value of psi, normalized from 0 to 1
-        psihigh=0.995,      #Maximum value of psi, normalized from 0 to 1
+        psihigh=0.999,      #Maximum value of psi, normalized from 0 to 1
         mpsi=257,           #Number of radial grid intervals for equilibrium quantities. Large values (~800) can introduce numerical instabilities.
         mtheta=257,         #Number of equally spaced poloidal grid intervals for all splines. Large values (~800) can introduce numerical instabilities.
         nstepd=None,        #Deprecated, leave as none.
@@ -23,7 +23,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         use_classic_splines='f', # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
         input_only='f',      #Generate information about the input and then quit with no further calculation
         #EQUIL_OUTPUT
-        gse_flag='f',       #Produces diagnostic output for accuracy of solution to Grad-Shafranov equation
+        gse_flag='t',       #Produces diagnostic output for accuracy of solution to Grad-Shafranov equation
         out_eq_1d='f',      #Ascii output of 1D equilibrium file data
         bin_eq_1d='f',      #Binary output of 1D equilibrium file data
         out_eq_2d='f',      #Ascii output of 2D equilibrium file data
@@ -208,7 +208,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
 def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equil.in',write_rdcon_filename='/rdcon.in',write_stride_filename='/stride.in',run_stride=True, run_rdcon=True, fresh_start=True,
             debug=True,
             ##GAL_INPUT
-            nx=256,                 # The number of elements in each interval between two singular surfaces
+            nx=256,                 # The number of elements in each interval between two singular surfaces. Must be even!
             pfac=0.001,             # Packing ratio near the singular surface
             gal_tol=1e-10,          # Tolerance of lsode integration
             dx1dx2_flag='t',        # Flag to include the special dx1 and dx2 treatments for resonant and extension element
@@ -216,7 +216,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             dx1=1.e-3,              # The size of resonant element
             dx2=1.e-3,              # The size of extension element
             cutoff=10,              # The number of elements include the large solution as the driving term
-            solver="""'LU'""",      # LU factorization of solving Galerkinn matrix
+            solver="""'LU'""",      # LU factorization of solving Galerkinn matrix (cholesky broken for small nx, run RDCON_solver_scan to confirm this)
             nq=6,                   # The number of Gaussian points in each Galerkin element
             ##GAL_OUTPUT
             interp_np=3,            # The number of interpration points for outputting Galerkin solution
@@ -232,7 +232,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             ##RDCON_CONTROL
             bal_flag='f',           # Ideal MHD ballooning criterion for short wavelengths
             mat_flag='f',           # Construct coefficient matrices for diagnostic purposes
-            ode_flag='t',           # Integrate ODE's for determining stability of internal long-wavelength mode (must be true for GPEC)
+            ode_flag='t',           # RDCON control only (forced true for STRIDE) - Integrate ODEs for determining stability of internal long-wavelength mode.
             vac_flag='t',           # Compute plasma, vacuum, and total energies for free-boundary modes
             gal_flag='t',           # Compute outer regime using resonant Galerkin method
             dump_MRE_data=False,    # Dump MRE data, exits before gal_flag can run
@@ -248,7 +248,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             delta_mlow=8,           # Expands lower bound of Fourier harmonics
             delta_mhigh=8,          # Expands upper bound of  Fourier harmonics
             delta_mband=0,          # Integration keeps only this wide a band of solutions along the diagonal in m,m'
-            mthvac=2048,            # Number of points used in splines over poloidal angle at plasma-vacuum interface. Overrides vac.in mth.
+            mthvac=960,            # Number of points used in splines over poloidal angle at plasma-vacuum interface. Overrides vac.in mth.
             thmax0=1,               # Linear multiplier on the automatic choice of theta integration bounds for high-n ideal ballooning stability computation (strictly, -inf to -inf)
 
             tol_nr=1e-10,           # Relative tolerance of dynamic integration steps away from rationals
@@ -265,6 +265,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             sing_order_ceiling='f', # Auto detect the minium order to be retained in power series...
 
             regrid_flag='f',        # Redo the grid generation for galerkin method
+            Zeff=1.52,              # Plasma Z effective
 
             #RDCON_OUTPUT
             crit_break='t',         # Color of the crit curve changes when crossing a singular surface
@@ -281,6 +282,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             out_bal2='f',           # Ascii output for bal_flag functions
             bin_bal2='f',           # Binary output for bal_flag functions
             out_ahg2msc='f',        # If true, uses old vacuum.io print-to-file logic
+            MRE_flag='t',           # If true, outputs modified rutherford equation data 
+            geom_flag='t',          # If true, outputs surface integral information for the equilibrium
 
             #UA_DIAGNOSE_LIST
             flag='f',
@@ -528,7 +531,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     if run_stride:
         if sing1_flag=='t':
             #print a warning if sing1_flag is set, since this is not supported in STRIDE
-            print("Warning: sing1_flag is set to true, but STRIDE does not support this option. (idk what it does, but it is not supported in STRIDE)")
+            print("Warning: sing1_flag is set to true, but STRIDE does not support this option. This may introduce discrepancies of O(1e-3) in Delta_prime (run sing1_flag_scan to see effect).")
         if sing_order_ceiling=='t':
             print("Warning: sing_order_ceiling is set to true, but STRIDE does not support this option. Consider manually setting sing_order to a value that works for your case.")
         if gal_xmin_flag=='t':
@@ -539,7 +542,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('&stride_control'+'\n')
         f.write('    bal_flag='+bal_flag +'\n') #Ideal MHD ballooning criterion for short wavelengths
         f.write('    mat_flag='+mat_flag +'\n') #Construct coefficient matrices for diagnostic purposes
-        f.write('    ode_flag=t' +'\n') #Integrate ODE's for determining stability of internal long-wavelength mode (must be true for GPEC)
+        f.write('    ode_flag=t' +'\n') #Integrate ODEs for determining stability of internal long-wavelength mode (must be true for GPEC)
         f.write('    vac_flag='+vac_flag +'\n') #Compute plasma, vacuum, and total energies for free-boundary modes
         f.write('    mer_flag='+gal_flag +'\n') #Evaluate the Mercier criterian
 

@@ -14,21 +14,24 @@ import netCDF4
 
 from tearing_physics_suite.environment import home_dir
 from tearing_physics_suite.GPEC_write_inputs import write_rdcon_stride_inputs
+from tearing_physics_suite.PEST3_wrappers import pest3_special_truncation_loop,pest3_clean_netcdf,PEST3_resistive_calculation
 
-def run_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False, run_pest3=False,
+def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, run_pest3=True,
         make_working_dir=True,
+        make_results_dir=True,
         working_dir=os.path.join(home_dir, 'working_dir'),
         gpec_dir=os.path.join(home_dir, 'submodules/GPEC'), 
         pest3_dir=os.path.join(home_dir, 'submodules/PEST3/build/pest3'),
-        verbose=False,
+        verbose=True,
         fresh_start=True,
         output_location=None,
         output_prefix='',
         save_input=True,
-        save_terminal_output=False,
+        save_terminal_output=False, #Currently broken
         pest_match_truncation=True,
         override_save=True, 
-        debug_GPEC_resistive_calculation=False,
+        pest_pull_mtheta=True, # Change at your own risk, see mtheta_scan scan results
+        debug_GPEC_resistive_calculation=False, #Quick exit after GPEC resistive calculation
         **kwargs):
     """
     Run resistive toroidal calculation for a single toroidal mode number by calling the GPEC and PEST3 fortran executables to run in a working directory of user choice.
@@ -204,6 +207,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False
 
 def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False, 
         make_working_dir=True, 
+        make_results_dir=True,
         working_dir=os.path.join(home_dir, 'working_dir'),
         gpec_dir=os.path.join(home_dir, 'submodules/GPEC'), 
         verbose=False,
@@ -269,6 +273,15 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
             raise ValueError("Working directory must be specified if make_working_dir is False.")
         if not os.path.exists(working_dir):
             raise FileNotFoundError(f"Working directory {working_dir} does not exist.")
+    if make_results_dir:
+        if output_location is not None:
+            if not os.path.exists(output_location):
+                os.makedirs(output_location)
+                if verbose: print(f"Created output directory: {output_location}")
+            else:
+                if verbose: print(f"Output directory {output_location} already exists. Using existing directory.")
+        else:
+            output_location = working_dir
 
     # Clean executables in working directory
     if os.path.exists(os.path.join(working_dir, 'rdcon')):

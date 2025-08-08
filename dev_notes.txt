@@ -24,12 +24,15 @@
   - [DONE] set up python 
   - [P2] set up julia environment (precompile the Julia?)      
 
-  To do input_test_suite.py:
+  To do: input_test_suite.py
   - change inputs to make the default case handle tokamaker equilibria better: Cholesky, lower psihigh
   - formalise into a test suite (<1% difference in single helicity delta prime for quicktest = True)
   - 2D scans?
+  - standardised plot generation?
 
-  To do: plot scan functionality
+  To do: 
+  - combine MRE calculation with run_resistive_calculation in a new kinetic resistive calculation function
+
 
   To do: PEST3
   - [DONE] <no rush> give dimension variables unique names

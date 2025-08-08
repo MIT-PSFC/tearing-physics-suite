@@ -1,5 +1,5 @@
 # Global environment variables for the tearing physics suite
-# update these based on your install location
+# Update these based on your install location
 
 engaging = True
 poetry_py = True
@@ -15,6 +15,8 @@ if engaging:
         source /home/stubenj9/.cache/pypoetry/virtualenvs/export_poetry-virtualenvs-in-project=1-VSsruy4k-py3.11/bin/activate
         cd /home/stubenj9/DeltaPrimeValidationScans
         poetry env use /home/stubenj9/.cache/pypoetry/virtualenvs/export_poetry-virtualenvs-in-project=1-VSsruy4k-py3.11/bin/python 
+        cd /home/stubenj9/tearing-physics-suite
+
         '''
 
 ########################################################################################################

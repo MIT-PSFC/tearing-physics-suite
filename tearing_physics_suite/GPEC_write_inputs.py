@@ -318,8 +318,16 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
 
             verbose_performance_output='t',      # Print detailed timing information to terminal
             sing_start_str=0,                    # Start integration at the sing_start'th rational from the axis (psilow). Different from rdcon sing_start since stride finds q_low searching from outside in
+
+            #Extra 
+            a_wall=21,                           #Controls ideal conformal shell distance. See vac.in description below.
             verbose = False,                     # Print verbose output to terminal
-            a_wall=21,                          #Controls ideal conformal shell distance. See vac.in description below.
+
+            #Scan logic: Default values will not affect above inputs.
+            set_delta_mlow_to_delta_mhigh=False, # If true, delta_mlow is set to delta_mhigh.
+            set_dx1dx2_dx0_mult = 0.0,           # If set, dx1, dx2 = dx0 multiplied by this value.
+            set_singfac_min_to_dx = False,       # If true, set singfac_min to dx0. This is useful for scans where you want to see the effect of changing asymptotic matching point on Delta Prime.
+            set_int_tolerances_equal = False,    # If true, set tol_nr, gal_tol equal to tol_r.
             **kwargs):
 
     if verbose: print('printing eq_type=',eq_type)
@@ -336,9 +344,27 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         if os.path.exists(working_dir+'/vac.in'):
             os.remove(working_dir+'/vac.in')
 
+    if a_wall==0:
+        vac_flag='f' 
     if vac_flag=='f':
         calc_dp_with_vac = 'f' # If vac_flag is false, then calc_dp_with_vac must be false
         a_wall = 0.0 # If vac_flag is false, then a_wall must be zero. This'll automatically set a_wall_pest to 0 too.
+    if nx % 2 != 0: 
+        if verbose: print("Warning: nx is not even, increasing by 1 to make it even.")
+        nx += 1
+    if qhigh != 1e3 and sas_flag == 't':
+        print("!!! Warning: qhigh is currently behaving differently for RDCON and STRIDE.")
+
+    if set_delta_mlow_to_delta_mhigh:
+        delta_mlow = delta_mhigh
+    if set_dx1dx2_dx0_mult > 0.0:
+        dx1 = dx0 * set_dx1dx2_dx0_mult
+        dx2 = dx0 * set_dx1dx2_dx0_mult
+    if set_singfac_min_to_dx:
+        singfac_min = dx0
+    if set_int_tolerances_equal:
+        tol_nr = tol_r
+        gal_tol = tol_r
 
     #Turn all inputs to write_rdcon_stride_inputs into a dictionary to return
     return_dict = {
@@ -393,6 +419,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'sing_order': sing_order,
         'sing_order_ceiling': sing_order_ceiling,
         'regrid_flag': regrid_flag,
+        'Zeff': Zeff,
         'crit_break': crit_break,
         'ahb_flag': ahb_flag,
         'msol_ahb': msol_ahb,
@@ -404,6 +431,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'out_bal2': out_bal2,
         'bin_bal2': bin_bal2,
         'out_ahg2msc': out_ahg2msc,
+        'MRE_flag': MRE_flag,
+        'geom_flag': geom_flag,
         'flag': flag,
         'phase': phase,
         'eq_type': eq_type,
@@ -466,7 +495,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('&RDCON_CONTROL'+'\n')
         f.write('    bal_flag='+bal_flag +'\n') #Ideal MHD ballooning criterion for short wavelengths
         f.write('    mat_flag='+mat_flag +'\n') #Construct coefficient matrices for diagnostic purposes
-        f.write('    ode_flag='+ode_flag +'\n') #Integrate ODE's for determining stability of internal long-wavelength mode (must be true for GPEC)
+        f.write('    ode_flag='+ode_flag +'\n') #Integrate ODEs for determining stability of internal long-wavelength mode (must be true for GPEC)
         f.write('    vac_flag='+vac_flag +'\n') #Compute plasma, vacuum, and total energies for free-boundary modes
         f.write('    gal_flag='+gal_flag +'\n') #Compute outer regime using resonant Galerkin method
         if not dump_MRE_data==False:
@@ -501,6 +530,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    sing_order_ceiling='+sing_order_ceiling +'\n') # Auto detect the minium order to be retained in power series
 
         f.write('    regrid_flag='+regrid_flag  +'\n') #Redo the grid generation for galerkin method
+        f.write('    Zeff='+str(Zeff) +'\n') #Plasma Z effective
         f.write('/'+'\n')
 
         f.write('&RDCON_OUTPUT'+'\n')
@@ -519,6 +549,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    bin_bal2='+bin_bal2  +'\n') #Binary output for bal_flag functions
         if not (out_ahg2msc is None):
             f.write('    out_ahg2msc='+out_ahg2msc  +'\n')
+        f.write('    MRE_flag='+MRE_flag  +'\n') #If true, outputs modified rutherford equation data
+        f.write('    geom_flag='+geom_flag  +'\n') #If true, outputs surface integral information for the equilibrium
         f.write('/'+'\n')
 
         f.write('&UA_DIAGNOSE_LIST'+'\n')

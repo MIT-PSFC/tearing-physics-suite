@@ -1,22 +1,51 @@
-To do: fortran_wrappers.py
-- turn output dictionaries into xarrays, print them with the output files
-- option for rdcon/stride terminal outputs?
-- function that runs all 3 including pest3, rdcon, and stride
-- function that builds a truncation logic for pest3 after running it once... (get a q vs psi spline, use that for the next run)
+#CODE DEVELOPMENT
+  To do: fortran_wrappers.py
+  - [DONE] turn output dictionaries into xarrays, print them with the output files 
+  - [DONE] option for rdcon/stride terminal outputs?  
+  - [DONE] function that runs all 3 including pest3, rdcon, and stride... 
+        takes key inputs from GPEC_inputs and passes them to stride
+  - [DONE] function that builds edge truncation logic for pest3 after running it once... (get a q vs psi spline, use that for the next run) 
+  - [P100] function that builds inner truncation logic for pest3 after <G1> is complete
+  - [P2] add new input controls to save MRE terms
 
-To do: cylindrical_wrapper.py
-- cylindrical capability (different file):
-  - function that builds a simple equilibrium from pest3 values for cylindrical delta'
-  - function that calls the julia
+  To do: cylindrical_wrapper.py
+  - P[2] cylindrical capability (different file):
+    - [P2] function that builds input profiles and scalars from GPEC outputs to calculate a cylindrical delta'
+        Use function Spline_Equil in ModularCurrentProfile.jl
+        Inputs: J_t values on r [m] grid, p values on r [m] grid, Bt on axis, Major radiues 
+        Check units of J_t, p. Likely A/m^2 or MA/m^2 and Pa.
+    - [P2] function that calls the julia code to get cylindical delta' (Later -> have some sort of a timeout it it's too slow or if it passes ideal instability?)
 
-To do: environment.py
-- will automatically load the required modules
-- set up python and julia environments
+ To do: delta_prime_extraction.py
+  - add error propagation to delta_primes (imaginary/real magnitudes...)
 
-To do: test case functionality
-- make file to run basic test cases
-- make file to run 1D scans
-- make file to run 2D scans  
+  To do: environment.py
+  - [DONE] will automatically load the required modules
+  - [DONE] set up python 
+  - [P2] set up julia environment (precompile the Julia?)      
 
-To do: fixing pest3 .nc files
-- give dimension variables unique names
+  To do input_test_suite.py:
+  - change inputs to make the default case handle tokamaker equilibria better: Cholesky, lower psihigh
+  - formalise into a test suite (<1% difference in single helicity delta prime for quicktest = True)
+  - 2D scans?
+
+  To do: plot scan functionality
+
+  To do: PEST3
+  - [DONE] <no rush> give dimension variables unique names
+  - [DONE] match truncation of RDCON
+  - [P3] <no rush> resolve differences in effect of ideal wall
+
+  To do: GPEC
+  - [DONE] make new GPEC branch that computes the MRE terms
+  - [DONE] <G1> standardize trunction logic across STRIDE and PEST3
+  - [P4] make sasflag override qhigh (as opposed to other way round)
+  - [P2] <no rush> print average GS error and radial error information
+  - [P2] <no rush> add error-based truncation 
+  - [P10] fix original grid in direct.f
+  - [P1] fix truncation discrepancy found by edge_truncation_q_scan_DEP [sasflag vs qhigh, see input_test_suite.py:]
+
+ To do: MRE stuff
+  - [P0] get full geom working
+  - [P1] get full cylindrical working
+  - [P10] vector of chi_perps using local minor radii

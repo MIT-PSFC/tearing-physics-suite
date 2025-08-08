@@ -1,0 +1,90 @@
+# Python functions to construct cross-field transport terms for the modified Rutherford equation
+
+import os
+import sys
+import shutil
+import subprocess
+import pandas as pd
+import xarray as xr
+import numpy as np
+from scipy.interpolate import CubicSpline
+
+# Checked
+def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
+    """
+    Calculates the parallel thermal diffusivity in units m^2/s, assuming the mean free path
+    is so long such that it is set by the island connection length and not the electron-ion collision time.
+    The island width dependence is not included in this function. 
+
+    Input is the rdcon_xarray after it has gone through mre_terms_on_modes.
+    """
+    R0 = rdcon_xarray.ro
+    n = rdcon_xarray.n
+
+    # Fitzpatrick 2023 14.206 equation (converted into normalised poloidal flux space as per Rosenburg PoP 2002 eq. 33)
+    rdcon_xarray = rdcon_xarray.assign(
+        chi_para_lmfp_no_w_surf= 2*R0*rdcon_xarray['v_te_surf']*rdcon_xarray['psi_n_rational']/(np.sqrt(np.pi)*n*rdcon_xarray['flux_shear_s_surf']) #Divide by island width in normalised flux space to get chi_parallel_lmfp
+    )
+    
+    return rdcon_xarray
+
+# Checked
+def chi_para_smfp_on_modes(rdcon_xarray,Zeff):
+    """
+    Calculates the parallel thermal diffusivity in units m^2/s, assuming the mean free path
+    is set by the electron-ion collision time.
+    
+    Input is the rdcon_xarray after it has gone through mre_terms_on_modes and Zeffective.
+    """
+
+    # Fitzpatrick 2023 14.205
+    rdcon_xarray = rdcon_xarray.assign(
+        chi_para_smfp_surf = 1.581*rdcon_xarray['taue_surf']*(rdcon_xarray['v_te_surf']**2)/(1+0.2535*Zeff)
+    )
+
+    return rdcon_xarray
+
+# Checked
+def chi_perp_on_modes(rdcon_xarray, 
+        areal_elongation=None, 
+        minor_radius=None, 
+        energy_confinement_time=None, 
+        chi_perp_spline=None):
+    """
+    Calculate the perpendicular thermal diffusivity in units m^2/s.
+    Will use chi_perp_spline if provided. Otherwise, energy_confinement_time (alone) is required.
+    Default operation with energy_confinement_time assumes all energy goes through each surface (see **). 
+    However if minor_radius and areal_elongation are provided, we apply the Fitzpatrick 1995 formula (see ***).
+
+    Parameters:
+    rdcon_xarray : xarray.DataArray
+        The xarray containing the radial coordinate data.
+    areal_elongations : float, optional
+        The areal_elongation of the plasma, used if chi_perp_spline is not provided.
+    minor_radii : float, optional
+        The minor radius of the plasma, used if chi_perp_spline is not provided.
+    energy_confinement_time : float, optional
+        The energy confinement time of the plasma, used if chi_perp_spline is not provided.
+    chi_perp_spline : CubicSpline, optional
+        A precomputed spline for the perpendicular thermal diffusivity, used if provided.
+    """
+
+    if not (chi_perp_spline is None): # Use chi_perp_spline
+        chi_perp_on_modes = np.array(chi_perp_spline(rdcon_xarray.psi_n_rational.values))
+
+    elif energy_confinement_time is None: # If no spline, need energy_confinement_time to continue
+        raise ValueError("Must provide either chi_perp spline, or areal_elongation, minor_radius, and energy_confinement_time to calculate chi_perp.")
+
+    elif minor_radius is None: # **Assume all energy goes through each surface. This is the default option!
+        minor_radii_squared = rdcon_xarray.avg_r_surf.values*rdcon_xarray.avg_r_surf.values
+        chi_perp_on_modes = np.array(minor_radii_squared / (6*energy_confinement_time)) # Assumes all energy put into the plasma deposits in core (overestimates chi_perp inner surfaces)
+    
+    elif isinstance(minor_radius, float) and isinstance(areal_elongation, float): # ***Uses Fitzpatrick 1995 formula:
+        chi_perp = areal_elongation * minor_radius**2 / (6*energy_confinement_time) # One value for all surfaces
+        chi_perp_on_modes = np.array([chi_perp]*len(rdcon_xarray.psi_n_rational.values)) 
+
+    else:
+        raise ValueError("Incorrect entries to chi_perp function.") 
+
+    rdcon_xarray = rdcon_xarray.assign(chi_perp_surf=chi_perp_on_modes+0.0*rdcon_xarray['psi_n_rational'])
+    return rdcon_xarray

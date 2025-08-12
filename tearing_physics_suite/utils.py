@@ -5,7 +5,7 @@ import xarray as xr
 from tearing_physics_suite.delta_prime_extraction import delta_primes
 
 
-def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict,calc_dps=True,**kwargs):
+def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict, calc_dps=True, **kwargs):
     """
     Combine xarrays and input dictionaries from rdcon, stride, and pest3 xarrays (outputs of fortran_wrappers.run_resistive_calculation).
     We also add delta' values to the xarrays if requested, using the delta_primes function.
@@ -47,12 +47,7 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
         rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
         rdcon_xr_expanded['code'] = ['rdcon']
         if calc_dps and 'Delta_prime' in rdcon_xr_expanded:
-            # Calculate delta' values for rdcon_xr
-            dp_sh, dp_eff, dp_nn_eff, dp_2nn_eff, divisors = delta_primes(rdcon_xr_expanded['Delta_prime'].sel(i=0).values)
-            rdcon_xr_expanded = rdcon_xr_expanded.assign(dprim_single_helicity=dp_sh + 0.0 * rdcon_xr_expanded['psi_n_rational'])
-            rdcon_xr_expanded = rdcon_xr_expanded.assign(dprim_eff=dp_eff + 0.0 * rdcon_xr_expanded['psi_n_rational'])
-            rdcon_xr_expanded = rdcon_xr_expanded.assign(dprim_nn_eff=dp_nn_eff + 0.0 * rdcon_xr_expanded['psi_n_rational'])
-            rdcon_xr_expanded = rdcon_xr_expanded.assign(dprim_2nn_eff=dp_2nn_eff + 0.0 * rdcon_xr_expanded['psi_n_rational'])
+            rdcon_xr_expanded = extract_delta_primes(rdcon_xr_expanded)
         # Add to xarrays list
         xarrays.append(rdcon_xr_expanded)
     
@@ -65,11 +60,7 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
         stride_xr_expanded['code'] = ['stride']
         if calc_dps and 'Delta_prime' in stride_xr_expanded:
             # Calculate delta' values for stride_xr
-            dp_sh, dp_eff, dp_nn_eff, dp_2nn_eff, divisors = delta_primes(stride_xr_expanded['Delta_prime'].sel(i=0).values)
-            stride_xr_expanded = stride_xr_expanded.assign(dprim_single_helicity=dp_sh + 0.0 * stride_xr_expanded['psi_n_rational'])
-            stride_xr_expanded = stride_xr_expanded.assign(dprim_eff=dp_eff + 0.0 * stride_xr_expanded['psi_n_rational'])
-            stride_xr_expanded = stride_xr_expanded.assign(dprim_nn_eff=dp_nn_eff + 0.0 * stride_xr_expanded['psi_n_rational'])
-            stride_xr_expanded = stride_xr_expanded.assign(dprim_2nn_eff=dp_2nn_eff + 0.0 * stride_xr_expanded['psi_n_rational'])
+            stride_xr_expanded = extract_delta_primes(stride_xr_expanded)
         xarrays.append(stride_xr_expanded)
     
     #########################################################################################################
@@ -81,12 +72,8 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
         pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
         pest3_xr_expanded['code'] = ['pest3']
         if calc_dps and 'Delta_prime' in pest3_xr_expanded:
-            # Calculate delta' values for pest3_xr
-            dp_sh, dp_eff, dp_nn_eff, dp_2nn_eff, divisors = delta_primes(pest3_xr_expanded['Delta_prime'].isel(i=0).values)
-            pest3_xr_expanded = pest3_xr_expanded.assign(dprim_single_helicity=dp_sh + 0.0 * pest3_xr_expanded['cmatch'])
-            pest3_xr_expanded = pest3_xr_expanded.assign(dprim_eff=dp_eff + 0.0 * pest3_xr_expanded['cmatch'])
-            pest3_xr_expanded = pest3_xr_expanded.assign(dprim_nn_eff=dp_nn_eff + 0.0 * pest3_xr_expanded['cmatch'])
-            pest3_xr_expanded = pest3_xr_expanded.assign(dprim_2nn_eff=dp_2nn_eff + 0.0 * pest3_xr_expanded['cmatch'])
+            assert 'Delta_prime_perr' in pest3_xr_expanded, "Current version of extract_delta_primes assumes this."
+            pest3_xr_expanded = extract_delta_primes(pest3_xr_expanded)
         xarrays.append(pest3_xr_expanded)
 
     # Combine all xarrays into one xarray:

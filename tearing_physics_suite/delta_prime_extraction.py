@@ -9,7 +9,90 @@ import numpy as np
 import jax.numpy as jnp
 from jax import jacfwd
 
-def delta_primes(delta_primes,debug=False, delta_prime_errs=None):
+def extract_delta_primes(inputxr,debug=False):
+    """ 
+        Takes input xarray with Delta_prime variable, and returns the delta' values calculated using extract_delta_primes_(). If 
+        Delta_prime_perr or Delta_prime_err is present, will also propagate errors.
+    """
+
+    # Check if Delta_prime is in inputxr:
+    assert "Delta_prime" in inputxr, "Input xarray must contain 'Delta_prime' variable."
+    delta_prime_real_component = inputxr["Delta_prime"].sel(i=0).values
+    delta_prime_im_component = inputxr["Delta_prime"].sel(i=1).values
+    # Make a combined delta_prime with it's real and complex values together:
+    delta_prime = delta_prime_real_component + 1j * delta_prime_im_component 
+    # Check delta_prime is of type complex
+    assert np.iscomplexobj(delta_prime), "Delta_prime must be a complex array."
+
+    # Check if Delta_prime_perr or Delta_prime_err is in inputxr:
+    if "Delta_prime_perr" in inputxr:
+        delta_prime_perr = inputxr["Delta_prime_perr"].values
+    else:
+        delta_prime_perr = None
+
+    if "Delta_prime_err" in inputxr:
+        delta_prime_err = inputxr["Delta_prime_err"].values
+    else:
+        delta_prime_err = None
+
+    if (not delta_prime_perr is None) and (not delta_prime_err is None): #Assume pest3 since Delta_prime_perr is present
+        _, _, _, _, _, delta_prime_single_helicity_perr, delta_prime_eff_perr, delta_prime_nn_eff_perr, delta_prime_2nn_eff_perr, divisors_perr = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_perr)
+        delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors, delta_prime_single_helicity_err, delta_prime_eff_err, delta_prime_nn_eff_err, delta_prime_2nn_eff_err, divisors_err = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_err)
+        inputxr=inputxr.assign(Dprime_single_helicity=delta_prime_single_helicity + 0.0 * inputxr['cmatch'],
+                                Dprime_eff=delta_prime_eff + 0.0 * inputxr['cmatch'],
+                                Dprime_nn_eff=delta_prime_nn_eff + 0.0 * inputxr['cmatch'],
+                                Dprime_2nn_eff=delta_prime_2nn_eff + 0.0 * inputxr['cmatch'],
+                                Dprime_divisors=divisors + 0.0 * inputxr['cmatch'],
+                                Dprime_single_helicity_perr=delta_prime_single_helicity_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_eff_perr=delta_prime_eff_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_nn_eff_perr=delta_prime_nn_eff_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_2nn_eff_perr=delta_prime_2nn_eff_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_divisors_perr=divisors_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_single_helicity_err=delta_prime_single_helicity_err + 0.0 * inputxr['cmatch'],
+                                Dprime_eff_err=delta_prime_eff_err + 0.0 * inputxr['cmatch'],
+                                Dprime_nn_eff_err=delta_prime_nn_eff_err + 0.0 * inputxr['cmatch'],
+                                Dprime_2nn_eff_err=delta_prime_2nn_eff_err + 0.0 * inputxr['cmatch'],
+                                Dprime_divisors_err=divisors_err + 0.0 * inputxr['cmatch']
+                                )
+    elif not (delta_prime_perr is None): #Assume pest3 since Delta_prime_perr is present
+        delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors, delta_prime_single_helicity_perr, delta_prime_eff_perr, delta_prime_nn_eff_perr, delta_prime_2nn_eff_perr, divisors_perr = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_perr)
+        inputxr=inputxr.assign(Dprime_single_helicity=delta_prime_single_helicity + 0.0 * inputxr['cmatch'],
+                                Dprime_eff=delta_prime_eff + 0.0 * inputxr['cmatch'],
+                                Dprime_nn_eff=delta_prime_nn_eff + 0.0 * inputxr['cmatch'],
+                                Dprime_2nn_eff=delta_prime_2nn_eff + 0.0 * inputxr['cmatch'],
+                                Dprime_divisors=divisors + 0.0 * inputxr['cmatch'],
+                                Dprime_single_helicity_perr=delta_prime_single_helicity_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_eff_perr=delta_prime_eff_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_nn_eff_perr=delta_prime_nn_eff_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_2nn_eff_perr=delta_prime_2nn_eff_perr + 0.0 * inputxr['cmatch'],
+                                Dprime_divisors_perr=divisors_perr + 0.0 * inputxr['cmatch']
+                                )
+    elif not (delta_prime_err is None): #Assume STRIDE or RDCON since Delta_prime_perr is absent 
+        delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors, delta_prime_single_helicity_err, delta_prime_eff_err, delta_prime_nn_eff_err, delta_prime_2nn_eff_err, divisors_err = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_err)
+        inputxr=inputxr.assign(Dprime_single_helicity=delta_prime_single_helicity + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_eff=delta_prime_eff + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_nn_eff=delta_prime_nn_eff + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_2nn_eff=delta_prime_2nn_eff + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_divisors=divisors + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_single_helicity_err=delta_prime_single_helicity_err + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_eff_err=delta_prime_eff_err + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_nn_eff_err=delta_prime_nn_eff_err + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_2nn_eff_err=delta_prime_2nn_eff_err + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_divisors_err=divisors_err + 0.0 * inputxr['psi_n_rational']
+                                )
+    else: #Assume STRIDE or RDCON since Delta_prime_perr is absent 
+        delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors = extract_delta_primes_(delta_primes, debug=debug)
+        inputxr=inputxr.assign(Dprime_single_helicity=delta_prime_single_helicity + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_eff=delta_prime_eff + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_nn_eff=delta_prime_nn_eff + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_2nn_eff=delta_prime_2nn_eff + 0.0 * inputxr['psi_n_rational'],
+                                Dprime_divisors=divisors + 0.0 * inputxr['psi_n_rational']
+                                )
+
+    return inputxr
+
+
+def extract_delta_primes_(delta_primes,debug=False, delta_prime_errs=None):
     """
     Calculate delta' values using the outer ideal mode coupling generalisation from Brennan & Sugiyama PoP 2006.
     Applying these delta' values to a singular surface invokes the assumption that there is only one 
@@ -148,6 +231,15 @@ def delta_primes(delta_primes,debug=False, delta_prime_errs=None):
         delta_prime_nn_eff = jnp.hstack((delta_prime_nn_eff, nanvec))
         delta_prime_2nn_eff = jnp.hstack((delta_prime_2nn_eff, nanvec))
         divisors = jnp.hstack((divisors, nanvec))
+        if run_errs:
+            delta_prime_single_helicity_err = jnp.hstack((delta_prime_single_helicity_err, nanvec))
+            delta_prime_eff_err = jnp.hstack((delta_prime_eff_err, nanvec))
+            delta_prime_nn_eff_err = jnp.hstack((delta_prime_nn_eff_err, nanvec))
+            delta_prime_2nn_eff_err = jnp.hstack((delta_prime_2nn_eff_err, nanvec))
+            divisors_err = jnp.hstack((divisors_err, nanvec))
+
+    if run_errs:
+        return delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors, delta_prime_single_helicity_err, delta_prime_eff_err, delta_prime_nn_eff_err, delta_prime_2nn_eff_err, divisors_err
 
     return delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors
 

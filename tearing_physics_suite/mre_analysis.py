@@ -7,11 +7,130 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline #, make_interp_spline
+from scipy.signal import find_peaks
 import tearing_physics_suite.global_vars as gv
-
+from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
+from tearing_physics_suite.cross_field_transport import chi_para_lmfp_no_w_on_modes, chi_para_smfp_on_modes, chi_perp_on_modes
+from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 # To do:
 # Add pressure check (kinetic vs equilibrium)
+
+def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+        energy_confinement_time = None,
+        chi_perp_spline=None,
+        k0=0.8227,
+        k1=1.7,
+        C0=0.6,
+        wd_static=False, # Set true to ignore the variation in the ratio of perpendicular to parallel transport across the island, as island width varies
+        debug_mre_terms=False,
+        **kwargs):
+    """ 
+    Big function that calculates Delta primes with run_resistive_calculation, then runs analysis on output deltaprimes, returning
+    a fully combined xarray.
+    """ 
+
+    # Check that either energy_confinement_time or chi_perp_spline is defined:
+    assert not (chi_perp_spline is None and energy_confinement_time is None), "Must either define energy_confinement_time or chi_perp_spline for MRE analysis."
+
+    #########################################################################################################
+    # Run resistive delta prime calculation: 
+    #########################################################################################################
+    rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict = run_resistive_calculation(eq_filename,nn,**kwargs)
+
+    # Combine input dictionaries:
+    if not (rdcon_stride_input_dict is None): #RDCON dict present
+        if not (pest3_input_dict is None): # PEST3 dict present
+            rdcon_stride_input_dict.update(pest3_input_dict)
+        input_dict = rdcon_stride_input_dict
+    elif not (pest3_input_dict is None):
+        input_dict = pest3_input_dict
+    else:
+        input_dict = {}
+
+    # Add wd_static, energy_confinement_time, k0, k1, C0, wd_static to input_dict:
+    input_dict['wd_static'] = wd_static
+    input_dict['energy_confinement_time'] = energy_confinement_time
+    input_dict['k0'] = k0
+    input_dict['k1'] = k1
+    input_dict['C0'] = C0
+
+    #########################################################################################################
+    # Fill out rdcon_xr with important MRE terms:
+    #########################################################################################################
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline)
+    rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
+    rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
+    rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
+
+    if debug_mre_terms:
+        return rdcon_xr, None, None
+
+    # Combine xarrays:
+    xarrays = []
+
+    #########################################################################################################
+    # RDCON delta xarray, delta prime and MRE calculation
+    #########################################################################################################
+    if not (rdcon_xr is None): 
+        # Add new dimension for code to rdcon_xr
+        rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
+        rdcon_xr_expanded['code'] = ['rdcon']
+        if 'Delta_prime' in rdcon_xr_expanded:
+            rdcon_xr_expanded = extract_delta_primes(rdcon_xr_expanded)
+            rdcon_xr_expanded = extract_critical_mre_factors_on_modes(rdcon_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static)
+        # Add to xarrays list
+        xarrays.append(rdcon_xr_expanded)
+
+    #########################################################################################################
+    # STRIDE delta xarray, delta prime and MRE calculation
+    #########################################################################################################
+    if not (stride_xr is None):
+        # Add new dimension for code to stride_xr
+        stride_xr_expanded = stride_xr.expand_dims(dim='code', axis=0)
+        stride_xr_expanded['code'] = ['stride']
+        if 'Delta_prime' in stride_xr_expanded:
+            # Calculate delta' values for stride_xr
+            stride_xr_expanded = extract_delta_primes(stride_xr_expanded)
+            stride_xr_expanded = extract_critical_mre_factors_on_modes(stride_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static)
+        xarrays.append(stride_xr_expanded)
+            
+    #########################################################################################################
+    # PEST3 delta xarray and delta prime calculation
+    #########################################################################################################
+    pest3_xr_expanded = None
+    if not (pest3_xr is None):
+        # Add new dimension for code to pest3_xr
+        pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
+        pest3_xr_expanded['code'] = ['pest3']
+        if 'Delta_prime' in pest3_xr_expanded:
+            assert 'Delta_prime_perr' in pest3_xr_expanded, "Current version of extract_delta_primes assumes this."
+            pest3_xr_expanded = extract_delta_primes(pest3_xr_expanded)
+            pest3_xr_expanded = extract_critical_mre_factors_on_modes(pest3_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static)
+        xarrays.append(pest3_xr_expanded)
+
+    # Combine all xarrays into one xarray:
+    # Breaks if different number of rational surfaces across different codes at the axis
+    #   - beware psilow =/= 0 while also running pest3 (pest3 has no psilow truncation)
+    #   - for this reason, we also output pest3_xr_out separately if something goes wrong
+    pest3_xr_out = None
+    combined_xr = None
+
+    #########################################################################################################
+    # Concatenating xarrays
+    #########################################################################################################
+    if len(xarrays) > 0:
+        pest3_xr_out = pest3_xr_expanded
+        try:
+            combined_xr = xr.concat(xarrays, dim='code', coords='all')
+            pest3_xr_out = None
+        except Exception as e:
+            if not (pest3_xr is None): #We remove pest3_xr_expanded from xarrays and retry
+                xarrays = xarrays[:-1]  # Remove the last element (pest3_xr_expanded)
+                combined_xr = xr.concat(xarrays, dim='code', coords='all')
+            print("Error combining xarrays:", e)
+
+    return combined_xr, pest3_xr_out, input_dict
 
 def mre_raw_interp(rdcon_xarray):
     """
@@ -266,8 +385,144 @@ def mre_flux_gradients(rdcon_xarray):
     )
 
     return rdcon_xarray
+
+# If I want: make extra dimension for different versions of generate_wd_function [should probably do this, right now not sure...]
+def extract_critical_mre_factors_on_modes(
+        code_xarray, # Xarray providing the Delta primes, which will be updated with the MRE analysis
+        rdcon_xarray, # Xarray providing surface MRE information, will not be updated unless code_xarray = rdcon_xarray
+        k0=0.8227,
+        k1=1.7,
+        C0=0.6,
+        **kwargs):
+    """
+    Takes in code_xarray with delta prime values already computed, and rdcon_xarray with key mre surface terms computed.
+    Returns code_xarray with critical MRE factors including maximum island width, 
+    location of maximum island width, and minimum marginally stable island width computed using the delta prime values.
+    Parameters:
+    k0 = 0.8227 comes from private communication w. Eric Howell, but is near identical to LaHaye 2017 10.1051/epjconf/201715703027 Eq. 1.
+    k1 = 1.7 comes from Chang et al. PRL 1995 
+    C0 = 0.6 comes from Schlutt and Hegna PoP 2012
+    Returns:
+    code_xarray : xarray.DataSet
+    The updated xarray with critical MRE terms calculated.
+    """
+    # Check if Delta_prime_varname is in code_xarray:
+    assert 'Delta_prime_surf' in code_xarray.data_vars, "Can't run MRE analysis on code_xarray if Delta_prime_surf isn't present..."
+    DP_da = code_xarray.Delta_prime_surf
+
+    # Next steps: we check that the r coordinates are the same:
+    r1 = code_xarray.Delta_prime_surf.r
+    r2 = rdcon_xarray.psi_n_rational.r
+    assert np.allclose(r1, r2), "r coordinate does not match between code_xarray and rdcon_xarray"
+
+    # This code should create a vector of w values, then construct the MRE for each w, pulling the minimum for diffusion etc...
+    w_vec = np.logspace(-8,0,num=1000)
+    w_vec_lowres = np.logspace(-5,0,num=200)
+
+    # Defining output structures:
+    tempda = xr.full_like(code_xarray.Delta_prime_surf, np.nan)
+    tempda2 = xr.full_like(rdcon_xarray.psi_n_rational, np.nan)
+    tempda3 = xr.DataArray(
+        np.full(code_xarray.Delta_prime_surf.shape + (len(w_vec_lowres),), np.nan),
+        dims=code_xarray.Delta_prime_surf.dims + ('w_bar',),
+        coords={**code_xarray.Delta_prime_surf.coords, 'w_bar': w_vec_lowres}
+    )
     
-def extract_critical_mre_factors_on_modes(rdcon_xarray,Delta_prime_vec,use_cylindrical_terms=False, k0=0.8227, k1=1.7, C0=0.6):
+    w_margs = tempda.copy(deep=True)
+    w_sats = tempda.copy(deep=True)
+    w_max_locs = tempda.copy(deep=True)
+    dwdtau_maxs = tempda.copy(deep=True)
+    wd_at_margs = tempda.copy(deep=True)
+
+    prefacs = tempda2.copy(deep=True)
+    wd_at_X0s = tempda2.copy(deep=True)
+    dwdt_lowres_da = tempda3.copy(deep=True)
+
+    # Start surface by surface
+    for rloc in rdcon_xarray.psi_n_rational.r:
+        # Necessity of going surface by surface = defining wd_function:
+        rdcon_surf = rdcon_xarray.sel(r=rloc)
+        wd_function = generate_wd_function(rdcon_surf,**kwargs)
+                
+        # Things needed for calculating MRE data
+        Dr = rdcon_surf['Dr_surf'].values
+        Di = rdcon_surf['Di_surf'].values
+        Dnc = rdcon_surf['Dnc_surf'].values
+        H = rdcon_surf['H_surf'].values
+        
+        # Things that we will output using the structure: tempda2 
+        prefac = rdcon_surf['eta_star_surf'].values/k0
+        wd_at_X0 = wd_function(rdcon_surf['X0_surf'].values)
+
+        # Update prefacs and wd_at_X0s:
+        prefacs.loc[dict(r=rloc)] = prefac
+        wd_at_X0s.loc[dict(r=rloc)] = wd_at_X0
+
+        # Generate DP_to_MRE function
+        DP_to_MRE = mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_vec_lowres)
+
+        # Apply DP_to_MRE across all delta prime types, record results
+        for Dp_type in DP_da.Delta_prime_type:
+            DP_val = DP_da.sel(r=rloc,Delta_prime_type=Dp_type).values
+            dwdt_low_res, w_marg, w_sat, w_max_loc, dwdtau_max, wd_at_marg = DP_to_MRE(DP_val)
+
+            w_margs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = w_marg
+            w_sats.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = w_sat
+            w_max_locs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = w_max_loc
+            dwdtau_maxs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = dwdtau_max
+            wd_at_margs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = wd_at_marg  
+
+            # Update dwdt_lowres_da (will remain to be seen if this works)
+            dwdt_lowres_da.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = dwdt_low_res
+
+    # Now we store these data arrays in code_xarray
+    code_xarray = code_xarray.assign(
+        w_marg_surf = w_margs,
+        w_sat_surf = w_sats,
+        w_max_loc_surf = w_max_locs,
+        dwdtau_max_surf = dwdtau_maxs,
+        prefac_surf = prefacs,
+        wd_at_marg_surf = wd_at_margs,
+        wd_at_X0_surf = wd_at_X0s,
+        dwdt_surf = dwdt_lowres_da
+    )
+
+    # Want X0_on_w_marg_surf and X0_on_wd_at_marg_surf to be less than 0 for MRE analysis to be valid!
+    code_xarray = code_xarray.assign( 
+        X0_on_w_marg_surf = rdcon_xarray['X0_surf']/code_xarray['w_marg_surf'],
+        X0_on_wd_at_marg_surf = rdcon_xarray['X0_surf']/code_xarray['wd_at_marg_surf'],
+        X0_on_wd_at_X0_surf = rdcon_xarray['X0_surf']/code_xarray['wd_at_X0_surf'])
+
+    return code_xarray
+
+def mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_vec_lowres):
+    """
+        Defines for a particular surface (where wd_function and surface quantities are set)
+        a function that takes in a delta prime and outputs delta prime dependent MRE values.
+    """
+    def DP_to_MRE(delta_prime_surf):
+        dwdt_vec_low_res = np.full_like(w_vec_lowres, np.nan)
+        w_marg = np.nan
+        w_sat = np.nan
+        w_max_loc = np.nan
+        dwdtau_max = np.nan
+        wd_at_marg = np.nan
+        if not np.isnan(delta_prime_surf):
+            dwdtau_loc = lambda w_in: dwdtau(w_in, wd_function, delta_prime_surf, 
+                                            Dr, Di, 
+                                            Dnc, H, 
+                                            k1, C0)
+            dwdtau_vec = dwdtau_loc(w_vec)
+            dwdt_vec_low_res = prefac*dwdtau_loc(w_vec_lowres)
+            w_marg, w_sat, w_max_loc, dwdtau_max = extract_mre_factors(dwdtau_vec, w_vec)
+            if not np.isnan(w_marg):
+                wd_at_marg = wd_function(w_marg)    
+            else:
+                wd_at_marg = np.nan
+        return dwdt_vec_low_res, w_marg, w_sat, w_max_loc, dwdtau_max, wd_at_marg
+    return DP_to_MRE
+
+def extract_critical_mre_factors_on_modes_DEPRECATED(rdcon_xarray,Delta_prime_vec,use_cylindrical_terms=False, k0=0.8227, k1=1.7, C0=0.6,Dprim_name=None):
     """
     For each rational surface, extract critical MRE factors including maximum island width, 
     location of maximum island width, and minimum marginally stable island width.
@@ -337,7 +592,7 @@ def extract_critical_mre_factors_on_modes(rdcon_xarray,Delta_prime_vec,use_cylin
         dwdtau_max_surf=dwdtau_maxs+0.0*rdcon_xarray['psi_n_rational'],
         prefac_surf=prefacs+0.0*rdcon_xarray['psi_n_rational'],
         wd_at_marg_surf = wd_at_margs+0.0*rdcon_xarray['psi_n_rational'],
-        wd_at_X0s_surf = wd_at_X0s+0.0*rdcon_xarray['psi_n_rational']
+        wd_at_X0_surf = wd_at_X0s+0.0*rdcon_xarray['psi_n_rational']
     )
     rdcon_xarray = rdcon_xarray.assign(
         lowres_dwdt_surf=(
@@ -371,8 +626,21 @@ def extract_mre_factors(dwdtau_vec, w_vec): #Update with cubic spline?
     max_index = np.argmax(dwdtau_vec)
     w_max_loc = w_vec[max_index]
     dwdtau_max = dwdtau_vec[max_index]
+    # Check if max_index is start or end of vector:
+    if max_index==0 or max_index==len(dwdtau_vec)-1:
+        # If this is the case, we aren't at a local max. Want a local max
+        w_max_loc, dwdtau_max = get_local_max(w_vec,dwdtau_vec)
 
     return w_marg, w_sat, w_max_loc, dwdtau_max
+
+def get_local_max(xvec,yvec):
+    peak_inds = find_peaks(yvec)[0]
+    if len(peak_inds) == 0:
+        return np.nan, np.nan
+    elif len(peak_inds) > 1:
+        print(" Warning, more than one peak in dw/dt, using peak with largest w value.")
+        return xvec[peak_inds[-1]], yvec[peak_inds[-1]]
+    return xvec[peak_inds[0]], yvec[peak_inds[0]]
 
 def generate_wd_function(rdcon_xarray_surf,use_lmfp=False,iterator=False,use_Fitz_formula=False):
     """
@@ -412,7 +680,7 @@ def generate_wd_function(rdcon_xarray_surf,use_lmfp=False,iterator=False,use_Fit
             chifrac = chi_perp/chi_para
             return (chifrac*Wc_prefac_m)**(1/4)
     else:
-        def wd_function_iterator(w_bar: float):
+        def wd_function(w_bar: float):
             """ !!! IGNORES w_bar !!!
             Takes in w_bar (island width in normalised poloidal flux) and returns wd_bar
             (Fitzpatrick island width in normalised poloidal flux). 

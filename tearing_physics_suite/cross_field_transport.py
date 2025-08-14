@@ -87,4 +87,9 @@ def chi_perp_on_modes(rdcon_xarray,
         raise ValueError("Incorrect entries to chi_perp function.") 
 
     rdcon_xarray = rdcon_xarray.assign(chi_perp_surf=chi_perp_on_modes+0.0*rdcon_xarray['psi_n_rational'])
+
+    if chi_perp_spline is None:
+        # Add energy_confinement_time to rdcon_xarray:
+        rdcon_xarray = rdcon_xarray.assign(energy_confinement_time=energy_confinement_time)
+
     return rdcon_xarray

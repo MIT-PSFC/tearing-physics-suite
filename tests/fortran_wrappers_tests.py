@@ -1,4 +1,4 @@
-# Python functions to call GPEC and PEST3 fortran codes for delta prime calculations
+# Scripts to test the functions in fortran_wrappers.py, GPEC_write_inputs.py, and PEST3_wrappers.py
 
 import os
 import sys
@@ -155,6 +155,8 @@ if multi_wrapper_test2:
     PEST3_DP21_RE = pest3_xr.Delta_prime.isel(r=0,r_prime=0,i=0)
     STRIDE_DP21_RE = stride_xr.Delta_prime.isel(r=0,r_prime=0,i=0)
     #test that they're near 2:
+
+    
 if multi_wrapper_test2:
     RDCON_DP21_wall_val_good = np.isclose(RDCON_DP21_RE, 7.3, atol=0.03)
     PEST3_DP21_wall_val_good = np.isclose(PEST3_DP21_RE, 7.3, atol=0.03)

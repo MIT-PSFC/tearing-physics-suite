@@ -12,6 +12,7 @@ import copy
 from tearing_physics_suite.environment import home_dir
 from tearing_physics_suite.GPEC_write_inputs import write_rdcon_stride_inputs
 from tearing_physics_suite.PEST3_wrappers import pest3_special_truncation_loop,pest3_clean_netcdf,PEST3_resistive_calculation
+from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 
 def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, run_pest3=True,
         make_working_dir=True,
@@ -437,3 +438,99 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
                 raise FileNotFoundError(f"Stride terminal output file stride_terminal_output_n{nn}.txt not found in the working directory.")
 
     return rdcon_xr, stride_xr, rdcon_ran, stride_ran, rdcon_stride_input_dict
+
+def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict, calc_dps=True, **kwargs):
+    """
+    Combine xarrays and input dictionaries from rdcon, stride, and pest3 xarrays (outputs of fortran_wrappers.run_resistive_calculation).
+    We also add delta' values to the xarrays if requested, using the delta_primes function.
+    
+    Parameters:
+    rdcon_xr: xarray from rdcon, output from fortran_wrappers.run_resistive_calculation
+    stride_xr: xarray from stride, output from fortran_wrappers.run_resistive_calculation
+    pest3_xr: xarray from pest3, output from fortran_wrappers.run_resistive_calculation
+    rdcon_ran: Boolean indicating if rdcon ran successfully
+    stride_ran: Boolean indicating if stride ran successfully
+    pest3_ran: Boolean indicating if pest3 ran successfully
+    rdcon_stride_input_dict: Input dictionary from rdcon and stride
+    pest3_input_dict: Input dictionary from pest3
+    calc_dps: Boolean indicating if coupled delta' values should be calculated
+
+    Returns:
+    combined_xr: Combined xarray with all data from rdcon, stride, and pest3
+    input_dict: Combined input dictionary with all parameters from rdcon, stride, and pest3
+    """
+    # Combine input dictionaries:
+    if not (rdcon_stride_input_dict is None): #RDCON dict present
+        if not (pest3_input_dict is None): # PEST3 dict present
+            rdcon_stride_input_dict.update(pest3_input_dict)
+        input_dict = rdcon_stride_input_dict
+    elif not (pest3_input_dict is None):
+        input_dict = pest3_input_dict
+    else:
+        input_dict = {}
+    
+    
+    # Combine xarrays:
+    xarrays = []
+    
+    #########################################################################################################
+    # RDCON delta xarray and delta prime calculation
+    #########################################################################################################
+    if not (rdcon_xr is None): 
+        # Add new dimension for code to rdcon_xr
+        rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
+        rdcon_xr_expanded['code'] = ['rdcon']
+        if calc_dps and 'Delta_prime' in rdcon_xr_expanded:
+            rdcon_xr_expanded = extract_delta_primes(rdcon_xr_expanded)
+        # Add to xarrays list
+        xarrays.append(rdcon_xr_expanded)
+    
+    #########################################################################################################
+    # STRIDE delta xarray and delta prime calculation
+    #########################################################################################################
+    if not (stride_xr is None):
+        # Add new dimension for code to stride_xr
+        stride_xr_expanded = stride_xr.expand_dims(dim='code', axis=0)
+        stride_xr_expanded['code'] = ['stride']
+        if calc_dps and 'Delta_prime' in stride_xr_expanded:
+            # Calculate delta' values for stride_xr
+            stride_xr_expanded = extract_delta_primes(stride_xr_expanded)
+        xarrays.append(stride_xr_expanded)
+    
+    #########################################################################################################
+    # PEST3 delta xarray and delta prime calculation
+    #########################################################################################################
+    pest3_xr_expanded = None
+    if not (pest3_xr is None):
+        # Add new dimension for code to pest3_xr
+        pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
+        pest3_xr_expanded['code'] = ['pest3']
+        if calc_dps and 'Delta_prime' in pest3_xr_expanded:
+            assert 'Delta_prime_perr' in pest3_xr_expanded, "Current version of extract_delta_primes assumes this."
+            pest3_xr_expanded = extract_delta_primes(pest3_xr_expanded)
+        xarrays.append(pest3_xr_expanded)
+
+    # Combine all xarrays into one xarray:
+    # Breaks if different number of rational surfaces across different codes at the axis
+    #   - beware psilow =/= 0 while also running pest3 (pest3 has no psilow truncation)
+    #   - for this reason, we also output pest3_xr_out separately if something goes wrong
+    pest3_xr_out = None
+    combined_xr = None
+
+    #########################################################################################################
+    # Concatenating xarrays
+    #########################################################################################################
+    if len(xarrays) > 0:
+        pest3_xr_out = pest3_xr_expanded
+        try:
+            combined_xr = xr.concat(xarrays, dim='code', coords='all', **kwargs)
+            pest3_xr_out = None
+        except Exception as e:
+            if not (pest3_xr is None): #We remove pest3_xr_expanded from xarrays and retry
+                xarrays = xarrays[:-1]  # Remove the last element (pest3_xr_expanded)
+                combined_xr = xr.concat(xarrays, dim='code', coords='all', **kwargs)
+            print("Error combining xarrays:", e)
+
+    return combined_xr, pest3_xr_out, input_dict
+
+

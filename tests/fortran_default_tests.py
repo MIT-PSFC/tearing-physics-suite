@@ -63,13 +63,13 @@ shutil.copy(os.path.join(home_dir, 'submodules/PEST3/build/pest3/pest3x'), pest_
 #########################################################################################################
 os.chdir(rdcon_test_path_1)
 print("Running rdcon test 1 in directory:", os.getcwd())
-rdcon_test1=subprocess.run('./rdcon', check=True)
+rdcon_test1=subprocess.run('./rdcon', check=False)
 os.chdir(rdcon_test_path_2)
 print("Running rdcon test 2 in directory:", os.getcwd())
-rdcon_test2=subprocess.run('./rdcon', check=True)
+rdcon_test2=subprocess.run('./rdcon', check=False)
 os.chdir(rdcon_test_path_3)
 print("Running rdcon test 3 in directory:", os.getcwd())
-rdcon_test3=subprocess.run('./rdcon', check=True)
+rdcon_test3=subprocess.run('./rdcon', check=False)
 os.chdir(os.path.join(home_dir, 'submodules/GPEC/docs'))
 
 rdcon_tests_ran = rdcon_test1.returncode == 0 and rdcon_test2.returncode == 0 and rdcon_test3.returncode == 0
@@ -116,6 +116,7 @@ if stride_test_1.returncode == 0:
     except:
         stride_valtest1= False
 
+
 os.chdir(stride_test_path_2)
 if stride_test_2.returncode == 0:
     try:
@@ -124,6 +125,7 @@ if stride_test_2.returncode == 0:
     except:
         stride_valtest2= False
 
+
 os.chdir(stride_test_path_3)
 if stride_test_3.returncode == 0:
     try:
@@ -131,6 +133,7 @@ if stride_test_3.returncode == 0:
         stride_valtest3= True
     except:
         stride_valtest3= False
+
 
 os.chdir(stride_test_path_4)
 if stride_test_4.returncode == 0:
@@ -156,6 +159,7 @@ if stride_valtest3:
 
 if stride_valtest4:
     stride_valtest4 = (abs(stride_results_xr_4['Delta_prime'].sel(i=0, r=2.0,r_prime=2.0).values-8.0) < 0.1)
+
 
 stride_all_valtests_passed = stride_valtest1 and stride_valtest2 and stride_valtest3 and stride_valtest4
 
@@ -195,6 +199,7 @@ if ran3==0:
     except:
         pest_results_xr_3 = None
 
+
 pest_tests_ran = ran1 == 0 and ran2 == 0 and ran3 == 0
 
 #########################################################################################################
@@ -208,11 +213,14 @@ pest_valtest3 = False
 if pest_results_xr_1 is not None:
     pest_valtest1 = (abs(pest_results_xr_1['dprim_re'].values-2.43) < 0.1)
 
+
 if pest_results_xr_2 is not None:
     pest_valtest2 = (abs(pest_results_xr_2['dprim_re'].values+0.17) < 0.01)
 
+
 if pest_results_xr_3 is not None:
     pest_valtest3 = (abs(pest_results_xr_3['dprim_re'].values+0.00356) < 0.001)
+
 
 pest_all_valtests_passed = pest_valtest1 and pest_valtest2 and pest_valtest3
 

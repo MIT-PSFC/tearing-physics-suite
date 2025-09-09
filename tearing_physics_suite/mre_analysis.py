@@ -24,6 +24,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         C0=0.6,
         wd_static=False, # Set true to ignore the variation in the ratio of perpendicular to parallel transport across the island, as island width varies
         debug_mre_terms=False,
+        debug=False,
         **kwargs):
     """ 
     Big function that calculates Delta primes with run_resistive_calculation, then runs analysis on output deltaprimes, returning
@@ -129,7 +130,8 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
                 xarrays = xarrays[:-1]  # Remove the last element (pest3_xr_expanded)
                 combined_xr = xr.concat(xarrays, dim='code', coords='all')
             print("Error combining xarrays:", e)
-
+            if debug:
+                raise e
     return combined_xr, pest3_xr_out, input_dict
 
 def mre_raw_interp(rdcon_xarray):
@@ -602,7 +604,7 @@ def extract_critical_mre_factors_on_modes_DEPRECATED(rdcon_xarray,Delta_prime_ve
     )
     return rdcon_xarray
 
-def extract_mre_factors(dwdtau_vec, w_vec): #Update with cubic spline?
+def extract_mre_factors_old(dwdtau_vec, w_vec): #Update with cubic spline?
     """
     Extracts the critical MRE factors from the dwdtau_vec and w_vec.
     Returns the marginally stable island width, saturated island width, 
@@ -630,6 +632,48 @@ def extract_mre_factors(dwdtau_vec, w_vec): #Update with cubic spline?
     if max_index==0 or max_index==len(dwdtau_vec)-1:
         # If this is the case, we aren't at a local max. Want a local max
         w_max_loc, dwdtau_max = get_local_max(w_vec,dwdtau_vec)
+
+    return w_marg, w_sat, w_max_loc, dwdtau_max
+
+
+def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
+    """
+    Extracts the critical MRE factors from the dwdtau_vec and w_vec.
+    Returns the marginally stable island width, saturated island width, 
+    location of maximum island width, and the maximum dwdtau value.
+    """
+    dwdtau_spln=CubicSpline(w_vec,dwdtau_vec,extrapolate=False)
+    dwdtau_deriv_spln=CubicSpline(w_vec,dwdtau_spln(w_vec,1),extrapolate=False) 
+
+    # Find where dwdtau crosses zero:
+    zero_crossings = dwdtau_spln.roots(extrapolate=False)
+    
+    w_marg = np.nan
+    w_sat = np.nan
+
+    if len(zero_crossings) != 0:
+        if dwdtau_vec[0] < 0:
+            # Marginally stable island width is the first zero crossing:
+            w_marg = zero_crossings[0]
+        if dwdtau_vec[-1] < 0:
+            # Saturated island width is the last zero crossing:
+            w_sat = zero_crossings[-1]
+
+    # Maximum island width is where dwdtau is maximum:
+    max_index = np.argmax(dwdtau_vec)
+    w_max_loc_temp = w_vec[max_index]
+    # Check if max_index is start or end of vector:
+    if max_index==0 or max_index==len(dwdtau_vec)-1:
+        # If this is the case, we aren't at a local max. Want a local max
+        w_max_loc_temp,_ = get_local_max(w_vec,dwdtau_vec)
+    
+    if np.isnan(w_max_loc_temp):
+        return w_marg, w_sat, np.nan, np.nan
+
+    extremum_points = dwdtau_deriv_spln.roots(extrapolate=False)
+    special_ind = np.argmin(np.abs(extremum_points-w_max_loc_temp))
+    w_max_loc = extremum_points[special_ind]
+    dwdtau_max = dwdtau_spln(w_max_loc)
 
     return w_marg, w_sat, w_max_loc, dwdtau_max
 

@@ -2,6 +2,7 @@
 
 import xarray as xr
 import numpy as np
+import copy
 import tearing_physics_suite.global_vars
 from tearing_physics_suite.environment import home_dir
 from tearing_physics_suite.mre_analysis import analyse_with_mre
@@ -18,6 +19,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     wd_static=False, # Set true to ignore the variation in the ratio of perpendicular to parallel transport across the island, as island width varies
     test_numerical_stability=False,
     debug=True,
+    debug_global_mre_quantities=False,
     **kwargs):
     """ Runs linear and nonlinear tearing analysis on an equilibrium over a range 
     of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
@@ -65,12 +67,34 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     # Remove n from all dicts in input_dict_vec:
     input_dict_vec2 = []
     for d in input_dict_vec:
-        input_dict_vec2.append(d.pop('n', None))
-    # Check that all dicts in input_dict_vec2 are identical:
+        dcopy = copy.deepcopy(d)
+        # Put nn-dependent inputs into a sub-dictionary:
+        nn=dcopy['nn']
+        # Check if ran pest3:
+        if 'kband_pest' in input_dict_vec[0] and 'psihigh_pest' in input_dict_vec[0]:
+            nn_dep_dict = {'kband_pest': dcopy['kband_pest'],
+                            'psihigh_pest': dcopy['psihigh_pest']}
+            nn_dep_dict_name = f'n{nn}_dependent_inputs'
+            dcopy[nn_dep_dict_name] = nn_dep_dict
+            # Remove the nn-dependent inputs from the main dictionary:
+            dcopy.pop('kband_pest', None)
+            dcopy.pop('psihigh_pest', None)
+        dcopy.pop('nn', None)
+        input_dict_vec2.append(dcopy)
+
+    # Check that all dicts in input_dict_vec2 are identical (except for nn-dependent inputs):
     if len(input_dict_vec2) > 1:
         first_dict = input_dict_vec2[0]
+        first_dict_comp = copy.deepcopy(first_dict)
+        first_dict_comp.pop('n'+str(nvec[0])+'_dependent_inputs', None)
         for i, dict_item in enumerate(input_dict_vec2[1:], 1):
-            assert dict_item == first_dict, f"Dictionary at index {i} differs from the first dictionary"
+            # Add nn-dependent inputs to first_dict for output:
+            if 'n'+str(nvec[i])+'_dependent_inputs' in dict_item:
+                first_dict['n'+str(nvec[i])+'_dependent_inputs'] = dict_item['n'+str(nvec[i])+'_dependent_inputs']
+            dict_item.pop('n'+str(nvec[i])+'_dependent_inputs', None)
+            # Compare all dicts except for the nn-dependent inputs:
+            assert compare_dicts(dict_item, first_dict_comp) , f"Dictionary at index {i} differs from the first dictionary"
+
     input_dict_out = first_dict
 
     #########################################################################################################
@@ -81,7 +105,9 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     # Concatenate xarray_vec:
     try:
-        combined_xr = xr.concat(xarray_vec, dim='n', coords='all', **kwargs)
+        combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
+        # Elevate variable nn to a coordinate:
+        combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
         xarray_vec = None
     except ValueError as e:
         print(e)
@@ -98,10 +124,29 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     # define global mre quantities 
     #########################################################################################################
 
+    if debug_global_mre_quantities:
+        return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
+
     if not (combined_xr is None):
         combined_xr = global_mre_quantities(combined_xr)
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
+
+
+def compare_dicts(d1,d2):
+    """ Compares two dictionaries, returning True if they are identical, False otherwise.
+    """
+    if d1.keys() != d2.keys():
+        print("Dictionaries have different keys:")
+        print("Different keys in d1:", set(d1.keys()) - set(d2.keys()))
+        print("Different keys in d2:", set(d2.keys()) - set(d1.keys()))
+        return False
+    diff_vals=False
+    for key in d1.keys():
+        if d1[key] != d2[key]:
+            print(f"Different values for key '{key}': d1 has {d1[key]}, d2 has {d2[key]}")
+            diff_vals=True
+    return not diff_vals
 
 def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stability=False,  debug=True, **kwargs):
     """ Runs linear tearing analysis on an equilibrium over a range 
@@ -120,10 +165,8 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     for nn in nvec:
         #if test_numerical_stability:
         #   Run numerical stability test...
-
         rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict=run_resistive_calculation(eq_filename, nn, **kwargs)
         comb_n_xr, n_pest3_xr, n_input_dict = compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict)
-
         xarray_vec.append(comb_n_xr)
         pest3_xr_vec.append(n_pest3_xr)
         input_dict_vec.append(n_input_dict)
@@ -144,16 +187,34 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     # Remove n from all dicts in input_dict_vec:
     input_dict_vec2 = []
     for d in input_dict_vec:
-        dcopy = d.copy(deep=True)
-        dcopy.pop('n', None)
+        dcopy = copy.deepcopy(d)
+        # Put nn-dependent inputs into a sub-dictionary:
+        nn=dcopy['nn']
+        # Check if ran pest3:
+        if 'kband_pest' in input_dict_vec[0] and 'psihigh_pest' in input_dict_vec[0]:
+            nn_dep_dict = {'kband_pest': dcopy['kband_pest'],
+                            'psihigh_pest': dcopy['psihigh_pest']}
+            nn_dep_dict_name = f'n{nn}_dependent_inputs'
+            dcopy[nn_dep_dict_name] = nn_dep_dict
+            # Remove the nn-dependent inputs from the main dictionary:
+            dcopy.pop('kband_pest', None)
+            dcopy.pop('psihigh_pest', None)
+        dcopy.pop('nn', None)
         input_dict_vec2.append(dcopy)
-        if True:
-            print(input_dict_vec2[-1])
-    # Check that all dicts in input_dict_vec2 are identical:
+
+    # Check that all dicts in input_dict_vec2 are identical (except for nn-dependent inputs):
     if len(input_dict_vec2) > 1:
         first_dict = input_dict_vec2[0]
+        first_dict_comp = copy.deepcopy(first_dict)
+        first_dict_comp.pop('n'+str(nvec[0])+'_dependent_inputs', None)
         for i, dict_item in enumerate(input_dict_vec2[1:], 1):
-            assert dict_item == first_dict, f"Dictionary at index {i} differs from the first dictionary"
+            # Add nn-dependent inputs to first_dict for output:
+            if 'n'+str(nvec[i])+'_dependent_inputs' in dict_item:
+                first_dict['n'+str(nvec[i])+'_dependent_inputs'] = dict_item['n'+str(nvec[i])+'_dependent_inputs']
+            dict_item.pop('n'+str(nvec[i])+'_dependent_inputs', None)
+            # Compare all dicts except for the nn-dependent inputs:
+            assert compare_dicts(dict_item, first_dict_comp) , f"Dictionary at index {i} differs from the first dictionary"
+
     input_dict_out = first_dict
 
     #########################################################################################################
@@ -164,7 +225,9 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
 
     # Concatenate xarray_vec:
     try:
-        combined_xr = xr.concat(xarray_vec, dim='n', coords='all')
+        combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
+        # Elevate variable nn to a coordinate:
+        combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
         xarray_vec = None
     except ValueError as e:
         print(e)

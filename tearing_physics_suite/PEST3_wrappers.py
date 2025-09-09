@@ -29,6 +29,7 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
         q_rationals=None,
         r=None,
         r_prime=None,
+        clean_netcdf=True, #Always keep on unless running truncation loop
         # PEST3 specific parameters:
         eq_type_pest=3,             # 3 = efit eqdsk, see pest3_dir/pest3.hh for other options
         kband_pest=14,              # Poloidal Fourier modes span -|kband_pest|,...+|kband_pest|
@@ -216,7 +217,10 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
             print(f"Successfully read PEST3 output file: {os.path.join(working_dir, 'pest3.nc')}")
             print(ps3)
 
-        pest3_xr = pest3_clean_netcdf(ps3,debug=debug,q_rationals=q_rationals, r=r, r_prime=r_prime)
+        if clean_netcdf:
+            pest3_xr = pest3_clean_netcdf(ps3,debug=debug,q_rationals=q_rationals, r=r, r_prime=r_prime)
+        else:
+            pest3_xr = ps3
         pest3_ran = True
         #except Exception as e:
         #    print(f"Error reading PEST3 output fi`le: {e}")
@@ -314,6 +318,7 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
         1, # nn = 1 is fastest
         output_prefix=output_prefix_special,
         verbose=False,
+        clean_netcdf=False,
         **pest3_kwargs_dict_local
     )
     if abs(pest3_xr['qa'].values[-1]-qlim_actual) < 0.01:
@@ -331,6 +336,7 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
             save_terminal_output=True,
             output_prefix=output_prefix_special,
             verbose=False,
+            clean_netcdf=False,
             **pest3_kwargs_dict_local
         )
 
@@ -393,6 +399,7 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
         eq_filename,
         1, # nn = 1 is fastest
         output_prefix=output_prefix_special,
+        clean_netcdf=False,
         **pest3_kwargs_dict_local
     )
 

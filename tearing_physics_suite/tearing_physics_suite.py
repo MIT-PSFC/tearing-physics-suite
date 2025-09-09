@@ -242,32 +242,56 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
-def global_mre_quantities(combined_xarray):
+def global_mre_quantities(combined_xr):
     """ 
     Ranks nonlinear stability of all modes, and computes least stable modes
     via two metrics: largest nondimensional island growth rate (max_dwdtau), and smallest
     seed island needed to initiate an NTM (min_w_marg).
     """
-
     # Min w_marg_surf over all m, n
     # Max dwdtau over all m, n
-    min_w_marg = combined_xarray.w_marg_surf.min(dim=['r', 'n'])
-    max_dwdtau = combined_xarray.dwdtau_max_surf.max(dim=['r', 'n'])
-
-    # Add these to combined_xarray:
-    combined_xarray = combined_xarray.assign(
+    min_w_marg = combined_xr.w_marg_surf.min(dim=['r', 'nn'])
+    max_dwdtau = combined_xr.dwdtau_max_surf.max(dim=['r', 'nn'])
+    # Add these to combined_xr:
+    combined_xr = combined_xr.assign(
         min_w_marg_allsurf=min_w_marg,
         max_dwdtau_allsurf=max_dwdtau
     )
-
-    # A ranking of the minimum w_marg and maximum dwdtau over all m, n
-    negative_max_dwdtau = -1.0*combined_xarray.max_dwdtau # negative_max_dwdtau.rank is equal to ranking max_dwdtau from largest to smallest
-    combined_xarray = combined_xarray.assign(
-        min_w_marg_rank=combined_xarray.min_w_marg.rank(dim=['r', 'n']),
-        max_dwdtau_rank=negative_max_dwdtau.rank(dim=['r', 'n'])
+    # For each Delta_prime_type, code, we want to rank the modes by min_w_marg and max_dwdtau over all r, nn:
+    w_marg_rank = xr.full_like(combined_xr.w_marg_surf, np.nan)
+    dwdtau_rank = xr.full_like(combined_xr.dwdtau_max_surf, np.nan)
+    # Loop over all Delta_prime_type, code combinations:
+    for dpt in combined_xr.Delta_prime_type.values:
+        for code in combined_xr.code.values:
+            # Select the subset of combined_xr corresponding to this Delta_prime_type and code:
+            subset = combined_xr.sel(Delta_prime_type=dpt, code=code)
+            if subset.w_marg_surf.count() == 0 or subset.dwdtau_max_surf.count() == 0:
+                continue
+            # Rank w_marg_surf (smallest to largest):
+            w_marg_surf_vals = subset.w_marg_surf.values
+            w_marg_ranks = np.argsort(np.argsort(w_marg_surf_vals, axis=None)) + 1 # +1 to make ranks start from 1
+            w_marg_ranks = np.array(w_marg_ranks.reshape(w_marg_surf_vals.shape)).astype(float) # Convert to float to allow for NaNs
+            # Make w_marg_ranks nan where w_marg_surf is nan:
+            w_marg_ranks[np.isnan(w_marg_surf_vals)] = np.nan
+            # Turn w_marg_ranks into a DataArray with the same coords as subset.w_marg_surf:
+            w_marg_ranks_da = xr.DataArray(w_marg_ranks, coords=subset.w_marg_surf.coords, dims=subset.w_marg_surf.dims)
+            # Put w_marg_ranks_da into combined_xr:
+            w_marg_rank.loc[dict(Delta_prime_type=dpt, code=code)] = w_marg_ranks_da
+            # Rank dwdtau_max_surf (largest to smallest):
+            dwdtau_surf_vals = subset.dwdtau_max_surf.values
+            dwdtau_ranks = np.argsort(np.argsort(-dwdtau_surf_vals, axis=None)) + 1 # +1 to make ranks start from 1
+            dwdtau_ranks = np.array(dwdtau_ranks.reshape(dwdtau_surf_vals.shape)).astype(float) # Convert to float to allow for NaNs
+            # Make dwdtau_ranks nan where dwdtau_max_surf is nan:
+            dwdtau_ranks[np.isnan(dwdtau_surf_vals)] = np.nan
+            # Turn dwdtau_ranks into a DataArray with the same coords as subset.dwdtau_max_surf:
+            dwdtau_ranks_da = xr.DataArray(dwdtau_ranks, coords=subset.dwdtau_max_surf.coords, dims=subset.dwdtau_max_surf.dims)
+            # Put dwdtau_ranks_da into combined_xr:
+            dwdtau_rank.loc[dict(Delta_prime_type=dpt, code=code)] = dwdtau_ranks_da
+    combined_xr = combined_xr.assign(
+        min_w_marg_rank=w_marg_rank,
+        max_dwdtau_rank=dwdtau_rank
     )
-
-    return combined_xarray
+    return combined_xr
 
 def delta_prime_variability(xarray,comparison_var='code',
         run_bool_check=False,
@@ -330,7 +354,8 @@ def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_
     Will use comparison_var for the new variable name unless override_name is specified. """
 
     Delta_prime_diffs_across_var = np.abs(Delta_prime_surf.max(dim=comparison_var)-Delta_prime_surf.min(dim=comparison_var))
-    Delta_prime_reldiffs_across_var = Delta_prime_diffs_across_var / Delta_prime_surf.mean(dim=comparison_var)
+    Delta_prime_reldiffs_across_var = Delta_prime_diffs_across_var / np.abs(Delta_prime_surf).mean(dim=comparison_var)
+    Delta_prime_reldiffs_across_var2 = Delta_prime_diffs_across_var / Delta_prime_surf.mean(dim=comparison_var)
 
     if len(override_name) == 0: 
         override_name = comparison_var
@@ -338,7 +363,8 @@ def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_
     # Add Delta_prime_diffs_across_var to xarray, with str(comparison_var) included in name:
     xarray = xarray.assign({
         f'Delta_prime_diff_across_{override_name}': Delta_prime_diffs_across_var,
-        f'Delta_prime_reldiff_across_{override_name}': Delta_prime_reldiffs_across_var
+        f'Delta_prime_reldiff_across_{override_name}': Delta_prime_reldiffs_across_var,
+        f'Delta_prime_reldiff_across_{override_name}_2': Delta_prime_reldiffs_across_var2
     })
 
     return xarray

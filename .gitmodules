@@ -9,3 +9,6 @@
 [submodule "submodules/ScrewpinchAsymptoticMatching"]
 	path = submodules/ScrewpinchAsymptoticMatching
 	url = git@github.com:StuartBenjamin/ScrewpinchAsymptoticMatching.jl.git
+[submodule "submodules/OpenFUSIONToolkit"]
+	path = submodules/OpenFUSIONToolkit
+	url = https://github.com/OpenFUSIONToolkit/OpenFUSIONToolkit.git

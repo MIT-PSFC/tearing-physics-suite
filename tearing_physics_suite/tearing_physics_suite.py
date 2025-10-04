@@ -65,6 +65,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     # clean up input dicts:
     #########################################################################################################
 
+    """
     # Remove n from all dicts in input_dict_vec:
     input_dict_vec2 = []
     for d in input_dict_vec:
@@ -83,9 +84,9 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         dcopy.pop('nn', None)
         input_dict_vec2.append(dcopy)
 
+    first_dict = input_dict_vec2[0]
     # Check that all dicts in input_dict_vec2 are identical (except for nn-dependent inputs):
     if len(input_dict_vec2) > 1:
-        first_dict = input_dict_vec2[0]
         first_dict_comp = copy.deepcopy(first_dict)
         first_dict_comp.pop('n'+str(nvec[0])+'_dependent_inputs', None)
         for i, dict_item in enumerate(input_dict_vec2[1:], 1):
@@ -94,9 +95,12 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
                 first_dict['n'+str(nvec[i])+'_dependent_inputs'] = dict_item['n'+str(nvec[i])+'_dependent_inputs']
             dict_item.pop('n'+str(nvec[i])+'_dependent_inputs', None)
             # Compare all dicts except for the nn-dependent inputs:
+            if not compare_dicts(dict_item, first_dict_comp):
+                print(f"Dictionary at index {i} differs from the first dictionary")
             assert compare_dicts(dict_item, first_dict_comp) , f"Dictionary at index {i} differs from the first dictionary"
+    """
 
-    input_dict_out = first_dict
+    input_dict_out = clean_multi_n_dictionaries(input_dict_vec)
 
     #########################################################################################################
     # combine successfull xarrays and output them
@@ -109,7 +113,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
         # Elevate variable nn to a coordinate:
         combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
-        xarray_vec = None
+        if not debug:
+            xarray_vec = None
     except ValueError as e:
         print(e)
         if debug:
@@ -133,6 +138,70 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
+def clean_multi_n_dictionaries(input_dict_vec):
+    """ 
+        Cleans up a list of dictionaries by removing the 'nn' key and grouping nn-dependent inputs into sub-dictionaries within the main dictionary,
+        with names formatted as 'n{nn}_dependent_inputs'.
+    """
+
+    # Remove n from all dicts in input_dict_vec:
+    input_dict_vec2 = []
+    nn_vec = []
+    for d in input_dict_vec:
+        nn_vec.append(d['nn'])
+        dcopy = copy.deepcopy(d)
+        dcopy.pop('nn', None)
+        input_dict_vec2.append(dcopy)
+
+    # Log first dict and return if only one dict:
+    first_dict = input_dict_vec2[0]
+    if len(input_dict_vec2) == 1:
+        return first_dict
+
+    # Check that the keys of all dicts in input_dict_vec2 are identical:
+    first_dict_keys = set(input_dict_vec2[0].keys())
+    extra_keys_alln = []
+    one_missing_key=False
+    for i, d in enumerate(input_dict_vec2[1:], 1):
+        if set(d.keys()) != first_dict_keys:
+            print(f"Dictionary at index {i} has different keys than the first dictionary.")
+            print(" Differing keys in first dict:", first_dict_keys - set(d.keys()))
+            print(" Differing keys in this dict:", set(d.keys()) - first_dict_keys)
+            # convert set(d.keys()) - first_dict_keys into a list and append to extra_keys_alln:
+            extra_keys_alln.append(list(set(d.keys()) - first_dict_keys))
+            one_missing_key=True
+        else:
+            extra_keys_alln.append([])
+
+    # Go through every key in first_dict_keys and check that all dicts have the same value for that key:
+    keys_with_varied_values = []
+    for key in first_dict_keys:
+        first_value = input_dict_vec2[0][key]
+        all_same = True
+        for i, d in enumerate(input_dict_vec2[1:], 1):
+            if d[key] != first_value:
+                all_same = False
+        if not all_same:
+            keys_with_varied_values.append(key)
+
+    if len(keys_with_varied_values) > 0 or one_missing_key:
+        print("The following keys have varied values across the dictionaries, and will be grouped into nn-dependent sub-dictionaries:")
+        print(keys_with_varied_values)
+        print("The following keys are missing in some dictionaries, and will be grouped into nn-dependent sub-dictionaries:")
+        print(extra_keys_alln)
+        for i, nn in enumerate(nn_vec[1:], 1):
+            nn_dep_dict = {}
+            for key in keys_with_varied_values:
+                nn_dep_dict[key] = input_dict_vec2[i][key]
+            for key in extra_keys_alln[i-1]:
+                nn_dep_dict[key] = input_dict_vec2[i][key]
+            nn_dep_dict_name = f'n{nn}_dependent_inputs'
+            first_dict[nn_dep_dict_name] = nn_dep_dict
+        # Remove the nn-dependent inputs from the main dictionary:
+        for key in keys_with_varied_values:
+            first_dict.pop(key, None)
+
+    return first_dict
 
 def compare_dicts(d1,d2):
     """ Compares two dictionaries, returning True if they are identical, False otherwise.
@@ -171,6 +240,9 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
         xarray_vec.append(comb_n_xr)
         pest3_xr_vec.append(n_pest3_xr)
         input_dict_vec.append(n_input_dict)
+        if not comb_n_xr is None:
+            print("  n = ",nn,":",comb_n_xr.Delta_prime_surf.isel(nn=0,Delta_prime_type=0).where(comb_n_xr.Delta_prime_surf.isel(Delta_prime_type=0).r<(comb_n_xr.Delta_prime_surf.isel(Delta_prime_type=0).r.min()+3),drop=True))
+            print("  at q = ",comb_n_xr.q_rational.isel(nn=0,code=0).values[0:3])
 
     #########################################################################################################
     # look for failed pest3 runs:
@@ -185,6 +257,7 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     # clean up input dicts:
     #########################################################################################################
 
+    """
     # Remove n from all dicts in input_dict_vec:
     input_dict_vec2 = []
     for d in input_dict_vec:
@@ -215,8 +288,9 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
             dict_item.pop('n'+str(nvec[i])+'_dependent_inputs', None)
             # Compare all dicts except for the nn-dependent inputs:
             assert compare_dicts(dict_item, first_dict_comp) , f"Dictionary at index {i} differs from the first dictionary"
+    """
 
-    input_dict_out = first_dict
+    input_dict_out = clean_multi_n_dictionaries(input_dict_vec)
 
     #########################################################################################################
     # combine successfull xarrays and output them
@@ -229,7 +303,8 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
         combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
         # Elevate variable nn to a coordinate:
         combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
-        xarray_vec = None
+        if not debug:
+            xarray_vec = None
     except ValueError as e:
         print(e)
         if debug:

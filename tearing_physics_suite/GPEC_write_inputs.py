@@ -223,7 +223,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             restore_uh='t',         # Include the Hermite solution in Galerkin soluitn
             restore_us='t',         # Include the small solution in Galerkin solution
             restore_ul='t',         # Include the larger solution in Galerkin solution
-            bin_delmatch='t',       # Output solution for rmatch
+            bin_delmatch='f',       # Output solution for rmatch
             out_galsol='f',         # Output Galerkin solution in ascii files
             bin_galsol='f',         # Output Galerkin solution in binary files
             b_flag='f',             # Output the perturbation of radial b field
@@ -352,8 +352,6 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     if nx % 2 != 0: 
         if verbose: print("Warning: nx is not even, increasing by 1 to make it even.")
         nx += 1
-    if qhigh != 1e3 and sas_flag == 't':
-        print("!!! Warning: qhigh is currently behaving differently for RDCON and STRIDE.")
 
     if set_delta_mlow_to_delta_mhigh:
         delta_mlow = delta_mhigh

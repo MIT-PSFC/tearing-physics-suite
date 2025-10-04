@@ -65,41 +65,6 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     # clean up input dicts:
     #########################################################################################################
 
-    """
-    # Remove n from all dicts in input_dict_vec:
-    input_dict_vec2 = []
-    for d in input_dict_vec:
-        dcopy = copy.deepcopy(d)
-        # Put nn-dependent inputs into a sub-dictionary:
-        nn=dcopy['nn']
-        # Check if ran pest3:
-        if 'kband_pest' in input_dict_vec[0] and 'psihigh_pest' in input_dict_vec[0]:
-            nn_dep_dict = {'kband_pest': dcopy['kband_pest'],
-                            'psihigh_pest': dcopy['psihigh_pest']}
-            nn_dep_dict_name = f'n{nn}_dependent_inputs'
-            dcopy[nn_dep_dict_name] = nn_dep_dict
-            # Remove the nn-dependent inputs from the main dictionary:
-            dcopy.pop('kband_pest', None)
-            dcopy.pop('psihigh_pest', None)
-        dcopy.pop('nn', None)
-        input_dict_vec2.append(dcopy)
-
-    first_dict = input_dict_vec2[0]
-    # Check that all dicts in input_dict_vec2 are identical (except for nn-dependent inputs):
-    if len(input_dict_vec2) > 1:
-        first_dict_comp = copy.deepcopy(first_dict)
-        first_dict_comp.pop('n'+str(nvec[0])+'_dependent_inputs', None)
-        for i, dict_item in enumerate(input_dict_vec2[1:], 1):
-            # Add nn-dependent inputs to first_dict for output:
-            if 'n'+str(nvec[i])+'_dependent_inputs' in dict_item:
-                first_dict['n'+str(nvec[i])+'_dependent_inputs'] = dict_item['n'+str(nvec[i])+'_dependent_inputs']
-            dict_item.pop('n'+str(nvec[i])+'_dependent_inputs', None)
-            # Compare all dicts except for the nn-dependent inputs:
-            if not compare_dicts(dict_item, first_dict_comp):
-                print(f"Dictionary at index {i} differs from the first dictionary")
-            assert compare_dicts(dict_item, first_dict_comp) , f"Dictionary at index {i} differs from the first dictionary"
-    """
-
     input_dict_out = clean_multi_n_dictionaries(input_dict_vec)
 
     #########################################################################################################
@@ -256,39 +221,6 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     #########################################################################################################
     # clean up input dicts:
     #########################################################################################################
-
-    """
-    # Remove n from all dicts in input_dict_vec:
-    input_dict_vec2 = []
-    for d in input_dict_vec:
-        dcopy = copy.deepcopy(d)
-        # Put nn-dependent inputs into a sub-dictionary:
-        nn=dcopy['nn']
-        # Check if ran pest3:
-        if 'kband_pest' in input_dict_vec[0] and 'psihigh_pest' in input_dict_vec[0]:
-            nn_dep_dict = {'kband_pest': dcopy['kband_pest'],
-                            'psihigh_pest': dcopy['psihigh_pest']}
-            nn_dep_dict_name = f'n{nn}_dependent_inputs'
-            dcopy[nn_dep_dict_name] = nn_dep_dict
-            # Remove the nn-dependent inputs from the main dictionary:
-            dcopy.pop('kband_pest', None)
-            dcopy.pop('psihigh_pest', None)
-        dcopy.pop('nn', None)
-        input_dict_vec2.append(dcopy)
-
-    # Check that all dicts in input_dict_vec2 are identical (except for nn-dependent inputs):
-    if len(input_dict_vec2) > 1:
-        first_dict = input_dict_vec2[0]
-        first_dict_comp = copy.deepcopy(first_dict)
-        first_dict_comp.pop('n'+str(nvec[0])+'_dependent_inputs', None)
-        for i, dict_item in enumerate(input_dict_vec2[1:], 1):
-            # Add nn-dependent inputs to first_dict for output:
-            if 'n'+str(nvec[i])+'_dependent_inputs' in dict_item:
-                first_dict['n'+str(nvec[i])+'_dependent_inputs'] = dict_item['n'+str(nvec[i])+'_dependent_inputs']
-            dict_item.pop('n'+str(nvec[i])+'_dependent_inputs', None)
-            # Compare all dicts except for the nn-dependent inputs:
-            assert compare_dicts(dict_item, first_dict_comp) , f"Dictionary at index {i} differs from the first dictionary"
-    """
 
     input_dict_out = clean_multi_n_dictionaries(input_dict_vec)
 

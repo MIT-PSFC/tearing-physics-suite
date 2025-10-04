@@ -477,6 +477,10 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
     # RDCON delta xarray and delta prime calculation
     #########################################################################################################
     if not (rdcon_xr is None): 
+        # Turn all attributes into variables:
+        for attr_key in rdcon_xr.attrs.keys():
+            rdcon_xr[attr_key] = rdcon_xr.attrs[attr_key]
+        rdcon_xr.attrs = {}
         # Add new dimension for code to rdcon_xr
         rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
         rdcon_xr_expanded['code'] = ['rdcon']
@@ -489,6 +493,10 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
     # STRIDE delta xarray and delta prime calculation
     #########################################################################################################
     if not (stride_xr is None):
+        # Turn all attributes into variables:
+        for attr_key in stride_xr.attrs.keys():
+            stride_xr[attr_key] = stride_xr.attrs[attr_key]
+        stride_xr.attrs = {}
         # Add new dimension for code to stride_xr
         stride_xr_expanded = stride_xr.expand_dims(dim='code', axis=0)
         stride_xr_expanded['code'] = ['stride']
@@ -502,6 +510,10 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
     #########################################################################################################
     pest3_xr_expanded = None
     if not (pest3_xr is None):
+        # Turn all attributes into variables:
+        for attr_key in pest3_xr.attrs.keys():
+            pest3_xr[attr_key] = pest3_xr.attrs[attr_key]
+        pest3_xr.attrs = {}
         # Add new dimension for code to pest3_xr
         pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
         pest3_xr_expanded['code'] = ['pest3']
@@ -530,6 +542,16 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
                 xarrays = xarrays[:-1]  # Remove the last element (pest3_xr_expanded)
                 combined_xr = xr.concat(xarrays, dim='code', coords='all', **kwargs)
             print("Error combining xarrays:", e)
+
+    #########################################################################################################
+    # Adding nn to combined_xr:
+    #########################################################################################################
+    if combined_xr is not None:
+        # Check nn isn't already defined:
+        assert not 'nn' in combined_xr, 'nn already defined, debug this function.'
+        # We expand dims to add nn:
+        combined_xr = combined_xr.expand_dims(dim='nn', axis=0)
+        combined_xr['nn'] = [input_dict['nn']]
 
     return combined_xr, pest3_xr_out, input_dict
 

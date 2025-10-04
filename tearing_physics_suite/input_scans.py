@@ -7,7 +7,7 @@ import os
 
 from tearing_physics_suite.environment import home_dir
 import tearing_physics_suite.fortran_wrappers as tfw
-from tearing_physics_suite.utils import compile_xarrays
+from tearing_physics_suite.fortran_wrappers import compile_xarrays
 
 def scan_1D_input(input_name,input_values,eq_filename,
         nn,
@@ -86,7 +86,6 @@ def scan_1D_input(input_name,input_values,eq_filename,
 def extract_scanned_xrs(results, input_name):
     """
     Extracts the results from the scan and returns them in an xarray.
-
     Parameters:
         results: list of tuples, each tuple contains the xarrays and input dictionaries from the resistive calculation  
         input_name: str, name of the input parameter scanned
@@ -100,12 +99,10 @@ def extract_scanned_xrs(results, input_name):
         message: str, message containing the input values, single-helicity delta prime results and q-surface information
         deltaprimes: list of lists containing first set of delta prime values for each run
     """
-
     xarrays = []
     pest3_xarrays = []
     input_dicts = []
     input_values = []
-
     #########################################################################################################
     # Simple loop to extract xarrays and input_dicts from results
     #########################################################################################################
@@ -117,34 +114,36 @@ def extract_scanned_xrs(results, input_name):
         xarrays.append(combined_xr)
         pest3_xarrays.append(pest3_xr)
         input_dicts.append(input_dict)
-
     #########################################################################################################
     # Build message, and delta primes (first surface, single helicity only)
     #########################################################################################################
     deltaprimes = []
     message = str("   "+input_name+":"+str(input_values)+'\n')
-    if 'rdcon' in xarrays[0].code:
-        if not np.isnan(xarrays[0].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0)):
-            message+=str("   RDCON delta prime:"+str([xarrays[i].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays))])+'\n')
-            deltaprimes.append([xarrays[i].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays))])
-    if 'stride' in xarrays[0].code:
-        if not np.isnan(xarrays[0].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0)):
-            message+=str("   STRIDE delta prime:"+str([xarrays[i].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays))])+'\n')
-            deltaprimes.append([xarrays[i].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays))])
-    if 'pest3' in xarrays[0].code:
-        if not np.isnan(xarrays[0].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0)):
-            message+=str("   PEST3 delta prime:"+str([xarrays[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays))])+'\n')
-            deltaprimes.append([xarrays[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays))])
-    
+    xarrays_msg = []
+    for i in range(len(xarrays)):
+        if xarrays[i] is not None:  
+            if 'Delta_prime' in xarrays[i]:
+                xarrays_msg.append(xarrays[i])
+    if 'rdcon' in xarrays_msg[0].code:
+        if not np.isnan(xarrays_msg[0].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0)):
+            message+=str("   RDCON delta prime:"+str([xarrays_msg[i].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])+'\n')
+            deltaprimes.append([xarrays_msg[i].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])
+    if 'stride' in xarrays_msg[0].code:
+        if not np.isnan(xarrays_msg[0].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0)):
+            message+=str("   STRIDE delta prime:"+str([xarrays_msg[i].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])+'\n')
+            deltaprimes.append([xarrays_msg[i].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])
+    if 'pest3' in xarrays_msg[0].code:
+        if not np.isnan(xarrays_msg[0].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0)):
+            message+=str("   PEST3 delta prime:"+str([xarrays_msg[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])+'\n')
+            deltaprimes.append([xarrays_msg[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])
     #########################################################################################################
     # Add q-surface info to the message:
     #########################################################################################################
-    # Check if all values in a 1D array are the same [xarrays[i].r.values[0] for i in range(len(xarrays))] are the same
-    if np.all(np.array([xarrays[i].r.values[0] for i in range(len(xarrays))]) == xarrays[0].r.values[0]): 
-        message+=str("   at q-surface "+ str(xarrays[0].r.values[0]))
+    # Check if all values in a 1D array are the same [xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))] are the same
+    if np.all(np.array([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))]) == xarrays_msg[0].r.values[0]): 
+        message+=str("   at q-surface "+ str(xarrays_msg[0].r.values[0]))
     else:
-        message+=str("   q-surfaces:"+ str([xarrays[i].r.values[0] for i in range(len(xarrays))]))
-    
+        message+=str("   q-surfaces:"+ str([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))]))
     return xarrays, pest3_xarrays, input_dicts, input_values, input_name, message, deltaprimes
 
 '''

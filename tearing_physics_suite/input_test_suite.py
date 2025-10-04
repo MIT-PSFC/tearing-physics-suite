@@ -108,7 +108,7 @@ def matching_point_scan(eq_filename,results_dir = os.path.join(home_dir, 'tests/
 #########################################################################################################
 # Varying psilow truncation point:
 #########################################################################################################
-def psilow_truncation_scan(eq_filename,results_dir = os.path.join(home_dir, 'tests/test_results'),quick_test=True,verbose=True,output_prefix='', **kwargs):
+def psilow_truncation_scan(eq_filename,results_dir = os.path.join(home_dir, 'tests/test_results'),scan_vals_override=None,quick_test=True,verbose=True,output_prefix='', **kwargs):
     """
     Runs a 1D scan over the psilow truncation point used in STRIDE and RDCON calculation.
     """
@@ -116,6 +116,8 @@ def psilow_truncation_scan(eq_filename,results_dir = os.path.join(home_dir, 'tes
         scan_vals = [1e-4,2e-4]
     else:
         scan_vals = tps.create_dense_log_paramvals(start=1e-1,end=1e-5,points_per_decade=2)
+    if scan_vals_override is not None:
+        scan_vals = scan_vals_override
     xarrays, pest3_xarrays, input_dicts, var_values, var_name, message, dps =scan_1D_input('psilow', scan_vals, eq_filename,
             1,
             output_location=os.path.join(results_dir,'1D_scans','psilow_truncation_scan'),
@@ -736,7 +738,7 @@ def edge_truncation_q_scan_DEPRECATED(eq_filename,results_dir = os.path.join(hom
     Runs a 1D scan over the psihigh truncation point used in the resistive calculation.
     """
     if quick_test:
-        scan_vals = [5,6,7]
+        scan_vals = [4,5,6]
     else:
         scan_vals = [2,3,4,5,6,7,8]
     xarrays, pest3_xarrays, input_dicts, var_values, var_name, message, dps =scan_1D_input('qhigh', scan_vals, eq_filename,
@@ -877,6 +879,7 @@ extra_numerical_tests = [
 #List the name of every scan function defined in this file:
 scan_functions = [
     'fourier_mode_scan',
+    'RDCON_solver_scan',
     'sing_order_scan',
     'matching_point_scan',
     'psilow_truncation_scan',
@@ -895,7 +898,6 @@ scan_functions = [
     'vacuum_mtheta_scan',
     'RDCON_cutoff_scan_n1',
     'RDCON_cutoff_scan_n4',
-    'RDCON_solver_scan',
     'STRIDE_axis_mid_pt_skew_scan',
     'large_sol_extent_pest_scan',
     'RDCON_nq_scan',

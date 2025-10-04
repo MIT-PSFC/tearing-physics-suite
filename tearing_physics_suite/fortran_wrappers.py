@@ -178,7 +178,6 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     if ('mtheta_pest' not in pest3_kwargs_dict) and pest_pull_mtheta:
         pest3_kwargs_dict['mtheta_pest'] = rdcon_stride_input_dict['mtheta']
-        #mtheta_pest has to be odd (?)
 
     if 'mpsi_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['mpsi_pest'] = rdcon_stride_input_dict['mpsi']

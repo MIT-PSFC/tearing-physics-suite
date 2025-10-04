@@ -12,7 +12,7 @@ from scipy.interpolate import CubicSpline
 # Checked
 def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
     """
-    Calculates the parallel thermal diffusivity in units m^2/s, assuming the mean free path
+    Calculates the parallel thermal diffusivity in units m^2/s, within a mangetic island, assuming the mean free path
     is so long such that it is set by the island connection length and not the electron-ion collision time.
     The island width dependence is not included in this function. 
 
@@ -24,6 +24,45 @@ def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
     # Fitzpatrick 2023 14.206 equation (converted into normalised poloidal flux space as per Rosenburg PoP 2002 eq. 33)
     rdcon_xarray = rdcon_xarray.assign(
         chi_para_lmfp_no_w_surf= 2*R0*rdcon_xarray['v_te_surf']*rdcon_xarray['psi_n_rational']/(np.sqrt(np.pi)*n*rdcon_xarray['flux_shear_s_surf']) #Divide by island width in normalised flux space to get chi_parallel_lmfp
+    )
+    
+    return rdcon_xarray
+
+def chi_para_lmfp_noisland_on_modes(rdcon_xarray,Zeff):
+    """
+    Calculates the parallel thermal diffusivity in units m^2/s on a rational surface (no island present), assuming the mean free path
+    is so long such that it is set by the field line connection length and not the electron-ion collision time.
+
+    Input is the rdcon_xarray after it has gone through mre_terms_on_modes.
+    """
+    n = rdcon_xarray.n
+    m_ints = np.round(n*rdcon_xarray['q_rational'].values).astype(int)
+
+    # We remove any common factors of m and n to get the reduced m and n for each surface:
+    import math
+    m_reds = np.array([int(np.round(m_ints[i]/math.gcd(m_ints[i],n))) for i in range(len(m_ints))])
+    n_reds = np.array([int(n/math.gcd(m_ints[i],n)) for i in range(len(m_ints))])
+
+    # Toroidal distance around the tokamak:
+    major_radii_at_modes = rdcon_xarray['avg_R_surf'].values
+    Lc_tors = m_reds*(2*np.pi*major_radii_at_modes) #[m]
+    # Poloidal distance around the tokamak:
+    minor_radii_at_modes = rdcon_xarray['avg_r_surf'].values
+    Lc_pols = n_reds*(2*np.pi*minor_radii_at_modes) #[m]
+
+    # Connection length is approximated by the square root of the sum of the squares of the toroidal and poloidal distances:
+    Lc_surf = np.array(np.sqrt(Lc_tors*Lc_tors + Lc_pols*Lc_pols)) #[m]
+
+
+    # Add connection length to rdcon_xarray:
+    rdcon_xarray = rdcon_xarray.assign(
+        helical_correction_length_surf = Lc_surf+0.0*rdcon_xarray['psi_n_rational']
+    )
+
+    # Combining Fitzpatrick 1995 equation 132 with Fitzpatrick 2023 14.205, replacing tau_e*v_{te} with connection length
+    # instead of collisional mean free path.
+    rdcon_xarray = rdcon_xarray.assign(
+        chi_para_lmfp_noisland_surf = 1.581*rdcon_xarray['v_te_surf']*rdcon_xarray['helical_correction_length_surf']/(1+0.2535*Zeff) #[m^2/s]
     )
     
     return rdcon_xarray

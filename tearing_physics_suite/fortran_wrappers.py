@@ -76,6 +76,11 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         if key in kwargs:
             del kwargs[key]
 
+    # Make equilibrium type consistent (default case is eqdsk):
+    if 'eq_type' in kwargs:
+        if kwargs['eq_type'] == """'ldp_i'""" or kwargs['eq_type'] == '''"ldp_i"''':
+            pest3_kwargs_dict['eq_type_pest']=8
+
     # Run GPEC resistive calculation
     rdcon_xr, stride_xr, rdcon_ran, stride_ran, rdcon_stride_input_dict = GPEC_resistive_calculation(
         eq_filename=eq_filename, nn=nn, run_rdcon=run_rdcon, run_stride=run_stride,

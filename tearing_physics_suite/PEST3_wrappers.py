@@ -37,7 +37,7 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
         psilow_pest=1e-4,
         psihigh_pest=0.995,         # This behaves differently from the GPEC psihigh
         a_wall_pest=20,             # Distance of the conformal ideal wall from the plasma in units of minor radius. a_wall_pest > 10 <=> wall at infinity, a_wall_pest = 0 <=> internal mode only. See pest3.hh for more details. 
-        mtheta_pest=129, #DO NOT CHANGE - HARDCODED INTO PEST3 - # Number of poloidal rays for eqdsk mapping. Large values (~800) likely introduce numerical instabilities.
+        mtheta_pest=129, #Must be odd # Number of poloidal rays for eqdsk mapping. Large values (~800) likely introduce numerical instabilities.
         mpsi_pest=400,                   # Number of radial grid intervals for equilibrium quantities for eqdsk mapping. Large values (~800) likely introduce numerical instabilities.
         nx_string_pest='''-k"100 50 80 140"''', # [Higher is not better!!! see pest3_finite_element_scan for more info] String for the number of radial finite elements per non-singular interval. Convergence should obey nx^(-2) going to zero, hence multiple values are specified. Use nxpest for a single value. Use even numbers!
         nx_pest=0,                  # Must be even! Number of radial finite elements per non-singular interval.
@@ -140,6 +140,10 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
             if verbose: print(f"nx_pest {nx_pest} is odd, raising by 1 to {nx_pest + 1}")
             nx_pest += 1
         nx_string_pest = ' -k' + str(nx_pest)
+
+    if mtheta_pest % 2 == 0:
+        if verbose: print(f"mtheta_pest {mtheta_pest} is even, raising by 1 to {mtheta_pest + 1}")
+        mtheta_pest += 1
 
     terminal_output_file = 'pest3_terminal_output_n'+str(nn)+'.txt' 
     if save_terminal_output:
@@ -304,7 +308,7 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
     pest3_kwargs_dict_local['psilow_pest'] = 0.0001
     pest3_kwargs_dict_local['large_sol_extent_pest'] = 0.1
     pest3_kwargs_dict_local['nx_pest'] = nx_trunc_loop
-    pest3_kwargs_dict_local['rational_surface_control_pest'] = '''-m"."'''
+    pest3_kwargs_dict_local['rational_surface_control_pest'] = '''-m"x"'''
 
     # Combine pest3_kwargs_dict_local and kwargs
     pest3_kwargs_dict_local.update(kwargs)

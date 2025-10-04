@@ -65,6 +65,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr, rdcon_xr.Zeff)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
     rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
+    rdcon_xr = deltaprime_crit_on_modes(rdcon_xr)
 
     if debug_mre_terms:
         return rdcon_xr, None, None
@@ -426,6 +427,80 @@ def mre_flux_gradients(rdcon_xarray):
     )
     return rdcon_xarray
 
+def deltaprime_crit_on_modes(rdcon_xarray):
+    """
+    Calculate the linear, critical (single helicity) Delta' for an instability on each surface,
+    using a couple of different formulations.
+    The first formulation is Glasser et al. Phys. Fluids 1975, Eq 111.
+    The second formulation is from Connor et al. PPCF 2015, Eq 59.
+    """
+    import math
+
+    #########################################################################################################
+    # Flux surface quantities needed:
+    #########################################################################################################
+    Hs = rdcon_xarray['H_surf'].values
+    Drs = rdcon_xarray['Dr_surf'].values
+    X0s = rdcon_xarray['X0_surf'].values
+    psi_rationals = rdcon_xarray['psi_n_rational'].values
+    v_rationals = rdcon_xarray['V_surf'].values
+    v1_rationals = rdcon_xarray['dvdpsi_n_surf'].values
+    q1_rationals = rdcon_xarray['dq_dpsi_n_surf'].values
+    # For Connor et al. 2015:
+    avg_dpsisq_surf = rdcon_xarray['avg_dpsisq_surf'].values
+    avg_Bsq_surf = rdcon_xarray['avg_Bsq_surf'].values
+    chi_perp_surf = rdcon_xarray['chi_perp_surf'].values
+    chi_para_smfp_surf = rdcon_xarray['chi_para_smfp_surf'].values
+    chi_para_lmfp_noisland_surf = rdcon_xarray['chi_para_lmfp_noisland_surf'].values
+    psio = rdcon_xarray['psio']
+    n = rdcon_xarray.n
+
+    #########################################################################################################
+    # Starting loop:
+    #########################################################################################################
+    Qcrits = np.full_like(Hs, np.nan)
+    DeltaPrimeCrits75 = np.full_like(Hs, np.nan)
+    DeltaPrimeCrits75_no_X0 = np.full_like(Hs, np.nan)
+    DeltaPrimeCrits15 = np.full_like(Hs, np.nan)
+    DeltaPrimeCrits15_no_chifrac = np.full_like(Hs, np.nan)
+
+    for i in range(len(Hs)):
+        if (Hs[i] < 0.5 or Hs[i] > -5/2): # Condition for validity for these formulas 
+            continue
+    #########################################################################################################
+    # Glasser et al. Phys. Fluids 1975, Eq 111:
+    #########################################################################################################
+        Qcrit=abs(math.gamma(3/4)*math.gamma(1/2-Hs[i]/4)**2*math.gamma(1/4-Hs[i]/2)*math.sin((1-2*Hs[i])*math.pi/8)*Drs[i]/
+                (math.gamma(1/4)*math.gamma(1-Hs[i]/4)**2*math.gamma(3/4-Hs[i]/2)*math.sin((5+2*Hs[i])*math.pi/8)*4))**(2.0/3.0)
+        surface_factor = 2*v_rationals[i]/(X0s[i]*v1_rationals[i])
+        DeltaPrimeCrits75[i]=math.pi*surface_factor**(1-2*Hs[i])*math.gamma(1/4)*math.gamma(1-Hs[i]/4)**2*math.gamma(3/4-Hs[i]/2)*Qcrit**((2*Hs[i]+5)/4)/((np.sqrt(2)*(1-2*Hs[i])*math.sin((1-2*Hs[i])*math.pi/8))*(1-Hs[i]/2)*(math.cos(Hs[i]*math.pi/2)*math.gamma((1+Hs[i])/4)*math.gamma(1-Hs[i]))**2)
+        DeltaPrimeCrits75_no_X0[i] = DeltaPrimeCrits75[i]*(X0s[i]**(1-2*Hs[i]))
+        Qcrits[i] = Qcrit
+    #########################################################################################################
+    # Connor et al. PPCF 2015, Eq 59, many terms defined in Glasser 1975:
+    #########################################################################################################
+        Lambda = -4*np.pi**2*psio**2*q1_rationals[i]/(v1_rationals[i]**3)
+        alpha = v1_rationals[i]*n/psio
+        avg_dVsq = avg_dpsisq_surf[i]*(v1_rationals[i]**2)
+        # Find the minimum of chi_para_smfp_surf and chi_para_lmfp_noisland_surf
+        chi_para = min(chi_para_smfp_surf[i], chi_para_lmfp_noisland_surf[i]) # Choose the smaller mean free path (either set by electron-ion collisions, or helical connection length at rational surface)
+        chi_frac_noisland = chi_para / chi_perp_surf[i]
+        DeltaPrimeCrits15[i] = (1/2)*np.pi**(3/2)*chi_frac_noisland**(1/4)*v_rationals[i]*(-Drs[i])*(alpha*alpha*Lambda*Lambda/(avg_Bsq_surf[i]*avg_dVsq))**(1/4) 
+        DeltaPrimeCrits15_no_chifrac[i] = DeltaPrimeCrits15[i]/(chi_frac_noisland**(1/4))
+
+    rdcon_xarray = rdcon_xarray.assign(
+        Qcrit_surf = Qcrits+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 110.
+        DeltaPrime_crit = DeltaPrimeCrits75+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 111.
+        DeltaPrime_crit_no_X0 = DeltaPrimeCrits75_no_X0+0.0*rdcon_xarray['psi_n_rational'], # Multiply by (1/X0)^(1-2Hs) to get DeltaPrime_crit if you are modifying resistivity and/or mass density.
+        DeltaPrime_tcrit = DeltaPrimeCrits15+0.0*rdcon_xarray['psi_n_rational'],  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025). 
+        DeltaPrime_tcrit_no_chifrac = DeltaPrimeCrits15_no_chifrac+0.0*rdcon_xarray['psi_n_rational']  # Multiply by (chi_para/chi_perp)^(1/4) to get DeltaPrime_crit2 if you are modifying transport coefficients.
+    )
+    
+    # All we need for S, X0, and DeltaPrime_crit, in m3dc1 is n, eta(spitz or otherwise), and mass density (ni, ion mass, ne - see mre_terms_on_modes for formula.) 
+    # All we need for DeltaPrime_tcrit is chi_frac. Note chi_frac in theory depends on Zeff, but if chifrac is being artificially set by M3DC1, we don't need to worry about it for DeltaPrime_tcrit.
+    
+    return rdcon_xarray
+
 # If I want: make extra dimension for different versions of generate_wd_function [should probably do this, right now not sure...]
 def extract_critical_mre_factors_on_modes(
         code_xarray, # Xarray providing the Delta primes, which will be updated with the MRE analysis
@@ -724,6 +799,8 @@ def get_local_max(xvec,yvec):
         return xvec[peak_inds[-1]], yvec[peak_inds[-1]]
     return xvec[peak_inds[0]], yvec[peak_inds[0]]
 
+# When you artificially set chifrac in M3DC1, make another generate_wd_function that just uses that chifrac. 
+# How to implement this within the island is another question
 def generate_wd_function(rdcon_xarray_surf,use_lmfp=False,iterator=False,use_Fitz_formula=False):
     """
     Generates for a particular surface, a function that takes in w_bar 

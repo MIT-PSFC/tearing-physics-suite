@@ -11,7 +11,7 @@ from scipy.interpolate import CubicSpline #, make_interp_spline
 from scipy.signal import find_peaks
 import tearing_physics_suite.global_vars as gv
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
-from tearing_physics_suite.cross_field_transport import chi_para_lmfp_no_w_on_modes, chi_para_smfp_on_modes, chi_perp_on_modes
+from tearing_physics_suite.cross_field_transport import chi_para_lmfp_no_w_on_modes, chi_para_smfp_on_modes, chi_para_lmfp_noisland_on_modes, chi_perp_on_modes
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 # To do:
 # Add pressure check (kinetic vs equilibrium)
@@ -62,6 +62,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
+    rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr, rdcon_xr.Zeff)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
     rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
 
@@ -169,6 +170,7 @@ def mre_raw_interp(rdcon_xarray):
     #########################################################################################################
     # Put mre terms onto surfaces:
     #########################################################################################################
+    dvdpsi_n_surf = rdcon_xarray.dvdpsi.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     Di_surf = rdcon_xarray.di.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     Dr_surf = rdcon_xarray.dr.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     H_surf = rdcon_xarray.h.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
@@ -191,10 +193,11 @@ def mre_raw_interp(rdcon_xarray):
     avg_Rsq_surf = rdcon_xarray.avg_Rsq.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_Bsq_on_nabla_psisq_surf = rdcon_xarray.avg_1.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_Bsq_surf = rdcon_xarray.avg_5.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
+    avg_dpsisq_surf = rdcon_xarray.avg_7.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     #########################################################################################################
     # Load these surface values into the xarray:
     #########################################################################################################
-    rdcon_xarray = rdcon_xarray.assign(
+    rdcon_xarray = rdcon_xarray.assign(dvdpsi_n_surf = dvdpsi_n_surf+0.0*rdcon_xarray['psi_n_rational'],
         Di_surf =Di_surf+0.0*rdcon_xarray['psi_n_rational'],
         Dr_surf =Dr_surf+0.0*rdcon_xarray['psi_n_rational'],
         H_surf =H_surf+0.0*rdcon_xarray['psi_n_rational'],
@@ -216,7 +219,8 @@ def mre_raw_interp(rdcon_xarray):
         overbar_Rsq_surf =overbar_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_Rsq_surf =avg_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_Bsq_on_nabla_psisq_surf = avg_Bsq_on_nabla_psisq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Bsq_surf = avg_Bsq_surf+0.0*rdcon_xarray['psi_n_rational']
+        avg_Bsq_surf = avg_Bsq_surf+0.0*rdcon_xarray['psi_n_rational'],
+        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational']
     )
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray
@@ -413,6 +417,13 @@ def mre_flux_gradients(rdcon_xarray):
         flux_shear_s_surf = rdcon_xarray['psi_n_rational']*rdcon_xarray['dq_dpsi_n_surf']/rdcon_xarray['q_rational']
     )
 
+    # Get plasma volumes on surfaces by integrating dVdpsi:
+    dVdpsi_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.dvdpsi.values, extrapolate=False)
+    min_psi_n = rdcon_xarray.psi_n.values.min()
+    V_surf = [dVdpsi_spline.integrate(min_psi_n, i) for i in rdcon_xarray.psi_n_rational.values]
+    rdcon_xarray = rdcon_xarray.assign(
+        V_surf = np.array(V_surf)+0.0*rdcon_xarray['psi_n_rational']
+    )
     return rdcon_xarray
 
 # If I want: make extra dimension for different versions of generate_wd_function [should probably do this, right now not sure...]

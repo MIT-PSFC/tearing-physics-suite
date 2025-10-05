@@ -31,7 +31,7 @@ def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
 def chi_para_lmfp_noisland_on_modes(rdcon_xarray,Zeff):
     """
     Calculates the parallel thermal diffusivity in units m^2/s on a rational surface (no island present), assuming the mean free path
-    is so long such that it is set by the field line connection length and not the electron-ion collision time.
+    is so long such that it is set by (half) the field line connection length and not the electron-ion collision time.
 
     Input is the rdcon_xarray after it has gone through mre_terms_on_modes.
     """
@@ -53,16 +53,16 @@ def chi_para_lmfp_noisland_on_modes(rdcon_xarray,Zeff):
     # Connection length is approximated by the square root of the sum of the squares of the toroidal and poloidal distances:
     Lc_surf = np.array(np.sqrt(Lc_tors*Lc_tors + Lc_pols*Lc_pols)) #[m]
 
-
     # Add connection length to rdcon_xarray:
     rdcon_xarray = rdcon_xarray.assign(
         helical_correction_length_surf = Lc_surf+0.0*rdcon_xarray['psi_n_rational']
     )
 
-    # Combining Fitzpatrick 1995 equation 132 with Fitzpatrick 2023 14.205, replacing tau_e*v_{te} with connection length
-    # instead of collisional mean free path.
+    # Using Fitzpatrick 1995 equation 132, and dividing by electron density.
+    # We use half the connection length, as this is the largest physical distance between two points on a closed field 
+    # line over which convective heat transport can occur (making no distinction between co and counter-passing electrons).
     rdcon_xarray = rdcon_xarray.assign(
-        chi_para_lmfp_noisland_surf = 1.581*rdcon_xarray['v_te_surf']*rdcon_xarray['helical_correction_length_surf']/(1+0.2535*Zeff) #[m^2/s]
+        chi_para_lmfp_noisland_surf = 0.5*rdcon_xarray['helical_correction_length_surf']*rdcon_xarray['v_te_surf'] #[m^2/s]
     )
     
     return rdcon_xarray

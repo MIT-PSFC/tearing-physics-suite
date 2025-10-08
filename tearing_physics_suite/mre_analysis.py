@@ -26,6 +26,10 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         debug_mre_terms=False,
         debug=False,
         delete_attrs=True,
+        average_ion_mass=2.5, # Average ion mass in amu, used for alfven time calculation
+        force_lmfp=False, # Default False <=> whichever parallel transport calculation is more physical, lmfp or smfp, is used. Set True to always use lmfp.
+        Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces.
+        eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
         **kwargs):
     """ 
     Big function that calculates Delta primes with run_resistive_calculation, then runs analysis on output deltaprimes, returning
@@ -60,12 +64,12 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Fill out rdcon_xr with important MRE terms:
     #########################################################################################################
-    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline)
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
     rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
-    rdcon_xr = deltaprime_crit_on_modes(rdcon_xr)
+    rdcon_xr = deltaprime_crit_on_modes(rdcon_xr, force_lmfp=force_lmfp)
 
     if debug_mre_terms:
         return rdcon_xr, None, None
@@ -87,7 +91,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         rdcon_xr_expanded['code'] = ['rdcon']
         if 'Delta_prime' in rdcon_xr_expanded:
             rdcon_xr_expanded = extract_delta_primes(rdcon_xr_expanded)
-            rdcon_xr_expanded = extract_critical_mre_factors_on_modes(rdcon_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static)
+            rdcon_xr_expanded = extract_critical_mre_factors_on_modes(rdcon_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
         # Add to xarrays list
         xarrays.append(rdcon_xr_expanded)
 
@@ -106,7 +110,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         if 'Delta_prime' in stride_xr_expanded:
             # Calculate delta' values for stride_xr
             stride_xr_expanded = extract_delta_primes(stride_xr_expanded)
-            stride_xr_expanded = extract_critical_mre_factors_on_modes(stride_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static)
+            stride_xr_expanded = extract_critical_mre_factors_on_modes(stride_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
         xarrays.append(stride_xr_expanded)
             
     #########################################################################################################
@@ -125,7 +129,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         if 'Delta_prime' in pest3_xr_expanded:
             assert 'Delta_prime_perr' in pest3_xr_expanded, "Current version of extract_delta_primes assumes this."
             pest3_xr_expanded = extract_delta_primes(pest3_xr_expanded)
-            pest3_xr_expanded = extract_critical_mre_factors_on_modes(pest3_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static)
+            pest3_xr_expanded = extract_critical_mre_factors_on_modes(pest3_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
         xarrays.append(pest3_xr_expanded)
 
     # Combine all xarrays into one xarray:
@@ -226,7 +230,7 @@ def mre_raw_interp(rdcon_xarray):
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray
 
-def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5):
+def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just 
     deals with values out of rdcon_xarray, and natural flux coordinates. Requires mre_flag & geom_flag='t' (as per default) 
@@ -294,10 +298,19 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                             gv.e*(1e3*rdcon_xarray['ti_keV_surf']) #Ion temp in joules
                             / (rdcon_xarray.average_ion_mass.values*gv.amu))) # Average ion mass in kg
 
-    # Coulomb Logarithm using Wesson Tokamaks page 727:
-    rdcon_xarray = rdcon_xarray.assign(
-        lnLamb_ee_surf = 14.9-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
-        lnLamb_ei_surf = 15.2-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf'])) # Dimless
+    if Coulomb_logarithm is None:
+        # Coulomb Logarithm using Wesson Tokamaks page 727:
+        rdcon_xarray = rdcon_xarray.assign(
+            lnLamb_ee_surf = 14.9-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
+            lnLamb_ei_surf = 15.2-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
+            lnLamb_ee = 14.9-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV']),                  # Dimless
+            lnLamb_ei = 15.2-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV'])                  # Dimless
+        ) 
+    else:
+        rdcon_xarray = rdcon_xarray.assign(
+            lnLamb_ei_surf = Coulomb_logarithm+0.0*rdcon_xarray['psi_n_rational'], # Dimless
+            lnLamb_ei = Coulomb_logarithm+0.0*rdcon_xarray['psi_n']                # Dimless
+        )
 
     # Electron-ion collision time in seconds using Wesson Tokamaks page 729 assuming singly charged ions:
     rdcon_xarray = rdcon_xarray.assign(
@@ -305,7 +318,9 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         
     # Resistivity in Ohm m from Wesson Tokamaks
     rdcon_xarray = rdcon_xarray.assign(
-        eta_spitz_surf = 1.65*1e-9*rdcon_xarray['lnLamb_ei_surf']*(rdcon_xarray['te_keV_surf']**(-3/2))) # Ohm m
+        eta_spitz_surf = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei_surf']*(rdcon_xarray['te_keV_surf']**(-3/2)),    # Ohm m
+        eta_spitz = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei']*(rdcon_xarray['te_keV']**(-3/2))                    # Ohm m
+    ) 
 
     # mu_e_on_nu_e from Callen, 2010 UW-CPTC 09-6R, taking banana limit of eq. B17 (& B14).
     Zeff = rdcon_xarray.Zeff
@@ -331,7 +346,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     # The following are from Glasser et al. 2016 Appendix A12-A16:
     #  Resistive diffusion time in seconds
     rdcon_xarray = rdcon_xarray.assign( 
-        taur_surf = rdcon_xarray['taur_prefac_surf']/rdcon_xarray['eta_spitz_surf']) # seconds SEEMS TOO LONG...
+        taur_surf = rdcon_xarray['taur_prefac_surf']/rdcon_xarray['eta_spitz_surf']) #mu0 is included in taur_prefac_surf 
     #  Alven time in seconds
     rdcon_xarray = rdcon_xarray.assign( 
         taua_surf = rdcon_xarray['taua_prefac_surf']*np.sqrt(rdcon_xarray['rho_surf'])/rdcon_xarray.n) # seconds
@@ -427,7 +442,7 @@ def mre_flux_gradients(rdcon_xarray):
     )
     return rdcon_xarray
 
-def deltaprime_crit_on_modes(rdcon_xarray):
+def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     """
     Calculate the linear, critical (single helicity) Delta' for an instability on each surface,
     using a couple of different formulations.
@@ -452,7 +467,7 @@ def deltaprime_crit_on_modes(rdcon_xarray):
     chi_perp_surf = rdcon_xarray['chi_perp_surf'].values
     chi_para_smfp_surf = rdcon_xarray['chi_para_smfp_surf'].values
     chi_para_lmfp_noisland_surf = rdcon_xarray['chi_para_lmfp_noisland_surf'].values
-    psio = rdcon_xarray['psio']
+    psio = rdcon_xarray.psio
     n = rdcon_xarray.n
 
     #########################################################################################################
@@ -465,7 +480,7 @@ def deltaprime_crit_on_modes(rdcon_xarray):
     DeltaPrimeCrits15_no_chifrac = np.full_like(Hs, np.nan)
 
     for i in range(len(Hs)):
-        if (Hs[i] < 0.5 or Hs[i] > -5/2): # Condition for validity for these formulas 
+        if not (Hs[i] < 0.5 or Hs[i] > -5/2): # Condition for validity for these formulas 
             continue
     #########################################################################################################
     # Glasser et al. Phys. Fluids 1975, Eq 111:
@@ -483,7 +498,10 @@ def deltaprime_crit_on_modes(rdcon_xarray):
         alpha = v1_rationals[i]*n/psio
         avg_dVsq = avg_dpsisq_surf[i]*(v1_rationals[i]**2)
         # Find the minimum of chi_para_smfp_surf and chi_para_lmfp_noisland_surf
-        chi_para = min(chi_para_smfp_surf[i], chi_para_lmfp_noisland_surf[i]) # Choose the smaller mean free path (either set by electron-ion collisions, or helical connection length at rational surface)
+        if not force_lmfp:
+            chi_para = min(chi_para_smfp_surf[i], chi_para_lmfp_noisland_surf[i]) # Choose the smaller mean free path (either set by electron-ion collisions, or helical connection length at rational surface)
+        else:
+            chi_para = chi_para_lmfp_noisland_surf[i]
         chi_frac_noisland = chi_para / chi_perp_surf[i]
         DeltaPrimeCrits15[i] = (1/2)*np.pi**(3/2)*chi_frac_noisland**(1/4)*v_rationals[i]*(-Drs[i])*(alpha*alpha*Lambda*Lambda/(avg_Bsq_surf[i]*avg_dVsq))**(1/4) 
         DeltaPrimeCrits15_no_chifrac[i] = DeltaPrimeCrits15[i]/(chi_frac_noisland**(1/4))
@@ -572,6 +590,10 @@ def extract_critical_mre_factors_on_modes(
         # Update prefacs and wd_at_X0s:
         prefacs.loc[dict(r=rloc)] = prefac
         wd_at_X0s.loc[dict(r=rloc)] = wd_at_X0
+
+        # Check improper inputs:
+        if np.isnan(Dr) or np.isnan(Di) or np.isnan(Dnc) or np.isnan(H) or Di > 0:
+            continue
 
         # Generate DP_to_MRE function
         DP_to_MRE = mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_vec_lowres)
@@ -801,7 +823,7 @@ def get_local_max(xvec,yvec):
 
 # When you artificially set chifrac in M3DC1, make another generate_wd_function that just uses that chifrac. 
 # How to implement this within the island is another question
-def generate_wd_function(rdcon_xarray_surf,use_lmfp=False,iterator=False,use_Fitz_formula=False):
+def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_Fitz_formula=False):
     """
     Generates for a particular surface, a function that takes in w_bar 
     (island width in normalised poloidal flux), and returns wd_bar
@@ -829,7 +851,7 @@ def generate_wd_function(rdcon_xarray_surf,use_lmfp=False,iterator=False,use_Fit
             (Fitzpatrick island width in normalised poloidal flux).
             """
             chi_para_lmfp = chi_para_lmfp_no_w/w_bar
-            if use_lmfp:
+            if force_lmfp:
                 chi_para=chi_para_lmfp
             else:
                 if not use_Fitz_formula:
@@ -847,10 +869,13 @@ def generate_wd_function(rdcon_xarray_surf,use_lmfp=False,iterator=False,use_Fit
             wd_bar4=X0**4
             for i in range(10): #Iterate to convergence
                 chi_para_lmfp = chi_para_lmfp_no_w/(wd_bar4**(1/4))
-                if not use_Fitz_formula:
-                    chi_para = np.minimum(chi_para_lmfp, chi_para_smfp)
+                if force_lmfp:
+                    chi_para=chi_para_lmfp
                 else:
-                    chi_para = chi_para_lmfp*chi_para_smfp/(chi_para_lmfp+chi_para_smfp)
+                    if not use_Fitz_formula:
+                        chi_para = np.minimum(chi_para_lmfp, chi_para_smfp)
+                    else:
+                        chi_para = chi_para_lmfp*chi_para_smfp/(chi_para_lmfp+chi_para_smfp)
                 chifrac = chi_perp/chi_para
                 wd_bar4 = Wc_prefac_m*chifrac
             return wd_bar4**(1/4)

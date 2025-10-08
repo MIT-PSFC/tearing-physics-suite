@@ -230,6 +230,29 @@ def mre_raw_interp(rdcon_xarray):
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray
 
+def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
+                                taur_prefac_surf,taua_prefac_surf,DeltaPrime_crits_no_X0,H_surf):
+    """
+    Calculates X0, S, taua, taur, and DeltaPrime_crit given the necessary inputs. Use case: comparison with simulation.
+        Take three values from your resistive MHD simulation at a chosen set of rational surfaces: resistivity (eta in  Ohm m), mass_density (kg / m^3), and toroidal mode number n.
+        Then take four pre-calculated terms at those same rational surfaces: taur_prefac_surf, taua_prefac_surf, DeltaPrime_crit_no_X0, and H_surf. Returns
+        X0, S, taua, taur, and DeltaPrime_crit at each rational surface for your simulation.
+    """
+    assert len(eta) == len(mass_densities) == len(taur_prefac_surf) == len(taua_prefac_surf) == len(DeltaPrime_crits_no_X0) == len(H_surf), "All input arrays must be the same length."
+    X0s = np.zeros(len(eta))
+    Ss = np.zeros(len(eta))
+    tauas = np.zeros(len(eta))
+    taurs = np.zeros(len(eta))
+    DeltaPrime_crits = np.zeros(len(eta))
+    for i in range(len(eta)):
+        tauas[i] = taua_prefac_surf[i]*np.sqrt(mass_densities[i])/n
+        taurs[i] = taur_prefac_surf[i]/eta[i]
+        Ss[i] = taurs[i]/tauas[i]
+        X0s[i] = Ss[i]**(-1/3)
+        DeltaPrime_crits[i] = DeltaPrime_crits_no_X0[i]*(1.0/X0s[i])**(1-2*H_surf[i])
+    return X0s, Ss, tauas, taurs, DeltaPrime_crits
+
+
 def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just 

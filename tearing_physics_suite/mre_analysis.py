@@ -233,10 +233,10 @@ def mre_raw_interp(rdcon_xarray):
 def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
                                 taur_prefac_surf,taua_prefac_surf,DeltaPrime_crits_no_X0,H_surf):
     """
-    Calculates X0, S, taua, taur, and DeltaPrime_crit given the necessary inputs. Use case: comparison with simulation.
+    Calculates X0, S, taua, taur, and Delta_prime_crit given the necessary inputs. Use case: comparison with simulation.
         Take three values from your resistive MHD simulation at a chosen set of rational surfaces: resistivity (eta in  Ohm m), mass_density (kg / m^3), and toroidal mode number n.
         Then take four pre-calculated terms at those same rational surfaces: taur_prefac_surf, taua_prefac_surf, DeltaPrime_crit_no_X0, and H_surf. Returns
-        X0, S, taua, taur, and DeltaPrime_crit at each rational surface for your simulation.
+        X0, S, taua, taur, and Delta_prime_crit at each rational surface for your simulation.
     """
     assert len(eta) == len(mass_densities) == len(taur_prefac_surf) == len(taua_prefac_surf) == len(DeltaPrime_crits_no_X0) == len(H_surf), "All input arrays must be the same length."
     X0s = np.zeros(len(eta))
@@ -531,8 +531,8 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
 
     rdcon_xarray = rdcon_xarray.assign(
         Qcrit_surf = Qcrits+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 110.
-        DeltaPrime_crit = DeltaPrimeCrits75+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 111.
-        DeltaPrime_crit_no_X0 = DeltaPrimeCrits75_no_X0+0.0*rdcon_xarray['psi_n_rational'], # Multiply by (1/X0)^(1-2Hs) to get DeltaPrime_crit if you are modifying resistivity and/or mass density.
+        Delta_prime_crit = DeltaPrimeCrits75+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 111.
+        DeltaPrime_crit_no_X0 = DeltaPrimeCrits75_no_X0+0.0*rdcon_xarray['psi_n_rational'], # Multiply by (1/X0)^(1-2Hs) to get Delta_prime_crit if you are modifying resistivity and/or mass density.
         DeltaPrime_tcrit = DeltaPrimeCrits15+0.0*rdcon_xarray['psi_n_rational'],  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025). 
         DeltaPrime_tcrit_no_chifrac = DeltaPrimeCrits15_no_chifrac+0.0*rdcon_xarray['psi_n_rational']  # Multiply by (chi_para/chi_perp)^(1/4) to get DeltaPrime_crit2 if you are modifying transport coefficients.
     )

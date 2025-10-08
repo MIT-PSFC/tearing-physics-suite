@@ -9,22 +9,26 @@ from tearing_physics_suite.mre_analysis import analyse_with_mre
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation, compile_xarrays
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 
-def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, 
-    nvec = [1], 
+def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, Zeff, average_ion_mass,
+    Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces, to match M3DC1 simulations for example.
+    eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
+    nvec = [1],
     energy_confinement_time = None,
     chi_perp_spline=None,
     k0=0.8227,
     k1=1.7,
     C0=0.6,
     wd_static=False, # Set true to ignore the variation in the ratio of perpendicular to parallel transport across the island, as island width varies
+    force_lmfp=False, 
     test_numerical_stability=False,
     debug=True,
     debug_global_mre_quantities=False,
-    psi_pedestal_cutoff=0.9,
+    psi_pedestal_cutoff=0.9, # Surfaces inside this cutoff in norm. pol. flux are included when finding the minimum marginally stable island width 
     **kwargs):
     """ Runs linear and nonlinear tearing analysis on an equilibrium over a range 
     of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
     setting the operational parameters of STRIDE, RDCON and PEST3.
+    We explicity ask for Zeff and average_ion_mass at this point to ensure the user has decided on a self-consistent set of profiles.
     """
 
     xarray_vec = []
@@ -45,7 +49,10 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
             k0=k0,
             k1=k1,
             C0=C0,
-            wd_static=False,
+            wd_static=wd_static,
+            Zeff=Zeff,
+            average_ion_mass=average_ion_mass,
+            force_lmfp=force_lmfp,
             **kwargs)
 
         xarray_vec.append(comb_n_xr)
@@ -275,7 +282,8 @@ def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
     #########################################################################################################
     psi_n_rational_like_surfaces = combined_xr.psi_n_rational+0.0*combined_xr['Delta_prime_surf'] 
     # Set psi_n_rational_like_surfaces.loc[code='pest3'] equal to psi_n_rational_like_surfaces.loc[code='rdcon'] (since pest3 doesn't compute psi_n_rational)
-    psi_n_rational_like_surfaces.loc[dict(code='pest3')] = psi_n_rational_like_surfaces.loc[dict(code='rdcon')]
+    if 'rdcon' in combined_xr.code.values and 'pest3' in combined_xr.code.values:
+        psi_n_rational_like_surfaces.loc[dict(code='pest3')] = psi_n_rational_like_surfaces.loc[dict(code='rdcon')]
 
     #########################################################################################################
     # Loop over all Delta_prime_type, code combinations to make local rankings

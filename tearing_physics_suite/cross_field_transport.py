@@ -28,7 +28,7 @@ def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
     
     return rdcon_xarray
 
-def chi_para_lmfp_noisland_on_modes(rdcon_xarray,Zeff):
+def chi_para_lmfp_noisland_on_modes(rdcon_xarray):
     """
     Calculates the parallel thermal diffusivity in units m^2/s on a rational surface (no island present), assuming the mean free path
     is so long such that it is set by (half) the field line connection length and not the electron-ion collision time.

@@ -62,7 +62,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
-    rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr, rdcon_xr.Zeff)
+    rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
     rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
     rdcon_xr = deltaprime_crit_on_modes(rdcon_xr)

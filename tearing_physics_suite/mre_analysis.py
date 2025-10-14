@@ -533,12 +533,12 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
         Qcrit_surf = Qcrits+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 110.
         Delta_prime_crit = DeltaPrimeCrits75+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 111.
         DeltaPrime_crit_no_X0 = DeltaPrimeCrits75_no_X0+0.0*rdcon_xarray['psi_n_rational'], # Multiply by (1/X0)^(1-2Hs) to get Delta_prime_crit if you are modifying resistivity and/or mass density.
-        DeltaPrime_tcrit = DeltaPrimeCrits15+0.0*rdcon_xarray['psi_n_rational'],  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025). 
-        DeltaPrime_tcrit_no_chifrac = DeltaPrimeCrits15_no_chifrac+0.0*rdcon_xarray['psi_n_rational']  # Multiply by (chi_para/chi_perp)^(1/4) to get DeltaPrime_crit2 if you are modifying transport coefficients.
+        Delta_prime_tcrit = DeltaPrimeCrits15+0.0*rdcon_xarray['psi_n_rational'],  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025). 
+        Delta_prime_tcrit_no_chifrac = DeltaPrimeCrits15_no_chifrac+0.0*rdcon_xarray['psi_n_rational']  # Multiply by (chi_para/chi_perp)^(1/4) to get DeltaPrime_crit2 if you are modifying transport coefficients.
     )
     
-    # All we need for S, X0, and DeltaPrime_crit, in m3dc1 is n, eta(spitz or otherwise), and mass density (ni, ion mass, ne - see mre_terms_on_modes for formula.) 
-    # All we need for DeltaPrime_tcrit is chi_frac. Note chi_frac in theory depends on Zeff, but if chifrac is being artificially set by M3DC1, we don't need to worry about it for DeltaPrime_tcrit.
+    # All we need for S, X0, and Delta_prime_crit, in m3dc1 is n, eta(spitz or otherwise), and mass density (ni, ion mass, ne - see mre_terms_on_modes for formula.) 
+    # All we need for Delta_prime_tcrit is chi_frac. Note chi_frac in theory depends on Zeff, but if chifrac is being artificially set by M3DC1, we don't need to worry about it for Delta_prime_tcrit.
     
     return rdcon_xarray
 

@@ -253,6 +253,29 @@ def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
     return X0s, Ss, tauas, taurs, DeltaPrime_crits
 
 
+def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
+    # Keep up to date with res_func in equilibrium_helper
+    if Coulomb_logarithm is None:
+        # Coulomb Logarithm using Wesson Tokamaks page 727:
+        rdcon_xarray = rdcon_xarray.assign(
+            lnLamb_ee_surf = 14.9-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
+            lnLamb_ei_surf = 15.2-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
+            lnLamb_ee = 14.9-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV']),                  # Dimless
+            lnLamb_ei = 15.2-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV'])                  # Dimless
+        ) 
+    else:
+        rdcon_xarray = rdcon_xarray.assign(
+            lnLamb_ei_surf = Coulomb_logarithm+0.0*rdcon_xarray['psi_n_rational'], # Dimless
+            lnLamb_ei = Coulomb_logarithm+0.0*rdcon_xarray['psi_n']                # Dimless
+        )
+    # Resistivity in Ohm m from Wesson Tokamaks
+    rdcon_xarray = rdcon_xarray.assign(
+        eta_spitz_surf = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei_surf']*(rdcon_xarray['te_keV_surf']**(-3/2)),    # Ohm m
+        eta_spitz = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei']*(rdcon_xarray['te_keV']**(-3/2))                    # Ohm m
+    ) 
+    return rdcon_xarray
+
+
 def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just 
@@ -321,29 +344,11 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                             gv.e*(1e3*rdcon_xarray['ti_keV_surf']) #Ion temp in joules
                             / (rdcon_xarray.average_ion_mass.values*gv.amu))) # Average ion mass in kg
 
-    if Coulomb_logarithm is None:
-        # Coulomb Logarithm using Wesson Tokamaks page 727:
-        rdcon_xarray = rdcon_xarray.assign(
-            lnLamb_ee_surf = 14.9-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
-            lnLamb_ei_surf = 15.2-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
-            lnLamb_ee = 14.9-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV']),                  # Dimless
-            lnLamb_ei = 15.2-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV'])                  # Dimless
-        ) 
-    else:
-        rdcon_xarray = rdcon_xarray.assign(
-            lnLamb_ei_surf = Coulomb_logarithm+0.0*rdcon_xarray['psi_n_rational'], # Dimless
-            lnLamb_ei = Coulomb_logarithm+0.0*rdcon_xarray['psi_n']                # Dimless
-        )
+    rdcon_xarray = res_func(rdcon_xarray, eta_fac=eta_fac, Coulomb_logarithm=Coulomb_logarithm)
 
     # Electron-ion collision time in seconds using Wesson Tokamaks page 729 assuming singly charged ions:
     rdcon_xarray = rdcon_xarray.assign(
         taue_surf = 1.09*(10**16)*(rdcon_xarray['te_keV_surf']**(3/2))*(1/rdcon_xarray['ne_m3_surf'])*(1/rdcon_xarray['lnLamb_ei_surf'])) # seconds
-        
-    # Resistivity in Ohm m from Wesson Tokamaks
-    rdcon_xarray = rdcon_xarray.assign(
-        eta_spitz_surf = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei_surf']*(rdcon_xarray['te_keV_surf']**(-3/2)),    # Ohm m
-        eta_spitz = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei']*(rdcon_xarray['te_keV']**(-3/2))                    # Ohm m
-    ) 
 
     # mu_e_on_nu_e from Callen, 2010 UW-CPTC 09-6R, taking banana limit of eq. B17 (& B14).
     Zeff = rdcon_xarray.Zeff

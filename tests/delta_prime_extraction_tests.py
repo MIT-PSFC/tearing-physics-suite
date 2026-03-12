@@ -22,7 +22,6 @@ from tearing_physics_suite.environment import home_dir
 
 os.chdir(home_dir)
 
-#from tearing_physics_suite.input_scans import scan_1D_input,extract_scanned_xrs
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
 from tearing_physics_suite.fortran_wrappers import compile_xarrays
 from tearing_physics_suite.utils import trim_nans

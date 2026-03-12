@@ -23,7 +23,6 @@ from tearing_physics_suite.environment import home_dir
 
 os.chdir(home_dir)
 
-#from tearing_physics_suite.input_scans import scan_1D_input,extract_scanned_xrs
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
 from tearing_physics_suite.fortran_wrappers import compile_xarrays
 from tearing_physics_suite.utils import trim_nans
@@ -88,10 +87,12 @@ if test_linear_calculation:
 #########################################################################################################
 
 combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(eq_filename,
-    ni_spline=ni_spline,
-    ne_spline=ne_spline,
-    te_keV_spline=te_keV_spline,
-    ti_keV_spline=ti_keV_spline,
+    ni_spline,
+    ne_spline,
+    te_keV_spline,
+    ti_keV_spline,
+    Zeff=1.5,
+    average_ion_mass=2.5,
     energy_confinement_time=0.12,
     debug_global_mre_quantities=False,
     nvec=[1,2],

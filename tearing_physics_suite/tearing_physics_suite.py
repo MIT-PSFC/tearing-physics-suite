@@ -9,7 +9,14 @@ from tearing_physics_suite.mre_analysis import analyse_with_mre
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation, compile_xarrays
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 
-def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, Zeff, average_ion_mass,
+def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, 
+    Zeff = None, 
+    average_ion_mass = None,
+    # Rotation splines
+    Er_spline=None, # Assuming input units of V/m
+    omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
+    q_surfs_of_interest=[1.0],
+    psi_surfs_of_interest=[0.95],
     Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces, to match M3DC1 simulations for example.
     eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
     nvec = [1],
@@ -25,11 +32,43 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     debug_global_mre_quantities=False,
     psi_pedestal_cutoff=0.9, # Surfaces inside this cutoff in norm. pol. flux are included when finding the minimum marginally stable island width 
     **kwargs):
-    """ Runs linear and nonlinear tearing analysis on an equilibrium over a range 
-    of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
-    setting the operational parameters of STRIDE, RDCON and PEST3.
-    We explicity ask for Zeff and average_ion_mass at this point to ensure the user has decided on a self-consistent set of profiles.
+    """Run linear and nonlinear tearing analysis on an equilibrium for multiple toroidal mode numbers set by nvec.
+
+    Wraps run_resistive_calculation (Delta' computation) and analyse_with_mre
+    (modified Rutherford equation island evolution model). Requires Zeff and average_ion_mass to ensure user has chosen
+    self-consistent kinetic profiles.
+
+    Parameters
+    ----------
+    eq_filename : str
+        Path to the equilibrium file.
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+        Ion/electron density [m^-3] and temperature [keV] vs psi_n.
+    Zeff : float
+        Effective ion charge (for chi_para and bootstrap current).
+    average_ion_mass : float
+        Mean ion mass in AMU (for Alfven speed / mass density).
+    nvec : list of int
+        Toroidal mode numbers to analyse.
+    **kwargs
+        Forwarded to run_resistive_calculation (STRIDE/RDCON/PEST3 options).
+
+    Returns
+    -------
+    combined_xr : xr.Dataset or None
+        Combined xarray with Delta primes, MRE quantities, and global metrics across all n.
+    input_dict_out : dict
+        Merged input parameters from RDCON/STRIDE/PEST3 across all n.
+    pest3_xr_vec : list of xr.Dataset
+        PEST3-specific xarray outputs per n (None entries if PEST3 failed).
+    xarray_vec : list of xr.Dataset
+        Per-n combined xarray datasets before concatenation.
     """
+
+    if Zeff is None:
+        raise ValueError("Zeff must be provided for nonlinear resistive calculation.")
+    if average_ion_mass is None:
+        raise ValueError("average_ion_mass must be provided for nonlinear resistive calculation.")
 
     xarray_vec = []
     pest3_xr_vec = []
@@ -44,6 +83,10 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         #   Run numerical stability test...
 
         comb_n_xr, n_pest3_xr, n_input_dict = analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+            Er_spline=Er_spline,
+            omega_splines=omega_splines,
+            q_surfs_of_interest=q_surfs_of_interest,
+            psi_surfs_of_interest=psi_surfs_of_interest,
             energy_confinement_time=energy_confinement_time,
             chi_perp_spline=chi_perp_spline,
             k0=k0,

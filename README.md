@@ -4,12 +4,12 @@ All development to follow Vincent Driessen's GitFlow <https://nvie.com/posts/a-s
 
 # Installation 
 
-Short version: (requires uv, gcc, openmpi, cmake and make)
-    cd path/to/tearing-physics-suite
-    uv sync
-    uv run tearing_phyics_suite/build_tearing_physics_suite.py
-    uv run tests/unit_test_suite.py
-    source tearing_physics_suite_env.sh (optional)
+Short version: (requires uv, gcc, openmpi, cmake and make) <br>
+    cd path/to/tearing-physics-suite <br>
+    uv sync <br>
+    uv run tearing_phyics_suite/build_tearing_physics_suite.py <br>
+    uv run tests/unit_test_suite.py <br>
+    source tearing_physics_suite_env.sh (optional) <br>
 
 Long version:
 

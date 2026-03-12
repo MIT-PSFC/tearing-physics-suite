@@ -32,38 +32,41 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         debug_GPEC_resistive_calculation=False, #Quick exit after GPEC resistive calculation
         **kwargs):
     """
-    Run resistive toroidal calculation for a single toroidal mode number by calling the GPEC and PEST3 fortran executables to run in a working directory of user choice.
-    Prints files both to the working directory and to output_location if specified. Use output_prefix for customizing output filenames.
+    Run resistive toroidal calculation for a single toroidal mode number by calling
+    the GPEC and PEST3 fortran executables in a working directory.
+    Prints files both to the working directory and to output_location if specified.
 
-    Parameters:
-    eq_filename (str): Path to the equilibrium file. Cannot be too long (strange old fortran...)
-    nn (int): Toroidal mode number.
-    run_rdcon (bool): If True, run rdcon.
-    run_stride (bool): If True, run stride.
-    run_pest3 (bool): If True, run PEST3.
-    make_working_dir (bool): If True, create a working directory.
-    working_dir (str): Path to the working directory. Will be created if it does not exist and make_working_dir is True.
-    gpec_dir (str): Path to the GPEC directory.
-    pest3_dir (str): Path to the PEST3 build directory.
-    verbose (bool): If True, print verbose output.
-    fresh_start (bool): If True, remove existing calculations from the working directory.
-    output_location (str): If specified, save the output files to this location.
-    output_prefix (str): Prefix for the output files.
-    save_input (bool): If True, save the input parameters used for rdcon, stride, and PEST3 calculations to a netCDF file.
-    save_terminal_output (bool): If True, save the terminal output to rdcon_terminal_output_n{nn}.txt, stride_terminal_output_n{nn}.txt, and pest3_terminal_output_n{nn}.txt in the working directory. If fresh_start is True, the files will be removed if they exist.
-    pest_match_truncation (bool): If True, match the truncation of the PEST3 calculation to the GPEC/STRIDE calculations. If you enter kwarg psihigh_pest, however, this will override the automatic truncation loop.
-    override_save (bool): If True, will override pre-existing saved files with the same name during operation.
-    kwargs: keyword arguments for write_rdcon_stride_inputs and PEST3_resistive_calculation.
+    Parameters
+    ----------
+    eq_filename : str
+        Path to the equilibrium file. Cannot be too long (Fortran path length limitation).
+    nn : int
+        Toroidal mode number.
+    run_rdcon, run_stride, run_pest3 : bool
+        Whether to run each code.
+    working_dir : str
+        Path to the working directory.
+    verbose : bool
+        Print verbose output.
+    fresh_start : bool
+        Remove existing calculations from working_dir before running.
+    output_location : str or None
+        If specified, save output files to this location.
+    output_prefix : str
+        Prefix for output filenames.
+    pest_match_truncation : bool
+        Match PEST3 truncation to GPEC/STRIDE. Overridden by psihigh_pest kwarg.
+    **kwargs
+        Forwarded to write_rdcon_stride_inputs and PEST3_resistive_calculation.
 
-    Returns:
-    rdcon_xr (xarray): Xarray containing the rdcon output.
-    stride_xr (xarray): Xarray containing the stride output.
-    pest3_xr (xarray): Xarray containing the PEST3 output.
-    rdcon_ran (bool): True if rdcon was run successfully.
-    stride_ran (bool): True if stride was run successfully.
-    pest3_ran (bool): True if PEST3 was run successfully.
-    rdcon_stride_input_dict (dict): contains all input parameters used for rdcon, stride calculations.
-    pest3_input_dict (dict): contains all input parameters used for PEST3 calculation.
+    Returns
+    -------
+    rdcon_xr, stride_xr, pest3_xr : xr.Dataset or None
+        Output xarrays from each code.
+    rdcon_ran, stride_ran, pest3_ran : bool
+        Whether each code ran successfully.
+    rdcon_stride_input_dict, pest3_input_dict : dict or None
+        Input parameters used for each calculation.
     """
 
     #Extract keyword arguments for PEST3
@@ -104,6 +107,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     q_rationals = None
     r = None
     r_prime = None
+
     # Define maximum poloidal fourier harmonic with the same logic as in GPEC:
     m_max=0
     m_maxs=0
@@ -112,6 +116,8 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     delta_mhigh=rdcon_stride_input_dict['delta_mhigh']
     delta_mlow=rdcon_stride_input_dict['delta_mlow']
     num_rat_surfaces=0 
+
+    # Pull truncation and poloidal mode information from GPEC calculations: 
     if (run_rdcon and rdcon_ran):
         m_max = int(np.ceil(rdcon_xr.qmax*nn+delta_mhigh))
         m_min = int(np.floor(min(rdcon_xr.qmin*nn,0)-4-delta_mlow))
@@ -144,6 +150,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     m_max = max(m_max, m_maxs)
     m_min = min(m_min, m_mins)
     m_absmax = max(abs(m_max), abs(m_min))
+
     # Set truncation values:
     if (run_stride and stride_ran) and (run_rdcon and rdcon_ran):
         if 2*(abs(qlim_actual-qlim_actuals)/(abs(qlim_actual)+abs(qlim_actual))) > 1e-4:
@@ -251,31 +258,38 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
         override_save=True,
         **kwargs):
     """
-    Run GPEC resistive calculation by calling the rdcon and stride fortran executables to run in a working directory of user choice.
-    Prints files both to the working directory and to output_location if specified. Use output_prefix for customizing output filenames.
-    
-    Parameters:
-    eq_filename (str): Path to the equilibrium file. Cannot be too long (strange old fortran...)
-    nn (int): Toroidal mode number.
-    run_rdcon (bool): If True, run rdcon.
-    run_stride (bool): If True, run stride.
-    make_working_dir (bool): If True, create a working directory.
-    working_dir (str): Path to the working directory. Will be created if it does not exist and make_working_dir is True.
-    gpec_dir (str): Path to the GPEC directory.
-    verbose (bool): If True, print verbose output.
-    fresh_start (bool): If True, remove existing calculations from the working directory.
-    output_location (str): If specified, save the output files to this location.
-    output_prefix (str): Prefix for the output files.
-    save_input (bool): If True, save the input parameters used for rdcon and stride calculations to a netCDF file.
-    save_terminal_output (bool): If True, save the terminal output to rdcon_terminal_output_n{nn}.txt and stride_terminal_output_n{nn}.txt in the working directory. If fresh_start is True, the files will be removed if they exist.
-    kwargs: keyword arguments for write_rdcon_stride_inputs.
+    Run GPEC resistive calculation by calling the rdcon and stride Fortran executables
+    in a working directory. GPEC-only subset of run_resistive_calculation.
 
-    Returns:
-    rdcon_xr (xarray): Xarray containing the rdcon output.
-    stride_xr (xarray): Xarray containing the stride output.
-    rdcon_ran (bool): True if rdcon was run successfully.
-    stride_ran (bool): True if stride was run successfully.
-    rdcon_stride_input_dict (array): xarray containing all input parameters used for rdcon and stride calculations.
+    Parameters
+    ----------
+    eq_filename : str
+        Path to the equilibrium file.
+    nn : int
+        Toroidal mode number.
+    run_rdcon, run_stride : bool
+        Whether to run each GPEC executable.
+    working_dir : str
+        Path to the working directory.
+    verbose : bool
+        Print verbose output.
+    fresh_start : bool
+        Remove existing calculations from working_dir before running.
+    output_location : str or None
+        If specified, save output files to this location.
+    output_prefix : str
+        Prefix for output filenames.
+    **kwargs
+        Forwarded to write_rdcon_stride_inputs.
+
+    Returns
+    -------
+    rdcon_xr, stride_xr : xr.Dataset or None
+        Output xarrays from each executable.
+    rdcon_ran, stride_ran : bool
+        Whether each executable ran successfully.
+    rdcon_stride_input_dict : dict or None
+        Input parameters used for the calculations.
     """
 
     if not (run_rdcon or run_stride): # set warning if both are False
@@ -445,23 +459,30 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
 
 def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict, calc_dps=True, **kwargs):
     """
-    Combine xarrays and input dictionaries from rdcon, stride, and pest3 xarrays (outputs of fortran_wrappers.run_resistive_calculation).
-    We also add delta' values to the xarrays if requested, using the delta_primes function.
-    
-    Parameters:
-    rdcon_xr: xarray from rdcon, output from fortran_wrappers.run_resistive_calculation
-    stride_xr: xarray from stride, output from fortran_wrappers.run_resistive_calculation
-    pest3_xr: xarray from pest3, output from fortran_wrappers.run_resistive_calculation
-    rdcon_ran: Boolean indicating if rdcon ran successfully
-    stride_ran: Boolean indicating if stride ran successfully
-    pest3_ran: Boolean indicating if pest3 ran successfully
-    rdcon_stride_input_dict: Input dictionary from rdcon and stride
-    pest3_input_dict: Input dictionary from pest3
-    calc_dps: Boolean indicating if coupled delta' values should be calculated
+    Combine rdcon, stride, and pest3 xarrays into a single dataset.
 
-    Returns:
-    combined_xr: Combined xarray with all data from rdcon, stride, and pest3
-    input_dict: Combined input dictionary with all parameters from rdcon, stride, and pest3
+    Merges outputs from run_resistive_calculation into one xarray with a 'code'
+    dimension. Optionally computes coupled Delta' values.
+
+    Parameters
+    ----------
+    rdcon_xr, stride_xr, pest3_xr : xr.Dataset or None
+        Per-code output datasets.
+    rdcon_ran, stride_ran, pest3_ran : bool
+        Whether each code ran successfully.
+    rdcon_stride_input_dict, pest3_input_dict : dict or None
+        Input parameter dictionaries.
+    calc_dps : bool
+        If True, compute coupled Delta' values via extract_delta_primes.
+
+    Returns
+    -------
+    combined_xr : xr.Dataset or None
+        Merged dataset with 'code' dimension.
+    pest3_xr : xr.Dataset or None
+        PEST3 dataset (returned separately if it couldn't be merged).
+    input_dict : dict
+        Combined input parameters.
     """
     # Combine input dictionaries:
     if not (rdcon_stride_input_dict is None): #RDCON dict present

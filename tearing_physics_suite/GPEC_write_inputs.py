@@ -33,6 +33,18 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         dump_flag='f',      #Binary dump of basic equilibrium data and 2D rzphi spline
         a_wall=21           #Controls ideal conformal shell distance. See vac.in description below.
         ):
+    """Write the equil.in input file for GPEC equilibrium processing.
+
+    Keyword arguments correspond to EQUIL_CONTROL and EQUIL_OUTPUT namelist entries.
+    See inline comments for descriptions of each parameter.
+
+    Parameters
+    ----------
+    working_dir : str
+        Directory where equil.in will be written.
+    eq_filename : str
+        Path to the equilibrium file (e.g. EFIT g-file).
+    """
 
     f = open(working_dir+write_equil_filename, 'w')
 
@@ -329,6 +341,18 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             set_singfac_min_to_dx = False,       # If true, set singfac_min to dx0. This is useful for scans where you want to see the effect of changing asymptotic matching point on Delta Prime.
             set_int_tolerances_equal = False,    # If true, set tol_nr, gal_tol equal to tol_r.
             **kwargs):
+    """Write the RDCON and STRIDE input namelists (rdcon.in and stride.in) for GPEC.
+
+    Keyword arguments correspond to RDCON_CONTROL, RDCON_OUTPUT, STRIDE_CONTROL,
+    and STRIDE_OUTPUT namelist entries. See inline comments for descriptions.
+
+    Parameters
+    ----------
+    working_dir : str
+        Directory where input files will be written.
+    nn : int
+        Toroidal mode number.
+    """
 
     if verbose: print('printing eq_type=',eq_type)
     if not run_rdcon and not run_stride:

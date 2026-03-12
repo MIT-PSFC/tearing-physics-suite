@@ -13,24 +13,32 @@ def scan_1D_input(input_name,input_values,eq_filename,
         nn,
         debug=False,
         **kwargs):
-    """
-    Runs a 1D scan over a specified input parameter for the resistive calculation.
+    """Run a 1D parameter scan of the resistive calculation.
 
-    Parameters:
-        input_name: str, name of the input parameter to scan
-        input_values: list, values to scan over
-        eq_filename: str, path to the equilibrium file
-        nn: int, number of modes to use in the calculation
-        kwargs: additional keyword arguments to pass to the run_resistive_calculation function
+    Parameters
+    ----------
+    input_name : str
+        Name of the input parameter to scan.
+    input_values : list
+        Values to scan over.
+    eq_filename : str
+        Path to the equilibrium file.
+    nn : int
+        Toroidal mode number.
+    debug : bool
+        If True, return raw results list before post-processing.
+    abs_threshold : float
+        Absolute threshold for Delta' variation check.
+    rel_threshold : float
+        Relative threshold for Delta' variation check.
+    **kwargs
+        Forwarded to run_resistive_calculation.
 
-    Returns output of extract_scanned_xrs:
-        xarrays: list of xarrays containing the results of the scan
-        pest3_xarrays: list of xarrays containing the results from pest3 (separate in case there is a discrepancy in the number of modes)
-        input_dicts: list of dictionaries containing the input parameters for each run
-        input_values: list of values used for the scan
-        input_name: str, name of the input parameter scanned
-        message: str, message containing the input values, single-helicity delta prime results and q-surface information
-        deltaprimes: list of lists containing first set of delta prime values for each run
+    Returns
+    -------
+    tuple
+        Output of extract_scanned_xrs: (xarrays, pest3_xarrays, input_dicts,
+        input_values, input_name, message, deltaprimes).
     """
     #########################################################################################################
     # Check input name isn't in kwargs

@@ -32,8 +32,26 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
         **kwargs):
     """ 
-    Big function that calculates Delta primes with run_resistive_calculation, then runs analysis on output deltaprimes, returning
+    Executive function that calculates Delta primes with run_resistive_calculation, then runs MRE analysis on output deltaprimes, returning
     a fully combined xarray.
+
+    Parameters
+    ----------
+    eq_filename : str
+        Path to MHD equilibrium file.
+    nn : int
+        Toroidal mode number.
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+        Density (m^-3) and temperature (keV) profiles as functions of normalised poloidal flux.
+
+    Returns
+    -------
+    combined_xr : xr.Dataset
+        Combined xarray containing Delta primes, MRE terms, and island width analysis.
+    pest3_xr : xr.Dataset or None
+        Separate PEST3 output if it could not be merged into combined_xr.
+    input_dict : dict
+        Dictionary of all input parameters used in the calculation.
     """ 
 
     # Check that either energy_confinement_time or chi_perp_spline is defined:
@@ -168,9 +186,21 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     return combined_xr, pest3_xr_out, input_dict
 
 def mre_raw_interp(rdcon_xarray):
-    """
-    Interpolate MRE terms onto rational surfaces using cubic splines. Requires mre_flag & geom_flag='t' (as per default) 
-    when running RDCON.
+    """Interpolate MRE terms onto rational surfaces using cubic splines.
+
+    Requires mre_flag & geom_flag='t' (as per default) when running RDCON.
+    Interpolates Di, Dr, H, Dnc, tau_a, tau_r, ftr, mufrac, Wc, avg_B, avg_Bp, avg_Bt,
+    avg_r, avg_R and other geometric/MRE quantities from the full psi grid onto psi_n_rational.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset from RDCON with full-grid MRE and geometry variables.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with _surf variables added at rational surface locations.
     """
     #########################################################################################################
     # Put mre terms onto surfaces:
@@ -220,11 +250,30 @@ def mre_raw_interp(rdcon_xarray):
         avg_Bp_surf =avg_Bp_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_r_surf =avg_r_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_R_surf =avg_R_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_inv_R_surf =avg_inv_R_surf+0.0*rdcon_xarray['psi_n_rational'],
-        overbar_Rsq_surf =overbar_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Rsq_surf =avg_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Bsq_on_nabla_psisq_surf = avg_Bsq_on_nabla_psisq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Bsq_surf = avg_Bsq_surf+0.0*rdcon_xarray['psi_n_rational'],
+           overbr_Rsq_surf =overbar_Rsq_surf+0.0*rdcon_xafor comparison with resistive MHD simulations.
+
+    Takes simulation values (resistivity, mass density) and pre-calculated equilibrium terms
+    at rational surfaces to compute dimensionless MRE parameters.
+
+    Parameters
+    ----------
+    eta : array-like
+        Spitzer resistivity in Ohm*m at each rational surface.
+    mass_densities : array-like
+        Mass density in kg/m^3 at each rational surface.
+    n : int
+        Toroidal mode number.
+    taur_prefac_surf, taua_prefac_surf : array-like
+        Resistive and Alfven time prefactors at rational surfaces (from RDCON).
+    DeltaPrime_crits_no_X0 : array-like
+        Critical Delta' values before X0 correction.
+    H_surf : array-like
+        H parameter (curvature/pressure gradient term) at rational surfaces.
+
+    Returns
+    -------
+    X0s, Ss, tauas, taurs, DeltaPrime_crits : np.ndarray
+        Dimensionless parameters and critical Delta'array['psi_n_rational'],
         avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational']
     )
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
@@ -235,6 +284,25 @@ def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
     """
     Calculates X0, S, taua, taur, and Delta_prime_crit given the necessary inputs. Use case: comparison with simulation.
         Take three values from your resistive MHD simulation at a chosen set of rational surfaces: resistivity (eta in  Ohm m), mass_density (kg / m^3), and toroidal mode number n.
+    """Compute Spitzer resistivity and Coulomb logarithm on rational surfaces and full psi grid.
+
+    Adds variables eta_spitz, eta_spitz_surf, lnLamb_ei, lnLamb_ei_surf (and ee variants)
+    to rdcon_xarray using Wesson Tokamaks formulae.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain ne_m3, te_keV (full grid) and ne_m3_surf, te_keV_surf (on rational surfaces).
+    eta_fac : float
+        Multiplicative factor applied to Spitzer resistivity (e.g. to match simulation values).
+    Coulomb_logarithm : float or None
+        If provided, overrides the Wesson formula with a fixed value.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with resistivity variables added.
+    """
         Then take four pre-calculated terms at those same rational surfaces: taur_prefac_surf, taua_prefac_surf, DeltaPrime_crit_no_X0, and H_surf. Returns
         X0, S, taua, taur, and Delta_prime_crit at each rational surface for your simulation.
     """
@@ -471,11 +539,24 @@ def mre_flux_gradients(rdcon_xarray):
     return rdcon_xarray
 
 def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
-    """
-    Calculate the linear, critical (single helicity) Delta' for an instability on each surface,
-    using a couple of different formulations.
-    The first formulation is Glasser et al. Phys. Fluids 1975, Eq 111.
-    The second formulation is from Connor et al. PPCF 2015, Eq 59.
+    """Calculate the linear critical Delta' for tearing instability onset on each rational surface.
+
+    Implements two formulations:
+    1. Glasser, Greene & Johnson, Phys. Fluids 1975, Eq. 111
+    2. Connor, Hastie & Helander, PPCF 2015, Eq. 59
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with H_surf, Dr_surf, X0_surf, and chi_para variables.
+    force_lmfp : bool
+        If True, always use the long-mean-free-path chi_para formulation.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with DeltaPrime_crit_GGJ_surf, DeltaPrime_crit_CHH_surf,
+        and related variables added.
     """
     import math
 
@@ -661,9 +742,25 @@ def extract_critical_mre_factors_on_modes(
     return code_xarray
 
 def mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_vec_lowres):
-    """
-        Defines for a particular surface (where wd_function and surface quantities are set)
-        a function that takes in a delta prime and outputs delta prime dependent MRE values.
+    """Build a closure that maps a Delta' value to nonlinear MRE outputs for a single surface.
+
+    Parameters
+    ----------
+    wd_function : callable
+        w_bar -> wd_bar mapping from generate_wd_function.
+    Dr, Di, Dnc, H : float
+        MRE equilibrium parameters at this surface.
+    k1, C0 : float
+        MRE model constants.
+    prefac : float
+        Prefactor converting psi_norm units to SI.
+    w_vec, w_vec_lowres : array-like
+        Island width grids (high-res for root-finding, low-res for output).
+
+    Returns
+    -------
+    DP_to_MRE : callable
+        Function(delta_prime_surf) -> (dwdt_vec, w_marg, w_sat, w_max_loc, dwdtau_max, wd_at_marg).
     """
     def DP_to_MRE(delta_prime_surf):
         dwdt_vec_low_res = np.full_like(w_vec_lowres, np.nan)
@@ -798,12 +895,26 @@ def extract_mre_factors_old(dwdtau_vec, w_vec): #Update with cubic spline?
 
     return w_marg, w_sat, w_max_loc, dwdtau_max
 
-
 def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
-    """
-    Extracts the critical MRE factors from the dwdtau_vec and w_vec.
-    Returns the marginally stable island width, saturated island width, 
-    location of maximum island width, and the maximum dwdtau value.
+    """Extract critical MRE factors from dwdtau(w) using cubic spline root-finding.
+
+    Parameters
+    ----------
+    dwdtau_vec : array-like
+        MRE right-hand-side evaluated over w_vec.
+    w_vec : array-like
+        Island width grid (normalised poloidal flux).
+
+    Returns
+    -------
+    w_marg : float
+        Marginally stable island width (first spline root, if dwdtau starts negative).
+    w_sat : float
+        Saturated island width (last spline root, if dwdtau ends negative).
+    w_max_loc : float
+        Island width at maximum growth rate (refined via derivative root).
+    dwdtau_max : float
+        Peak dwdtau value at w_max_loc.
     """
     dwdtau_spln=CubicSpline(w_vec,dwdtau_vec,extrapolate=False)
     dwdtau_deriv_spln=CubicSpline(w_vec,dwdtau_spln(w_vec,1),extrapolate=False) 
@@ -841,6 +952,21 @@ def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
     return w_marg, w_sat, w_max_loc, dwdtau_max
 
 def get_local_max(xvec,yvec):
+    """Find the local maximum of yvec, returning the corresponding (x, y) pair.
+
+    If multiple peaks exist, returns the one at the largest x value.
+    Returns (nan, nan) if no peaks are found.
+
+    Parameters
+    ----------
+    xvec, yvec : array-like
+        x and y data arrays of equal length.
+
+    Returns
+    -------
+    x_peak, y_peak : float
+        Coordinates of the selected peak.
+    """
     peak_inds = find_peaks(yvec)[0]
     if len(peak_inds) == 0:
         return np.nan, np.nan
@@ -864,6 +990,25 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
     since if the chi_para_smfp and chi_para_lmfp are equal, this formula cuts chi_para in half, which I don't agree with.
 
     If iterator is False, we calculate the ratio of chi_perp/chi_para at the specific island size being evaluated (I think this is more correct).
+    Requires rdcon_xarray to have been through cross_field_transport.py.
+
+    Parameters
+    ----------
+    rdcon_xarray_surf : xr.Dataset
+        Single-surface slice with chi_perp_surf, chi_para_smfp_surf,
+        chi_para_lmfp_no_w_surf, Wc_prefac_m_surf, X0_surf.
+    force_lmfp : bool
+        Use only the long-mean-free-path chi_para (ignore smfp).
+    iterator : bool
+        If True, iterates wd to self-consistency (ignores input w_bar).
+        If False (default), evaluates chi_para at the given w_bar directly.
+    use_Fitz_formula : bool
+        Use Fitzpatrick 2023 Eq. 14.209 harmonic mean for chi_para.
+
+    Returns
+    -------
+    wd_function : callable
+        Function(w_bar) -> wd_bar.
     """
 
     chi_perp = rdcon_xarray_surf['chi_perp_surf'].values
@@ -910,25 +1055,27 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
     return wd_function
 
 def dwdtau(w_bar: float, wd_function: 'function', DeltaPrimeGPEC: float, Dr: float, Di: float, Dnc: float, H: float, k1: float, C0: float):
-    """
-    Returns the right hand side of the MRE from Schlutt and Hegna PoP 2012 & Hegna 1999, using normalised
-    poloidal flux space as per Rosenburg PoP 2002. Units are psi_p_norm^(-1)
+    """Evaluate the right-hand side of the Modified Rutherford Equation.
+
+    Combines Delta' drive, GGJ curvature stabilisation, and neoclassical bootstrap terms.
+    From Schlutt & Hegna PoP 2012 and Hegna 1999, in normalised poloidal flux space
+    (Rosenburg PoP 2002). Units: psi_p_norm^(-1).
     """
     wd_bar=wd_function(w_bar)
     return DeltaPrime_bar(w_bar, DeltaPrimeGPEC, Di) + Delta_GGJ(w_bar, wd_bar, Dr, Di, H, k1, C0) + Delta_nc(w_bar, wd_bar, Dnc, k1, C0)
         
 def Delta_nc(w_bar: float, wd_bar: float, Dnc: float, k1: float, C0: float):
-    """
-    Calculates the neoclassical bootstrap drive terms in the MRE from Schlutt and Hegna PoP 2012,
-    converted to normalised poloidal flux space. This whole term has units psi_norm^(-1).
+    """Neoclassical bootstrap current drive term of the MRE (Schlutt & Hegna PoP 2012).
+
+    Converted to normalised poloidal flux space. Units: psi_norm^(-1).
     """
     return k1*Dnc*w_bar/(w_bar**2+(wd_bar**2)*k1/(C0*0.81))
 
 def Delta_GGJ(w_bar: float, wd_bar: float, Dr: float, Di: float, H: float, k1: float, C0: float):
-    """
-    Calculates the curvature stabilisation term in the MRE from Schlutt and Hegna PoP 2012,
-    converted to normalised poloidal flux space. Note typo in that paper; to agree with Hegna 1999 in 
-    the toroidal limit, we use k1 instead of k0. This whole term has units psi_norm^(-1).
+    """Glasser-Greene-Johnson curvature stabilisation term of the MRE (Schlutt & Hegna PoP 2012).
+
+    Converted to normalised poloidal flux space. Note typo in that paper; to agree with Hegna 1999 in 
+    the toroidal limit, we use k1 instead of k0. Units: psi_norm^(-1).
     """
     alpha_l=0.5-np.sqrt(-Di)
     alpha_s=0.5+np.sqrt(-Di)
@@ -937,10 +1084,10 @@ def Delta_GGJ(w_bar: float, wd_bar: float, Dr: float, Di: float, H: float, k1: f
     return k1*Dh/denom
 
 def DeltaPrime_bar(w_bar: float, DeltaPrimeGPEC: float, Di: float):
-    """
-    Calculates the delta prime term for the MRE from Hegna PoP 1999 & Schlutt and Hegna PoP 2012
-    (note the typo in the latter), converted to normalised poloidal flux space as per Rosenburg PoP 2002. 
-    Note DeltaPrimeGPEC has units psi_norm^{-2sqrt(-Di)}. This whole term has units psi_norm^(-1).
+    """Delta' drive term of the MRE (Hegna PoP 1999, Schlutt & Hegna PoP 2012 - note the type in the latter).
+
+    Converted to normalised poloidal flux space as per Rosenburg PoP 2002.
+    Note DeltaPrimeGPEC has units psi_norm^{-2*sqrt(-Di)}. This term has units psi_norm^(-1).
     """
     alpha_l=0.5-np.sqrt(-Di)
     return DeltaPrimeGPEC*(w_bar/2)**(-2*alpha_l)*np.sqrt(-4*Di)

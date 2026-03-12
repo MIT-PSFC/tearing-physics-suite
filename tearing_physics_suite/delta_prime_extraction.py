@@ -11,12 +11,25 @@ from jax import jacfwd
 from tearing_physics_suite.utils import trim_nans
 
 def extract_delta_primes(inputxr,debug=False, couple_reals=True):
-    """ 
-        Takes input xarray with Delta_prime variable, and returns input xarray with complex Delta_prime_surf on rational surfaces, calculated using extract_delta_primes_(). These
-        include single helicity complex delta' values, and outer-region coupled delta' values (Brennan & Sugiyama PoP 2006). If 
-        Delta_prime_perr (pest error) or Delta_prime_err is present, this function will also propagate those errors through the outer region coupling. 
+    """Compute single-helicity and outer-region-coupled Delta' on rational surfaces.
 
-        Assume Delta_prime_perr and Delta_prime_err are real.  
+    Extracts complex Delta' from inputxr, applies Brennan & Sugiyama (PoP 2006)
+    coupling formulae, and propagates errors if Delta_prime_perr or Delta_prime_err
+    are present. Assumes errors are real-valued and propagates only the real component of the errors through the coupling equations.
+
+    Parameters
+    ----------
+    inputxr : xr.Dataset
+        Must contain Delta_prime with dimension 'i' (0 = real, 1 = imaginary).
+    debug : bool
+        If True, return intermediate arrays for debugging.
+    couple_reals : bool
+        Whether to couple only real components of the Delta' matrix.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with Delta_prime_surf (dims: r, Delta_prime_type) added.
     """
 
     # Check if Delta_prime is in inputxr:
@@ -310,14 +323,30 @@ def extract_delta_primes_(delta_primes,debug=False, delta_prime_errs=None, coupl
     return np.array(delta_prime_single_helicity), np.array(delta_prime_eff), np.array(delta_prime_nn_eff), np.array(delta_prime_2nn_eff), np.array(divisors)
 
 def delta_prime_no_couple(delta_primes):
-    """ Uncoupled delta' values. """
+    """Return uncoupled (single-helicity) Delta' values: the matrix diagonal."""
     return delta_primes.diagonal()
 
 def matrix_cofactor(matrix):
+    """Compute the cofactor matrix (adjugate transpose) of a square matrix.
+
+    Parameters
+    ----------
+    matrix : jnp.ndarray
+        Square matrix.
+
+    Returns
+    -------
+    jnp.ndarray
+        Cofactor matrix, computed as inv(matrix).T * det(matrix).
+    """
     return jnp.linalg.inv(matrix).T * jnp.linalg.det(matrix)
 
 def delta_prime_full_couple(delta_primes):
-    """ Delta' values modified by coupling across the whole matrix. """
+    """Compute Delta' with full outer-region coupling across all surfaces.
+
+    Uses cofactor matrix to include coupling contributions from every
+    off-diagonal element of the Delta' matrix.
+    """
     delta_prime_single_helicity = delta_primes.diagonal()
     Mcof = matrix_cofactor(delta_primes)
     # Extract coupled elements
@@ -335,7 +364,10 @@ def delta_prime_full_couple(delta_primes):
     return jnp.array(delta_prime_eff)
 
 def delta_prime_nn_couple(delta_primes):
-    """ Delta' values modified by coupling with the first nearest neighbour surfaces. """
+    """Compute Delta' with nearest-neighbour coupling only.
+
+    Includes coupling contributions from surfaces with |i - j| == 1.
+    """
     delta_prime_single_helicity = delta_primes.diagonal()
     Mcof = matrix_cofactor(delta_primes)
     # Extract coupled elements
@@ -353,7 +385,10 @@ def delta_prime_nn_couple(delta_primes):
     return jnp.array(delta_prime_nn_eff)
 
 def delta_prime_2nn_couple(delta_primes):
-    """ Delta' values modified by coupling with the first and second nearest neighbour surfaces. """
+    """Compute Delta' with first and second nearest-neighbour coupling.
+
+    Includes coupling contributions from surfaces with |i - j| <= 2.
+    """
     delta_prime_single_helicity = delta_primes.diagonal()
     Mcof = matrix_cofactor(delta_primes)
     # Extract coupled elements
@@ -371,7 +406,7 @@ def delta_prime_2nn_couple(delta_primes):
     return jnp.array(delta_prime_2nn_eff)
 
 def get_delta_prime_divisors(delta_primes):
-    """ Delta' division values used in matrix coupling. """
+    """Return the cofactor matrix diagonal elements used as divisors in coupling calculations."""
     Mcof = matrix_cofactor(delta_primes)
     assert delta_primes.shape == Mcof.shape, "Cofactor matrix has different shape than input matrix."
     divisors = Mcof.diagonal()
@@ -379,10 +414,26 @@ def get_delta_prime_divisors(delta_primes):
     return jnp.array(divisors)
 
 def extract_variances(delta_primes,delta_prime_errs,debug=False):
-    """ Returns propagated errors of delta primes using variance formula 
-        (see attached reference doi:10.6028/jres.070c.025 
-        to https://en.wikipedia.org/wiki/Propagation_of_uncertainty#cite_note-9)
-        Uses jacobians of Delta prime coupling functions calculated using Jax.
+    """ 
+    Returns propagated errors of delta primes using variance formula 
+    (see attached reference doi:10.6028/jres.070c.025 
+    to https://en.wikipedia.org/wiki/Propagation_of_uncertainty#cite_note-9)
+    Uses jacobians of Delta prime coupling functions calculated using Jax.
+
+    Parameters
+    ----------
+    delta_primes : np.ndarray
+        Square Delta' matrix (real part used if complex).
+    delta_prime_errs : np.ndarray
+        Real error matrix matching delta_primes shape.
+    debug : bool
+        Print intermediate Jacobian arrays.
+
+    Returns
+    -------
+    tuple of np.ndarray
+        Propagated errors for (single_helicity, full_couple, nn_couple,
+        2nn_couple, divisors).
     """
 
     # Check delta_prime_errs is real:
@@ -447,48 +498,3 @@ def extract_variances(delta_primes,delta_prime_errs,debug=False):
         print("Error propagation function isn't working, debug!")
 
     return np.array(delta_prime_single_helicity_err), np.array(delta_prime_eff_err), np.array(delta_prime_nn_eff_err), np.array(delta_prime_2nn_eff_err), np.array(divisors_err)
-
-
-""" Deprecated old function:
-    #########################################################################################################
-    # Do the calculation, using sub functions to enable auto-diff
-    #########################################################################################################
-    # Extract diagonal elements:
-    delta_prime_single_helicity = delta_primes.diagonal()
-
-    delta_prime_eff = delta_prime_full_couple(delta_primes)
-    delta_prime_nn_eff = delta_prime_nn_couple(delta_primes)
-    delta_prime_2nn_eff = delta_prime_2nn_couple(delta_primes)
-
-    M = Matrix(delta_primes)
-    Mcof = matrix_cofactor(delta_primes)
-    assert M.shape == Mcof.shape, "Cofactor matrix has different shape than input matrix."
-    # Extract coupled elements
-    delta_prime_mod = [] # Delta prime modifier due to coupling of all surfaces
-    delta_prime_nn_mod = [] # Delta prime modifier due to couplin to nearest neighbour(s) 
-    delta_prime_2nn_mod = [] # Delta prime modifier due to coupling to first and second nearest neighbour(s)
-    divisors = []
-    for i in range(M.shape[0]):
-        DP_coupled_i = 0 # Initialise coupled delta_prime to nothing
-        DP_coupled_i_nn = 0
-        DP_coupled_i_2nn = 0
-        divisor = Mcof[i, i]
-        for j in range(M.shape[0]):
-            if i != j:
-                DP_coupled_i += M[i, j]*Mcof[i, j]
-                #Check if difference of i and j is less than or equal to 1:
-                if abs(i - j) == 1:
-                    DP_coupled_i_nn += M[i, j]*Mcof[i, j]
-                    DP_coupled_i_2nn += M[i, j]*Mcof[i, j]
-                elif abs(i - j) == 2:
-                    DP_coupled_i_2nn += M[i, j]*Mcof[i, j]
-        delta_prime_mod.append(DP_coupled_i / divisor)
-        delta_prime_nn_mod.append(DP_coupled_i_nn / divisor)
-        delta_prime_2nn_mod.append(DP_coupled_i_2nn / divisor)
-        divisors.append(divisor)
-
-    # To get coupled delta prime values, add modifiers to single helicity values:
-    delta_prime_eff = delta_prime_single_helicity + delta_prime_mod    
-    delta_prime_nn_eff = delta_prime_single_helicity + delta_prime_nn_mod
-    delta_prime_2nn_eff = delta_prime_single_helicity + delta_prime_2nn_mod
-"""

@@ -111,9 +111,20 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
 def clean_multi_n_dictionaries(input_dict_vec):
-    """ 
-        Cleans up a list of dictionaries by removing the 'nn' key and grouping nn-dependent inputs into sub-dictionaries within the main dictionary,
-        with names formatted as 'n{nn}_dependent_inputs'.
+    """Merge per-n input dictionaries into a single dict, grouping n-dependent entries.
+
+    Keys that vary across n values are placed into sub-dictionaries named
+    'n{nn}_dependent_inputs'. The 'nn' key is removed from all dicts.
+
+    Parameters
+    ----------
+    input_dict_vec : list of dict
+        One dictionary per toroidal mode number, each containing an 'nn' key.
+
+    Returns
+    -------
+    dict
+        Merged dictionary. If only one n, returns that dict directly.
     """
 
     # Remove n from all dicts in input_dict_vec:
@@ -176,7 +187,9 @@ def clean_multi_n_dictionaries(input_dict_vec):
     return first_dict
 
 def compare_dicts(d1,d2):
-    """ Compares two dictionaries, returning True if they are identical, False otherwise.
+    """Compare two dictionaries, returning True if all keys and values match.
+
+    Prints which keys or values differ.
     """
     if d1.keys() != d2.keys():
         print("Dictionaries have different keys:")
@@ -194,6 +207,17 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     """ Runs linear tearing analysis on an equilibrium over a range 
     of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
     setting the operational parameters of STRIDE, RDCON and PEST3.
+
+    Returns
+    -------
+    combined_xr : xr.Dataset or None
+        Combined xarray with Delta primes across all n.
+    input_dict_out : dict
+        Merged input parameters from RDCON/STRIDE/PEST3.
+    pest3_xr_vec : list of xr.Dataset
+        PEST3-specific outputs per n.
+    xarray_vec : list of xr.Dataset
+        Per-n combined xarray datasets.
     """
 
     xarray_vec = []
@@ -258,10 +282,24 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
 def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
-    """ 
-    Ranks nonlinear stability of all modes, and computes least stable modes
-    via two metrics: largest nondimensional island growth rate (max_dwdtau), and smallest
-    seed island needed to initiate an NTM (min_w_marg).
+    """Rank nonlinear stability of all modes across n and rational surfaces.
+
+    Computes least-stable-mode metrics: largest nondimensional island growth rate
+    (max_dwdtau) and smallest seed island needed to initiate NTM onset (min_w_marg). Rankings
+    are computed per (Delta_prime_type, code) combination within psi_pedestal_cutoff.
+
+    Parameters
+    ----------
+    combined_xr : xr.Dataset
+        Multi-n combined dataset with w_marg_surf and dwdtau_max_surf.
+    psi_pedestal_cutoff : float
+        Exclude modes with psi_n_rational above this value from ranking.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with min_w_marg_allsurf, max_dwdtau_allsurf,
+        min_w_marg_rank, and max_dwdtau_rank variables added.
     """
     # Min w_marg_surf over all m, n
     # Max dwdtau over all m, n
@@ -339,13 +377,35 @@ def delta_prime_variability(xarray,comparison_var='code',
         #abs_PEST_threshold=0.3,
         #rel_PEST_threshold=0.1
         ):
-    """ 
-    Function that compares Delta_prime_surf across the variable 'comparison_var'. 
-    The comparison is performed for all m,n modes, across all Delta_prime_surf types.
-    
+    """Compare Delta_prime_surf across a dimension (e.g. 'code') for all modes.
+
+    Records absolute and relative differences. Handles special comparisons:
+    STRIDE vs RDCON ('GPEC') and GPEC vs PEST3 ('GPECvsPEST').
+
     Boolean True False values are generated to check whether the differences in Delta_prime_surf lie within the bounds 
     set by abs_threshold, rel_threshold, abs_PEST_threshold, and rel_PEST_threshold.
+
+    Parameters
+    ----------
+    xarray : xr.Dataset or xr.xarray.DataArray
+        If xr.Dataset, must contain Delta_prime_surf. Must have comparison_var as a dimension.
+    comparison_var : str
+        Dimension along which to compare (default 'code').
+    run_bool_check : bool
+        If True, also checks whether differences exceed thresholds.
+    abs_threshold, rel_threshold : float
+        Thresholds for the boolean checks.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset with Delta_prime_diff_across_* and Delta_prime_reldiff_across_* added.
+        If run_bool_check, also returns four boolean scalars.
     """
+
+    # Convert xarray into Dataset if it isn't already one:
+    if isinstance(xarray, xr.DataArray):
+        xarray = xarray.to_dataset(name='Delta_prime_surf')
 
     #########################################################################################################
     # check xarray has comparison_var in it
@@ -388,9 +448,26 @@ def delta_prime_variability(xarray,comparison_var='code',
     return xarray
 
 def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_name=''):
-    """ 
-    Computes absolute and relative differences in Delta_prime_surf across the variable 'comparison_var'. 
-    Will use comparison_var for the new variable name unless override_name is specified. """
+    """Compute absolute and relative Delta' differences across comparison_var.
+
+    Adds Delta_prime_diff_across_{name}, Delta_prime_reldiff_across_{name} to xarray.
+
+    Parameters
+    ----------
+    xarray : xr.Dataset
+        Target dataset.
+    Delta_prime_surf : xr.DataArray
+        Delta' values to compare. Must have comparison_var as a dimension.
+    comparison_var : str
+        Dimension along which to compute max - min.
+    override_name : str
+        If non-empty, used in output variable names instead of comparison_var.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with difference variables added.
+    """
 
     Delta_prime_diffs_across_var = np.abs(Delta_prime_surf.max(dim=comparison_var)-Delta_prime_surf.min(dim=comparison_var))
     Delta_prime_reldiffs_across_var = Delta_prime_diffs_across_var / np.abs(Delta_prime_surf).mean(dim=comparison_var)
@@ -408,9 +485,20 @@ def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_
 
     return xarray
 
-def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_prime_type='single helicity'):
-    """ Checks if the relative difference in Delta primes across comparison_var
-    exceeds the specified thresholds. Does so in for all m,n modes, as well as all m,n within psi95. """
+def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_prime_type='single helicity',drop_pest=False):
+    """Check whether Delta' differences across comparison_var exceed thresholds.
+
+    Tests both all modes and modes within psi_n < 0.95.
+
+    Returns
+    -------
+    xr.Dataset
+        Updated dataset with *_thresh_exceeded variables.
+    abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere : xr.DataArray
+        Whether absolute / relative thresholds are exceeded for any (r, n).
+    abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere : xr.DataArray
+        Same, restricted to modes within psi_n < 0.95.
+    """
 
     absdiffs_name = f'Delta_prime_diff_across_{comparison_var}'
     reldiffs_name = f'Delta_prime_reldiff_across_{comparison_var}'

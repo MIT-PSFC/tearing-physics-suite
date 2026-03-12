@@ -19,7 +19,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         make_results_dir=True,
         working_dir=os.path.join(home_dir, 'working_dir'),
         gpec_dir=os.path.join(home_dir, 'submodules/GPEC'), 
-        pest3_dir=os.path.join(home_dir, 'submodules/PEST3/build/pest3'),
+        pest3_dir=os.path.join(home_dir, 'submodules/PEST3/cmake_build/pest3'),
         verbose=True,
         fresh_start=True,
         output_location=None,
@@ -219,6 +219,12 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
                 )
                 if pest3_trunc_ran:
                     pest3_kwargs_dict['psihigh_pest'] = psihigh_trunc_pest
+
+        if not ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)):
+            print("**************************************************************** WARNING **********************************************************************")
+            print("PEST3 calculation is running without rdcon or stride results to match truncation to. Results may not be comparable to GPEC calculations.")
+            print("**************************************************************** WARNING **********************************************************************")
+            raise RuntimeError
 
         pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
             eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
@@ -506,6 +512,7 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
         for attr_key in rdcon_xr.attrs.keys():
             rdcon_xr[attr_key] = rdcon_xr.attrs[attr_key]
         rdcon_xr.attrs = {}
+        rdcon_xr = rdcon_xr.drop_attrs(deep=True)
         # Add new dimension for code to rdcon_xr
         rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
         rdcon_xr_expanded['code'] = ['rdcon']
@@ -522,6 +529,7 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
         for attr_key in stride_xr.attrs.keys():
             stride_xr[attr_key] = stride_xr.attrs[attr_key]
         stride_xr.attrs = {}
+        stride_xr = stride_xr.drop_attrs(deep=True)
         # Add new dimension for code to stride_xr
         stride_xr_expanded = stride_xr.expand_dims(dim='code', axis=0)
         stride_xr_expanded['code'] = ['stride']
@@ -539,6 +547,7 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
         for attr_key in pest3_xr.attrs.keys():
             pest3_xr[attr_key] = pest3_xr.attrs[attr_key]
         pest3_xr.attrs = {}
+        pest3_xr = pest3_xr.drop_attrs(deep=True)
         # Add new dimension for code to pest3_xr
         pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
         pest3_xr_expanded['code'] = ['pest3']

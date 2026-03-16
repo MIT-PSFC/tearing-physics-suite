@@ -551,28 +551,43 @@ def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_
         f'{reldiffs_name}_thresh_exceeded': xarray[reldiffs_name] > rel_threshold
     })
 
+    abs_thresh_exceeded_da = xarray[f'{absdiffs_name}_thresh_exceeded']
+    rel_thresh_exceeded_da = xarray[f'{reldiffs_name}_thresh_exceeded']
+
     #########################################################################################################
     # Applying psi_n_rational mask to check if thresh exceeded within the q95 window
     #########################################################################################################
-    psi_n_rational_like_absdiffs = xarray.psi_n_rational+0.0*xarray[absdiffs_name]
+    psi_n_rational_copy = xarray.psi_n_rational.mean(dim=comparison_var)
+    psi_n_rational_like_absdiffs = psi_n_rational_copy.broadcast_like(xarray[f'{absdiffs_name}_thresh_exceeded'])
 
-    abs_thresh_exceeded_within_q95 = xarray[absdiffs_name].where(psi_n_rational_like_absdiffs < 0.95)
-    rel_thresh_exceeded_within_q95 = xarray[reldiffs_name].where(psi_n_rational_like_absdiffs < 0.95)
+    abs_thresh_exceeded_within_q95 = xarray[f'{absdiffs_name}_thresh_exceeded'].where(psi_n_rational_like_absdiffs < 0.95, drop=True)
+    rel_thresh_exceeded_within_q95 = xarray[f'{reldiffs_name}_thresh_exceeded'].where(psi_n_rational_like_absdiffs < 0.95, drop=True)
 
-    #xarray = xarray.assign({
-    #    f'{absdiffs_name}_thresh_exceeded_psi95': abs_thresh_exceeded_within_q95,
-    #    f'{reldiffs_name}_thresh_exceeded_psi95': rel_thresh_exceeded_within_q95
-    #})
+    #########################################################################################################
+    # Optional: drop pest3 from the boolean checks, since it's expected to differ more and is less relevant for input scans.
+    #########################################################################################################
+
+    if drop_pest and 'pest3' in xarray.code.values:
+        abs_thresh_exceeded_da = abs_thresh_exceeded_da.where(xarray.code != 'pest3', drop=True)
+        rel_thresh_exceeded_da = rel_thresh_exceeded_da.where(xarray.code != 'pest3', drop=True)
+        abs_thresh_exceeded_within_q95 = abs_thresh_exceeded_within_q95.where(xarray.code != 'pest3', drop=True)
+        rel_thresh_exceeded_within_q95 = rel_thresh_exceeded_within_q95.where(xarray.code != 'pest3', drop=True)
 
     #########################################################################################################
     # Cycling over all m,n
     #########################################################################################################
 
-    abs_thresh_exceeded_anywhere_da = xarray[f'{absdiffs_name}_thresh_exceeded'].any(dim=["r","n"])
-    rel_thresh_exceeded_anywhere_da = xarray[f'{reldiffs_name}_thresh_exceeded'].any(dim=["r","n"])
+    # Check if absdiffs_name has dims "nn" in them:
+    if "nn" in xarray[absdiffs_name].dims:
+        reduce_dims = ["r", "nn"]
+    else:
+        reduce_dims = ["r"]
 
-    abs_thresh_exceeded_psi95_anywhere_da = abs_thresh_exceeded_within_q95.any(dim=["r","n"])
-    rel_thresh_exceeded_psi95_anywhere_da = rel_thresh_exceeded_within_q95.any(dim=["r","n"])
+    abs_thresh_exceeded_anywhere_da = abs_thresh_exceeded_da.any(dim=reduce_dims)
+    rel_thresh_exceeded_anywhere_da = rel_thresh_exceeded_da.any(dim=reduce_dims)
+
+    abs_thresh_exceeded_psi95_anywhere_da = abs_thresh_exceeded_within_q95.any(dim=reduce_dims)
+    rel_thresh_exceeded_psi95_anywhere_da = rel_thresh_exceeded_within_q95.any(dim=reduce_dims)
 
     #########################################################################################################
     # Choosing a specific type of Delta prime for the comparison:

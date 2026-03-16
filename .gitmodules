@@ -1,7 +1,7 @@
-[submodule "/nfs/home/stubenj9/tearing-physics-suite/submodules/GPEC"]
-	path = /nfs/home/stubenj9/tearing-physics-suite/submodules/GPEC
+[submodule "submodules/GPEC"]
+	path = submodules/GPEC
 	url = https://github.com/PrincetonUniversity/GPEC.git
-	branch = adding_MRE_terms
+	branch = develop
 [submodule "submodules/PEST3"]
 	path = submodules/PEST3
 	url = git@github.com:MIT-PSFC/PEST3.git

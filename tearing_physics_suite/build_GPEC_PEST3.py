@@ -487,7 +487,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     return True
 
 
-def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="adding_MRE_terms", disable_openmp=False):
+def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="develop", disable_openmp=False):
     """
     Build the GPEC code by downloading from GitHub and compiling with make.
     Requires that build_netcdf_lapack.py has already been used to compile
@@ -527,7 +527,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         If True (default), run GPEC_install_test() after a successful build.
         Set to False to skip post-build verification.
     branch : str
-        Git branch to clone (default: "adding_MRE_terms").
+        Git branch to clone (default: "develop").
     disable_openmp : bool
         If True, pass ``OMPFLAG=`` (empty) to make, omitting the OpenMP
         compiler flag so the compiled executables run single-threaded.

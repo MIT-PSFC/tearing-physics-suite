@@ -249,7 +249,19 @@ def mre_raw_interp(rdcon_xarray):
         avg_Bp_surf =avg_Bp_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_r_surf =avg_r_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_R_surf =avg_R_surf+0.0*rdcon_xarray['psi_n_rational'],
-           overbr_Rsq_surf =overbar_Rsq_surf+0.0*rdcon_xafor comparison with resistive MHD simulations.
+        avg_inv_R_surf =avg_inv_R_surf+0.0*rdcon_xarray['psi_n_rational'],
+        overbar_Rsq_surf =overbar_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
+        avg_Rsq_surf =avg_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
+        avg_Bsq_on_nabla_psisq_surf = avg_Bsq_on_nabla_psisq_surf+0.0*rdcon_xarray['psi_n_rational'],
+        avg_Bsq_surf = avg_Bsq_surf+0.0*rdcon_xarray['psi_n_rational'],
+        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational']
+    )
+    rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
+    return rdcon_xarray
+
+def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
+                                taur_prefac_surf,taua_prefac_surf,DeltaPrime_crits_no_X0,H_surf):
+    """Calculate X0, S, taua, taur, and Delta_prime_crit for comparison with resistive MHD simulations.
 
     Takes simulation values (resistivity, mass density) and pre-calculated equilibrium terms
     at rational surfaces to compute dimensionless MRE parameters.
@@ -272,17 +284,24 @@ def mre_raw_interp(rdcon_xarray):
     Returns
     -------
     X0s, Ss, tauas, taurs, DeltaPrime_crits : np.ndarray
-        Dimensionless parameters and critical Delta'array['psi_n_rational'],
-        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational']
-    )
-    rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
-    return rdcon_xarray
-
-def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
-                                taur_prefac_surf,taua_prefac_surf,DeltaPrime_crits_no_X0,H_surf):
+        Dimensionless parameters and critical Delta' at each rational surface.
     """
-    Calculates X0, S, taua, taur, and Delta_prime_crit given the necessary inputs. Use case: comparison with simulation.
-        Take three values from your resistive MHD simulation at a chosen set of rational surfaces: resistivity (eta in  Ohm m), mass_density (kg / m^3), and toroidal mode number n.
+    assert len(eta) == len(mass_densities) == len(taur_prefac_surf) == len(taua_prefac_surf) == len(DeltaPrime_crits_no_X0) == len(H_surf), "All input arrays must be the same length."
+    X0s = np.zeros(len(eta))
+    Ss = np.zeros(len(eta))
+    tauas = np.zeros(len(eta))
+    taurs = np.zeros(len(eta))
+    DeltaPrime_crits = np.zeros(len(eta))
+    for i in range(len(eta)):
+        tauas[i] = taua_prefac_surf[i]*np.sqrt(mass_densities[i])/n
+        taurs[i] = taur_prefac_surf[i]/eta[i]
+        Ss[i] = taurs[i]/tauas[i]
+        X0s[i] = Ss[i]**(-1/3)
+        DeltaPrime_crits[i] = DeltaPrime_crits_no_X0[i]*(1.0/X0s[i])**(1-2*H_surf[i])
+    return X0s, Ss, tauas, taurs, DeltaPrime_crits
+
+
+def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     """Compute Spitzer resistivity and Coulomb logarithm on rational surfaces and full psi grid.
 
     Adds variables eta_spitz, eta_spitz_surf, lnLamb_ei, lnLamb_ei_surf (and ee variants)
@@ -302,25 +321,6 @@ def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
     xr.Dataset
         Input dataset with resistivity variables added.
     """
-        Then take four pre-calculated terms at those same rational surfaces: taur_prefac_surf, taua_prefac_surf, DeltaPrime_crit_no_X0, and H_surf. Returns
-        X0, S, taua, taur, and Delta_prime_crit at each rational surface for your simulation.
-    """
-    assert len(eta) == len(mass_densities) == len(taur_prefac_surf) == len(taua_prefac_surf) == len(DeltaPrime_crits_no_X0) == len(H_surf), "All input arrays must be the same length."
-    X0s = np.zeros(len(eta))
-    Ss = np.zeros(len(eta))
-    tauas = np.zeros(len(eta))
-    taurs = np.zeros(len(eta))
-    DeltaPrime_crits = np.zeros(len(eta))
-    for i in range(len(eta)):
-        tauas[i] = taua_prefac_surf[i]*np.sqrt(mass_densities[i])/n
-        taurs[i] = taur_prefac_surf[i]/eta[i]
-        Ss[i] = taurs[i]/tauas[i]
-        X0s[i] = Ss[i]**(-1/3)
-        DeltaPrime_crits[i] = DeltaPrime_crits_no_X0[i]*(1.0/X0s[i])**(1-2*H_surf[i])
-    return X0s, Ss, tauas, taurs, DeltaPrime_crits
-
-
-def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     # Keep up to date with res_func in equilibrium_helper
     if Coulomb_logarithm is None:
         # Coulomb Logarithm using Wesson Tokamaks page 727:

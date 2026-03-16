@@ -576,7 +576,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 # Set the coordinates of temp_da to match r:
                 temp_da.coords['r'] = r
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
             elif 'r_temp' in da.dims and 'r_prime_temp' in da.dims:
                 # We expand ps3[varname] such that ps3[varname].r matches input DataArray r and ps3[varname].r_prime matches input DataArray r_prime:
@@ -589,7 +589,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 temp_da.coords['r'] = r
                 temp_da.coords['r_prime'] = r_prime
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
         else:
             # Just rename 'r_temp' to 'r' and 'r_prime_temp' to 'r_prime':
@@ -599,7 +599,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 # Set the coordinates of temp_da to match r:
                 temp_da.coords['r'] = r
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
             elif 'r_temp' in da.dims and 'r_prime_temp' in da.dims:
                 tempvals = da.values
@@ -608,7 +608,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 temp_da.coords['r'] = r
                 temp_da.coords['r_prime'] = r_prime
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
         
     if len(ps3.cmatch.dims) > 0:

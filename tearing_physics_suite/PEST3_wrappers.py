@@ -558,6 +558,12 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 if debug: print(f"Dropping variable {varname} with {len(da.dims)} dimensions.")
                 ps3 = ps3.drop_vars(varname)
 
+    assert 'r' not in ps3.data_vars, "PEST3 output already has a variable named 'r'. Check PEST3 output and cleaning logic."
+    assert 'r_prime' not in ps3.data_vars, "PEST3 output already has a variable named 'r_prime'. Check PEST3 output and cleaning logic."
+    if 'r_temp' not in ps3.dims:
+        print("PEST3 data variables: ", ps3.dims)
+        raise ValueError("PEST3 output does not have a variable named 'r_temp'. Check PEST3 output and cleaning logic.")
+    
     for varname, da in ps3.data_vars.items():
         if len(missing_m_from_pest) > 0:
             # We expand ps3[varname] such that ps3[varname].r matches input DataArray r:

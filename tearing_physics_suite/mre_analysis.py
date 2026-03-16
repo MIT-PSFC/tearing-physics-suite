@@ -213,7 +213,7 @@ def mre_raw_interp(rdcon_xarray):
     taur_prefac_surf = rdcon_xarray.tau_r.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     ftr_surf = rdcon_xarray.ftr.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     mufrac_surf = rdcon_xarray.mufrac.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    #avg_mu0Jbs_dot_B_surf = rdcon_xarray.avg_mu0Jbs_dot_B.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
+    avg_nabla_psi_surf = rdcon_xarray.avg_nabla_psi.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     Dnc_surf = rdcon_xarray.Dnc.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     Wc_prefac_surf = rdcon_xarray.Wc.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_mu0Jpara_surf = rdcon_xarray.avg_mu0Jpara.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
@@ -240,7 +240,7 @@ def mre_raw_interp(rdcon_xarray):
         taur_prefac_surf =taur_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
         ftr_surf =ftr_surf+0.0*rdcon_xarray['psi_n_rational'],
         mufrac_surf =mufrac_surf+0.0*rdcon_xarray['psi_n_rational'],
-        #avg_mu0Jbs_dot_B_surf =avg_mu0Jbs_dot_B_surf+0.0*rdcon_xarray['psi_n_rational'], removed because broken!
+        avg_nabla_psi_surf =avg_nabla_psi_surf+0.0*rdcon_xarray['psi_n_rational'],
         Dnc_surf =Dnc_surf+0.0*rdcon_xarray['psi_n_rational'],
         Wc_prefac_surf =Wc_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_mu0Jpara_surf =avg_mu0Jpara_surf+0.0*rdcon_xarray['psi_n_rational'],

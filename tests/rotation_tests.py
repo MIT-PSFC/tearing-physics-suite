@@ -3,21 +3,14 @@
 from scipy.interpolate import CubicSpline
 import math
 import xarray as xr
-from sympy import Matrix
 import sympy
 import numpy as np
 import jax.numpy as jnp
 from jax import jacfwd
 import os
-import sys
 import shutil
-import subprocess
 import pandas as pd
-import xarray as xr
-import numpy as np
-import unittest
 import pickle as pkl
-import jax.numpy as jnp
 
 from tearing_physics_suite.environment import home_dir
 from tearing_physics_suite.profile_read import read_IDA_lite

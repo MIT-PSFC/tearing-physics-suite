@@ -1,7 +1,6 @@
 # Python functions to construct and analyse the modified Rutherford equation on modes
 
 import os
-import sys
 import shutil
 import subprocess
 import pandas as pd

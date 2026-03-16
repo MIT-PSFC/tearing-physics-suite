@@ -7,7 +7,6 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-import unittest
 import pickle as pkl
 
 import tearing_physics_suite

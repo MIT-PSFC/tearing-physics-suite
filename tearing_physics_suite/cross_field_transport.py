@@ -1,10 +1,5 @@
 # Python functions to construct cross-field transport terms for the modified Rutherford equation
 
-import os
-import sys
-import shutil
-import subprocess
-import pandas as pd
 import xarray as xr
 import numpy as np
 from scipy.interpolate import CubicSpline

@@ -397,6 +397,12 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                                         ne_m3_surf =np.array(ne_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'],
                                         ti_keV_surf =np.array(ti_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'],
                                         te_keV_surf =np.array(te_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'])
+
+    # Put gradients of kinetic information onto surfaces:
+    rdcon_xarray = rdcon_xarray.assign(ni1_m3_surf = np.array(ni_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
+                                        ne1_m3_surf = np.array(ne_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
+                                        ti1_keV_surf = np.array(ti_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
+                                        te1_keV_surf = np.array(te_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'])
     
     # Check if average_ion_mass is in rdcon_xarray:
     if not 'average_ion_mass' in rdcon_xarray:

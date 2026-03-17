@@ -1268,10 +1268,27 @@ def extract_critical_mre_factors_on_modes_DEPRECATED(rdcon_xarray,Delta_prime_ve
     return rdcon_xarray
 
 def extract_mre_factors_old(dwdtau_vec, w_vec): #Update with cubic spline?
-    """
-    Extracts the critical MRE factors from the dwdtau_vec and w_vec.
-    Returns the marginally stable island width, saturated island width, 
-    location of maximum island width, and the maximum dwdtau value.
+    """Extract critical MRE factors from dwdtau(w) using sign-change zero-crossing.
+
+    Superseded by extract_mre_factors (cubic spline version).
+
+    Parameters
+    ----------
+    dwdtau_vec : array-like
+        MRE right-hand-side evaluated over w_vec.
+    w_vec : array-like
+        Island width grid (normalised poloidal flux).
+
+    Returns
+    -------
+    w_marg : float
+        Marginally stable island width (first zero crossing, if dwdtau starts negative).
+    w_sat : float
+        Saturated island width (last zero crossing, if dwdtau ends negative).
+    w_max_loc : float
+        Island width at maximum growth rate.
+    dwdtau_max : float
+        Peak dwdtau value.
     """
     # Find where dwdtau crosses zero:
     zero_crossings = np.where(np.diff(np.sign(dwdtau_vec)))[0]

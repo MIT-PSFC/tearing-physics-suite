@@ -499,6 +499,12 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         rdcon_xarray = add_drift_rotation(rdcon_xarray,Er_spline=Er_spline,diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     if omega_splines is not None:
         rdcon_xarray = add_rotation(rdcon_xarray,omega_splines=omega_splines)
+    if not (Er_spline is None and omega_splines is None):
+        rdcon_xarray = decorrelation_timescales(rdcon_xarray,
+                            q_surfs_of_interest=q_surfs_of_interest,
+                            psi_surfs_of_interest=psi_surfs_of_interest,   
+                            Er_spline=Er_spline,
+                            omega_splines=omega_splines)
     return rdcon_xarray
 
 def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None):
@@ -665,6 +671,174 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     
     return rdcon_xarray
 
+def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_interest=[0.95],omega_splines=None,Er_spline=None,verbose=True, debug=False):
+    """Calculate decorrelation timescales between all m,n surfaces and selected reference surfaces.
+
+    For each rotation quantity, computes 2*pi / delta_omega to get the decorrelation
+    timescale (seconds) relative to reference surfaces defined by q value or psi_n.
+
+    Warning: Assumes omega_splines are in units of radians/s.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with rotation quantities already added (via add_rotation / add_drift_rotation).
+    q_surfs_of_interest : list of float
+        q values whose largest-psi_n rational surface is used as a reference (default [1]).
+    psi_surfs_of_interest : list of float
+        psi_n values used as reference surfaces (default [0.95]).
+    omega_splines : dict or None
+        Same omega_splines passed to add_rotation; keys determine which rotations are included.
+    Er_spline : CubicSpline or None
+        If provided, ExB rotation decorrelation timescales are also computed.
+    verbose : bool
+        Print information about found surfaces.
+    debug : bool
+        If True, returns the first decorrelation DataArray early for debugging.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with {key}_tdecorr_qsurf and {key}_tdecorr_psisurf variables added,
+        plus rotation_keys coordinate.
+    """
+    #########################################################################################################
+    # Defining a short-list of all terms to calculate decorrelation timescales for.
+    #########################################################################################################
+
+    # Start with the generalised rotation frequencies from omega_splines:
+    rotation_keys = omega_splines.keys() if omega_splines is not None else []
+    # Add '_surf' suffix to rotation keys where its missing. These terms should already be added to rdcon_xarray by add_rotation.
+    rotation_keys = [key if '_surf' in key else f"{key}_surf" for key in rotation_keys]
+
+    # Add the drift rotation frequencies to the list of rotation keys:
+    rotation_keys = rotation_keys + ['omega_i_surf']
+    rotation_keys = rotation_keys + ['omega_e_surf']
+
+    # Add ExB rotation frequencies to the list of rotation keys if Er_spline is provided:
+    if Er_spline is not None:
+        rotation_keys = rotation_keys + ['omega_ExB_surf']
+        rotation_keys = rotation_keys + ['omega_ExB_plus_omega_e_surf']
+        rotation_keys = rotation_keys + ['omega_ExB_plus_omega_i_surf']
+
+    # Sanity check that all these keys are in rdcon_xarray:
+    for key in rotation_keys:
+        # Confirm that key ends in '_surf':
+        if not key.endswith('_surf'):
+            no_suffix_key = None
+            raise ValueError(f"Key {key} does not end in '_surf'. Debug function decorrelation_timescales")
+        else:
+            no_suffix_key = key[:-5] # Remove '_surf' suffix to get the key without it
+
+        if key not in rdcon_xarray:
+            print(f"Available keys in rdcon_xarray: {rdcon_xarray.data_vars.keys()}")
+            print(f"Missing key: {key}")
+            raise ValueError(f"Key {key} not found in rdcon_xarray. Please check that add_rotation and add_drift_rotation have been run, and that omega_splines keys match the keys in rdcon_xarray.")
+
+        if no_suffix_key not in rdcon_xarray:
+            print(f"Available keys in rdcon_xarray: {rdcon_xarray.data_vars.keys()}")
+            print(f"Missing key: {no_suffix_key}")
+            raise ValueError(f"Key {no_suffix_key} not found in rdcon_xarray. Please check that add_rotation and add_drift_rotation have been run, and that omega_splines keys match the keys in rdcon_xarray.")
+
+    #########################################################################################################
+    # Convert q_surfs_of_interest to psi_n values
+    #########################################################################################################
+
+    psi_n_at_q_surfs_of_interest = [] # List to store the psi_n values at the rational surfaces of interest
+    for q_surf in q_surfs_of_interest:
+        #########################################################################################################
+        # Find largest psi_n value where the q profile crosses the q value of interest.
+        #########################################################################################################
+        shifted_q_spline = CubicSpline(rdcon_xarray.psi_n.values, np.array(rdcon_xarray.q.values-q_surf),extrapolate=False)
+        # Count how many times q_spline crosses this q_surf, and get the corresponding psi_n values:
+        q_roots = shifted_q_spline.roots()
+        if len(q_roots) == 0:
+            if verbose: print(f"No rational surface found for q={q_surf}.")
+            psi_n_at_q_root = np.nan
+        elif len(q_roots) > 1:
+            if verbose: print(f"Multiple rational surfaces found for q={q_surf}. Using the largest root at psi_n={q_roots.max()}.")
+            psi_n_at_q_root = q_roots.max()
+        else:
+            if verbose: print(f"One rational surface found for q={q_surf} at psi_n={q_roots[0]}.")
+            psi_n_at_q_root = q_roots[0]
+
+        psi_n_at_q_surfs_of_interest.append(psi_n_at_q_root)
+
+    #########################################################################################################
+    # Cycle through keys and calculate decorrelation timescales
+    #########################################################################################################
+    for key in rotation_keys:
+        key_no_suffix = key[:-5] # Remove '_surf' suffix to get the key without it
+        decorellation_data_arrays_qsurf = []    # List to store the decorrelation data arrays for each q surface of interest for this key
+        decorellation_data_arrays_psisurf = []  # List to store the decorrelation data arrays for each psi surface of interest for this key
+
+        #########################################################################################################
+        # q_surfs_of_interest loop:
+        #########################################################################################################
+        for psi_n_at_q_root in psi_n_at_q_surfs_of_interest:
+            # If nans, just make an array of nans for this surface of interest and move on to the next one:
+            # Important because we want the dimension of q_surfs_of_interest to be consistent across all timeslices in a shot...
+            if np.isnan(psi_n_at_q_root):
+                decorellation_data_array = xr.full_like(rdcon_xarray[key], np.nan)
+                decorellation_data_arrays_qsurf.append(decorellation_data_array)
+                continue
+
+            rotation_freq_at_surf_of_interest = rdcon_xarray[key_no_suffix].interp(psi_n=psi_n_at_q_root,method="cubic").values
+
+            # Double check rotation_freq_at_surf_of_interest is a scalar:
+            if np.ndim(rotation_freq_at_surf_of_interest) != 0:
+                print(f"Rotation frequency at surface of interest for key {key} is not a scalar. Value: {rotation_freq_at_surf_of_interest}")
+                raise ValueError(f"Rotation frequency at surface of interest for key {key} is not a scalar. Please debug decorrelation_timescales.")
+
+            # Differences for rotation key:
+            decorellation_data_array = rdcon_xarray[key]-rotation_freq_at_surf_of_interest # Frequency difference (in rad/s)
+            decorellation_data_array = np.pi*2/decorellation_data_array # Convert to decorrelation timescale in seconds (assuming an entire 2pi rotation = decorrelation)
+            decorellation_data_arrays_qsurf.append(decorellation_data_array)
+
+        # Stack the decorrelation data arrays for each surface of interest into a single xarray DataArray with a new dimension 'q_surfs_of_interest':
+        if len(psi_n_at_q_surfs_of_interest) > 0:
+            decorellation_data_arrays_qsurf = xr.concat(decorellation_data_arrays_qsurf, dim='q_surfs_of_interest')
+            decorellation_data_arrays_qsurf = decorellation_data_arrays_qsurf.assign_coords(q_surfs_of_interest=q_surfs_of_interest) # Assign the q values of interest as coordinates for this new dimension
+
+        # Check you get what you're expecting:
+        if debug:
+            return decorellation_data_arrays_qsurf
+
+        #########################################################################################################
+        # psi_surfs_of_interest loop:
+        #########################################################################################################
+        for psi_n_of_interest in psi_surfs_of_interest:
+            # Check if psi_n_of_interest is in the range of psi_n values in rdcon_xarray:
+            if psi_n_of_interest < rdcon_xarray.psi_n.min() or psi_n_of_interest > rdcon_xarray.psi_n.max():
+                print(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Must be between {rdcon_xarray.psi_n.min()} and {rdcon_xarray.psi_n.max()}.")
+                raise ValueError(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Please check your input to decorrelation_timescales.")
+
+            rotation_freq_at_surf_of_interest = rdcon_xarray[key_no_suffix].interp(psi_n=psi_n_of_interest,method="cubic").values
+
+            # Double check rotation_freq_at_surf_of_interest is a scalar:
+            if np.ndim(rotation_freq_at_surf_of_interest) != 0:
+                print(f"Rotation frequency at surface of interest for key {key} is not a scalar. Value: {rotation_freq_at_surf_of_interest}")
+                raise ValueError(f"Rotation frequency at surface of interest for key {key} is not a scalar. Please debug decorrelation_timescales.")
+
+            decorellation_data_array = rdcon_xarray[key]-rotation_freq_at_surf_of_interest # Frequency difference (in rad/s)
+            decorellation_data_array = np.pi*2/decorellation_data_array # Convert to decorrelation timescale in seconds (assuming an entire 2pi rotation = decorrelation)
+            decorellation_data_arrays_psisurf.append(decorellation_data_array)
+
+        # Stack the decorrelation data arrays for each surface of interest into a single xarray DataArray with a new dimension 'psi_surf_of_interest':
+        if len(psi_surfs_of_interest) > 0:
+            decorellation_data_arrays_psisurf = xr.concat(decorellation_data_arrays_psisurf, dim='psi_surf_of_interest')
+            decorellation_data_arrays_psisurf = decorellation_data_arrays_psisurf.assign_coords(psi_surf_of_interest=psi_surfs_of_interest) # Assign the psi_n values of interest as coordinates for this new dimension
+
+        # Now we have two xarray DataArrays for this key: one with decorrelation timescales to rational surfaces of interest, and one with decorrelation timescales to psi surfaces of interest. We can save these onto rdcon_xarray with new keys:
+        if len(psi_n_at_q_surfs_of_interest) > 0:
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf": decorellation_data_arrays_qsurf})  
+        if len(psi_surfs_of_interest) > 0:
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf": decorellation_data_arrays_psisurf})
+
+    # Save rotation keys onto xarray for later reference:
+    rdcon_xarray = rdcon_xarray.assign(rotation_keys=rotation_keys)
+
+    return rdcon_xarray
 
 def mre_flux_gradients(rdcon_xarray):
     """Compute psi_n gradients of q and mu0*p, and the dimensionless flux shear factor s.

@@ -16,6 +16,11 @@ from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 # Add pressure check (kinetic vs equilibrium)
 
 def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+        # Rotation splines
+        Er_spline=None, # Assuming input units of V/m
+        omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
+        q_surfs_of_interest=[1.0],
+        psi_surfs_of_interest=[0.95],
         energy_confinement_time = None,
         chi_perp_spline=None,
         k0=0.8227,
@@ -82,7 +87,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Fill out rdcon_xr with important MRE terms:
     #########################################################################################################
-    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac)
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
@@ -344,7 +349,7 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     return rdcon_xarray
 
 
-def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0):
+def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=[1.0],psi_surfs_of_interest=[0.95],diamagnetic_rotation_ion_charge=None):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just 
     deals with values out of rdcon_xarray, and natural flux coordinates. Requires mre_flag & geom_flag='t' (as per default) 

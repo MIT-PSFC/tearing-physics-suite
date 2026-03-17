@@ -505,6 +505,8 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                             psi_surfs_of_interest=psi_surfs_of_interest,   
                             Er_spline=Er_spline,
                             omega_splines=omega_splines)
+        rdcon_xarray = decorrelation_ratios(rdcon_xarray)
+
     return rdcon_xarray
 
 def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None):
@@ -837,6 +839,47 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_i
 
     # Save rotation keys onto xarray for later reference:
     rdcon_xarray = rdcon_xarray.assign(rotation_keys=rotation_keys)
+
+    return rdcon_xarray
+
+def decorrelation_ratios(rdcon_xarray):
+    """Calculate ratios of decorrelation timescales to physics-relevant timescales.
+
+    For each rotation key, computes the decorrelation time normalised by taua_surf, taur_surf,
+    and Q0_surf. Must be called after decorrelation_timescales.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with _tdecorr_qsurf and _tdecorr_psisurf variables.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with _on_taua, _on_taur, and _Q0 ratio variables added.
+    """
+    
+    for key in rdcon_xarray.rotation_keys.values:
+        key_no_suffix = key[:-5] # Remove '_surf' suffix to get the key without it
+
+        if f"{key_no_suffix}_tdecorr_qsurf" in rdcon_xarray:
+            taua_surf___ = rdcon_xarray['taua_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
+            taur_surf___ = rdcon_xarray['taur_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
+            Q0_surf___ = rdcon_xarray['Q0_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
+
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_on_taua": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]/taua_surf___})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_on_taur": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]/taur_surf___})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_Q0": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]*Q0_surf___})
+
+        if f"{key_no_suffix}_tdecorr_psisurf" in rdcon_xarray:
+            taua_surf____ = rdcon_xarray['taua_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
+            taur_surf____ = rdcon_xarray['taur_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
+            Q0_surf____ = rdcon_xarray['Q0_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
+
+    
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taua": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taua_surf____})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taur": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taur_surf____})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_Q0": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]*Q0_surf____})
 
     return rdcon_xarray
 

@@ -497,6 +497,8 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
 
     if Er_spline is not None:
         rdcon_xarray = add_drift_rotation(rdcon_xarray,Er_spline=Er_spline,diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
+    if omega_splines is not None:
+        rdcon_xarray = add_rotation(rdcon_xarray,omega_splines=omega_splines)
     return rdcon_xarray
 
 def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None):
@@ -627,6 +629,40 @@ def put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=None):
             omega_ExB_plus_omega_i1_surf = np.array(omega_ExB_plus_omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
         )
 
+    return rdcon_xarray
+
+def add_rotation(rdcon_xarray,omega_splines=None):
+    """Save measured rotation frequencies onto rdcon_xarray at full psi_n grid and rational surfaces.
+
+    Also computes and stores the psi_n derivative of each rotation frequency at rational surfaces.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset to add rotation data to.
+    omega_splines : dict of CubicSpline
+        Mapping of rotation name (e.g. 'omega_tor') to CubicSpline(psi_n) in rad/s.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with {key}, {key}_surf, and {key}1_surf variables added for each spline.
+    """
+
+    for key in omega_splines:
+        spline = omega_splines[key]
+        rdcon_xarray = rdcon_xarray.assign(
+            **{key: np.array(spline(rdcon_xarray.psi_n.values))+0.0*rdcon_xarray['psi_n']}
+        )
+        # Put on surfaces:
+        rdcon_xarray = rdcon_xarray.assign(
+            **{f"{key}_surf": np.array(spline(rdcon_xarray.psi_n_rational.values))+0.0*rdcon_xarray['psi_n_rational']}
+        )
+        # Put derivatives on surfaces:
+        rdcon_xarray = rdcon_xarray.assign(
+            **{f"{key}1_surf": np.array(spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']}
+        )
+    
     return rdcon_xarray
 
     """

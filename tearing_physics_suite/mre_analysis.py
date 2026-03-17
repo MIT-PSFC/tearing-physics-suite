@@ -550,6 +550,37 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     # Diamagnetic drift frequency in radians/s.
     omega_i_values = -ti_values*1e3*ni1_values/(zi*psio*ni_values)-ti1_values*1e3/(zi*psio) # Units rad/s: Ti, Te in this form have units eV*e/e = J/C = V, psio is in Weber/rad = (V*s)/rad (see Eq. 1 of https://doi.org/10.13182/FST48-968)
     omega_e_values =  te_values*1e3*ne1_values/(psio*ne_values)   +te1_values*1e3/(psio)    # Units rad/s
+    """
+    if Er_spline is not None:
+        # Put information onto surfaces:
+        #Er_vals = Er_spline(rdcon_xarray['psi_n'].values) # Er in V/m
+        #rdcon_xarray = rdcon_xarray.assign(Er = Er_vals+0.0*rdcon_xarray['psi_n'])
+        rdcon_xarray = rdcon_xarray.assign(Er_surf = np.array(Er_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'])
+        rdcon_xarray = rdcon_xarray.assign(omega_ExB_surf = rdcon_xarray['Er_surf']/np.sqrt(rdcon_xarray['avg_dpsisq_surf']))
+        rdcon_xarray = rdcon_xarray.assign(omega_ExB_plus_omega_e_surf = rdcon_xarray['omega_ExB_surf'] + rdcon_xarray['omega_e_surf'])
+        rdcon_xarray = rdcon_xarray.assign(omega_ExB_plus_omega_i_surf = rdcon_xarray['omega_ExB_surf'] + rdcon_xarray['omega_i_surf'])
+    """
+
+    """ Sanity check comparing the formulas in GPEC/gpec/gpout.f
+        omega_i = -twopi*kin%f(3)*kin%f1(1)/(e*zi*chi1*kin%f(1))-twopi*kin%f1(3)/(e*zi*chi1)
+                ->    twopi * ti * dni_dpsi_n/(e*zi*twopi*Wb*ni)  -twopi * dti_dpsi_n/(e*zi*twopi*Wb)
+                ->    [rad][J][m^(-3)/1]/([C][dimless][rad][Wb][m^(-3)]) - [rad][J/1]/([C][dimless][rad][Wb])]
+                ->                   [J/C]/[Wb]                             - [J/C]/[Wb]
+                ->                    [V]/[V*s]                              - [V]/[V*s]
+                ->                    [1/s]                                  - [1/s]
+        omega_e = twopi*kin%f(4)*kin%f1(2)/(e*chi1*kin%f(2))+twopi*kin%f1(4)/(e*chi1)
+                ->    twopi * te * dne_dpsi_n/(e*twopi*Wb*ne) + twopi * dte_dpsi_n/(e*twopi*Wb)
+                ->    [rad][J][m^(-3)/1]/([C][rad][Wb][m^(-3)]) + [rad][J/1]/([C][rad][Wb])]
+                ->    [J]/([C][Wb])                       + [J]/([C][Wb])]
+                ->    [J/C]/[V*s]                       + [J/C]/[V*s]
+                ->    [V]/[V*s]                        + [V]/[V*s]
+                ->    [1/s]                            + [1/s]
+        ti_r(ising) = kin%f(3)/e, kin%f(3) in J
+        te_r(ising) = kin%f(4)/e, kin%f(4) in J
+        ni_r(ising) = kin%f(1) in m^(-3)
+        ne_r(ising) = kin%f(2) in m^(-3)
+    """
+
 
     # Calculate ExB rotation if Er_spline is provided:
     if Er_spline is not None:

@@ -499,10 +499,8 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         rdcon_xarray = add_drift_rotation(rdcon_xarray,Er_spline=Er_spline,diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     return rdcon_xarray
 
-def mre_flux_gradients(rdcon_xarray):
-    """
-    Calculate the gradient of certain values with respect to magnetic flux coordinate,
-    on modes, using Cubic splines.
+def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None):
+    """Compute ion and electron diamagnetic rotation frequencies at all psi_n values.
 
     Calculates omega_i and omega_e from density and temperature gradients.
     If Er_spline is provided, also computes E x B rotation frequency.
@@ -577,6 +575,60 @@ def mre_flux_gradients(rdcon_xarray):
     rdcon_xarray = put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=Er_spline)
 
     return rdcon_xarray
+
+def put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=None):
+    """Interpolate drift rotation frequencies and their psi_n derivatives onto rational surfaces.
+
+    Must be called after add_drift_rotation. Adds omega_i_surf, omega_e_surf, omega_i1_surf,
+    omega_e1_surf (and ExB variants if Er_spline is provided) to rdcon_xarray.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with omega_i, omega_e on full psi_n grid (from add_drift_rotation).
+    Er_spline : CubicSpline or None
+        If provided, also interpolates ExB rotation quantities onto surfaces.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with rotation _surf and _1_surf variables added.
+    """
+
+    # Adding values at surfaces
+    rdcon_xarray = rdcon_xarray.assign(
+        omega_i_surf = np.array(rdcon_xarray.omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
+        omega_e_surf = np.array(rdcon_xarray.omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
+    )
+    if Er_spline is not None:
+        rdcon_xarray = rdcon_xarray.assign(
+            Er_surf = np.array(rdcon_xarray.Er.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_surf = np.array(rdcon_xarray.omega_ExB.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_e_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_i_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
+        )
+
+    # Adding derivatives as surfaces:
+    omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_i.values,extrapolate=False)
+    omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_e.values,extrapolate=False)
+
+    rdcon_xarray = rdcon_xarray.assign(
+        omega_i1_surf = np.array(omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
+        omega_e1_surf = np.array(omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
+    )
+
+    if Er_spline is not None:
+        omega_ExB_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
+        omega_ExB_plus_omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
+        omega_ExB_plus_omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
+        rdcon_xarray = rdcon_xarray.assign(
+            omega_ExB1_surf = np.array(omega_ExB_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_e1_surf = np.array(omega_ExB_plus_omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_i1_surf = np.array(omega_ExB_plus_omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
+        )
+
+    return rdcon_xarray
+
     """
 
     # Make cubic splines of terms I want to differentiate:

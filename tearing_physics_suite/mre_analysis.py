@@ -665,6 +665,22 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     
     return rdcon_xarray
 
+
+def mre_flux_gradients(rdcon_xarray):
+    """Compute psi_n gradients of q and mu0*p, and the dimensionless flux shear factor s.
+
+    Also integrates dV/dpsi to get enclosed plasma volume at each rational surface.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with q, mu0p, dvdpsi on the full psi_n grid.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with dq_dpsi_n_surf, dmu0p_dpsi_n_surf, flux_shear_s_surf,
+        and V_surf variables added.
     """
 
     # Make cubic splines of terms I want to differentiate:

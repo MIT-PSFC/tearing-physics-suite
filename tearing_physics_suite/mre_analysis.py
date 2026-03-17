@@ -29,6 +29,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         force_lmfp=False, # Default False <=> whichever parallel transport calculation is more physical, lmfp or smfp, is used. Set True to always use lmfp.
         Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces.
         eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
+        diamagnetic_rotation_ion_charge=None, # Ion charge for diamagnetic rotation calculation. If None, inferred from on-axis ne/ni.
         **kwargs):
     """ 
     Executive function that calculates Delta primes with run_resistive_calculation, then runs MRE analysis on output deltaprimes, returning
@@ -494,12 +495,88 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
             rhoW=1e20*mi
     """
 
+    if Er_spline is not None:
+        rdcon_xarray = add_drift_rotation(rdcon_xarray,Er_spline=Er_spline,diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     return rdcon_xarray
 
 def mre_flux_gradients(rdcon_xarray):
     """
     Calculate the gradient of certain values with respect to magnetic flux coordinate,
     on modes, using Cubic splines.
+
+    Calculates omega_i and omega_e from density and temperature gradients.
+    If Er_spline is provided, also computes E x B rotation frequency.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain ne_m3, ni_m3, te_keV, ti_keV, avg_nabla_psi, and psio.
+    Er_spline : CubicSpline or None
+        Radial electric field profile in V/m as a function of normalised poloidal flux.
+    diamagnetic_rotation_ion_charge : float or None
+        Ion charge state for diamagnetic frequency. If None, inferred from on-axis ne/ni.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with omega_i, omega_e (and omega_ExB if Er_spline provided) added.
+    """
+
+    # Necessary kinetic values of interest:
+    ne_values = np.array(rdcon_xarray.ne_m3.values)
+    ni_values = np.array(rdcon_xarray.ni_m3.values)
+    te_values = np.array(rdcon_xarray.te_keV.values)
+    ti_values = np.array(rdcon_xarray.ti_keV.values)
+    avg_nablapsi_values = np.array(rdcon_xarray.avg_nabla_psi.values) # <|nabla psi|> 
+    psio = np.array(rdcon_xarray.psio)
+    # Single species approximation of ion charge, assuming on-axis density satisfies quasi-neutrality:
+    if diamagnetic_rotation_ion_charge is not None:
+        zi = diamagnetic_rotation_ion_charge
+    else:
+        zi = ne_values[0]/ni_values[0]
+    rdcon_xarray = rdcon_xarray.assign(ne_on_ni_axis = zi)
+
+    #Derivatives (from splines):
+    ne_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
+    ni_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
+    te_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
+    ti_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
+    ne1_values = np.array(ne_spline(rdcon_xarray.psi_n,1))
+    ni1_values = np.array(ni_spline(rdcon_xarray.psi_n,1))
+    te1_values = np.array(te_spline(rdcon_xarray.psi_n,1))
+    ti1_values = np.array(ti_spline(rdcon_xarray.psi_n,1))
+
+    # Check lengths:
+    assert len(ne_values) == len(rdcon_xarray.psi_n) == len(avg_nablapsi_values)
+
+    # Diamagnetic drift frequency in radians/s.
+    omega_i_values = -ti_values*1e3*ni1_values/(zi*psio*ni_values)-ti1_values*1e3/(zi*psio) # Units rad/s: Ti, Te in this form have units eV*e/e = J/C = V, psio is in Weber/rad = (V*s)/rad (see Eq. 1 of https://doi.org/10.13182/FST48-968)
+    omega_e_values =  te_values*1e3*ne1_values/(psio*ne_values)   +te1_values*1e3/(psio)    # Units rad/s
+
+    # Calculate ExB rotation if Er_spline is provided:
+    if Er_spline is not None:
+        Er_values = np.array(Er_spline(rdcon_xarray.psi_n.values))
+        omega_ExB_values = Er_values/(psio*avg_nablapsi_values) # Units rad/s: Er units V/m, avg_nablapsi units 1/m, psio units Weber/rad = (V*s)/rad
+
+    # Save values onto xarray:
+    if Er_spline is not None:
+        rdcon_xarray = rdcon_xarray.assign(
+            Er=Er_values+0.0*rdcon_xarray['psi_n'],
+            omega_i=omega_i_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
+            omega_e=omega_e_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
+            omega_ExB=omega_ExB_values+0.0*rdcon_xarray['psi_n'],   # Units rad/s
+            omega_ExB_plus_omega_e=omega_ExB_values+omega_e_values+0.0*rdcon_xarray['psi_n'], # Units rad/s
+            omega_ExB_plus_omega_i=omega_ExB_values+omega_i_values+0.0*rdcon_xarray['psi_n']  # Units rad/s
+        )
+    else:
+        rdcon_xarray = rdcon_xarray.assign(
+            omega_i=omega_i_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
+            omega_e=omega_e_values+0.0*rdcon_xarray['psi_n']        # Units rad/s
+        )
+
+    rdcon_xarray = put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=Er_spline)
+
+    return rdcon_xarray
     """
 
     # Make cubic splines of terms I want to differentiate:

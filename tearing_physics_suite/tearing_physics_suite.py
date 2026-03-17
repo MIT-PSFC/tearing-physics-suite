@@ -12,6 +12,7 @@ from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, 
     Zeff = None, 
     average_ion_mass = None,
+    diamagnetic_rotation_ion_charge=None,
     # Rotation splines
     Er_spline=None, # Assuming input units of V/m
     omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
@@ -95,6 +96,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
             wd_static=wd_static,
             Zeff=Zeff,
             average_ion_mass=average_ion_mass,
+            diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge,
             force_lmfp=force_lmfp,
             **kwargs)
 

@@ -764,10 +764,10 @@ def regrid_flag_scan(eq_filename,results_dir = os.path.join(home_dir, 'tests/tes
         print("#########################################################################################################")
     return result, message 
 #########################################################################################################
-# RDCON/STRIDE inputs I'm ignoring:
+# RDCON/STRIDE inputs that AREN'T scanned in this file: (& reasons why): 
 #   pfac - varying nx in rdcon will determine whether we need more finite elements near the rational surfaces
-#   sing_start - not really interested in cutting out the effect of various rational surfaces
-#                if q_0 < 1, and the plasma is ideal unstable, then delta' at other surfaces doesn't mean much
+#   sing_start - cutting out the effect of various rational surfaces will affect the result, especially
+#                if q_0 < 1, and the plasma is ideal unstable - delta' at other surfaces doesn't mean anything
 #   crossover - effect will allow speedup by varying tol_r, tol_nr
 #   ucrit - doesn't effect resistive calculations in stride or rdcon
 #   nIntervalsTot - is autmatically increased by stride to minimally cover the number of singular intervals
@@ -808,32 +808,6 @@ def edge_truncation_q_scan(eq_filename,results_dir = os.path.join(home_dir, 'tes
         print("#########################################################################################################")
         print("#########################################################################################################")
     return result, message 
-
-# This function can pick up a discrepancy in truncation between rdcon and stride for the ideal test case equilibrium
-# Needs fix to truncation logic in GPEC when both sasflag and qhigh are set - """qhigh overrode sasflag in RDCON but sasflag overrode qhigh in STRIDE"""
-def edge_truncation_q_scan_DEPRECATED(eq_filename,results_dir = os.path.join(home_dir, 'tests/test_results'),quick_test=True,verbose=True,output_prefix='', **kwargs):
-    """
-    Runs a 1D scan over the psihigh truncation point used in the resistive calculation.
-    """
-    if quick_test:
-        scan_vals = [4,5,6]
-    else:
-        scan_vals = [2,3,4,5,6,7,8]
-    result, message = scan_1D_input('qhigh', scan_vals, eq_filename,
-            1,
-            psihigh=0.9999,
-            ode_flag='f', #avoid numerical instability at high psihigh for DCON shooting method in RDCON
-            output_location=os.path.join(results_dir,'1D_scans','edge_truncation_q_scan'),
-            vac_flag='f'
-            ,**kwargs)
-    if verbose:
-        print("#########################################################################################################")
-        print("#########################################################################################################")
-        print("Psihigh truncation scan results:")
-        print(message)
-        print("#########################################################################################################")
-        print("#########################################################################################################")
-    return result, message 
 #########################################################################################################
 # varying q-surface truncation: no wall
 #########################################################################################################
@@ -857,32 +831,6 @@ def edge_truncation_q_scan_no_wall(eq_filename,results_dir = os.path.join(home_d
             vac_flag='t',
             output_prefix='no_wall_',
             sas_flag='f' 
-            ,**kwargs)
-    if verbose:
-        print("#########################################################################################################")
-        print("#########################################################################################################")
-        print("Psihigh truncation scan results (no wall):")
-        print(message)
-        print("#########################################################################################################")
-        print("#########################################################################################################")
-    return result, message 
-
-# Needs fix to truncation logic in GPEC when both sasflag and qhigh are set
-def edge_truncation_q_scan_no_wall_DEPRECATED(eq_filename,results_dir = os.path.join(home_dir, 'tests/test_results'),quick_test=True,verbose=True,output_prefix='', **kwargs):
-    """
-    Runs a 1D scan over the psihigh truncation point used in the resistive calculation, with no wall.
-    """
-    if quick_test:
-        scan_vals = [5,6,7]
-    else:
-        scan_vals = [2,3,4,5,6,7,8]
-    result, message = scan_1D_input('qhigh', scan_vals, eq_filename,
-            1,
-            psihigh=0.9999,
-            ode_flag='f', #avoid numerical instability at high psihigh for DCON shooting method in RDCON
-            output_location=os.path.join(results_dir,'1D_scans','edge_truncation_q_scan'),
-            vac_flag='t',
-            output_prefix='no_wall_'
             ,**kwargs)
     if verbose:
         print("#########################################################################################################")

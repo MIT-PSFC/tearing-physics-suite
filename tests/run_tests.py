@@ -24,7 +24,7 @@ import subprocess
 from pathlib import Path
 
 
-def discover_tests(test_dir=None):
+def discover_tests(test_dir=os.path.join(os.environ['TPSHOME'], 'tests')):
     """
     Discover all Python test scripts in the tests/ directory.
     

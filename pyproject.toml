@@ -37,6 +37,9 @@ dev = [
 [tool.isort]
 profile = "black"
 
+[tool.hatch.build.targets.wheel]
+packages = ["tearing_physics_suite"]
+
 [build-system]
 build-backend = "hatchling.build"
 requires = ["hatchling"]

@@ -1,0 +1,11 @@
+equilibrium_helper/
+submodules/
+tests/test_working_dir
+tests/test_working_dir2
+tests/test_working_dir_parallel
+tests/test_working_dir_parallel2
+tests/test_results/
+working_dir/
+build/
+.venv/
+tearing_physics_suite/__pycache__/

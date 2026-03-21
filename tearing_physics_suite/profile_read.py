@@ -5,6 +5,45 @@ import pandas as pd
 import xarray as xr
 from scipy.interpolate import CubicSpline
 
+def read_kin_file(filename):
+    """Read a .kin profile file and create cubic splines for kinetic profiles.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the .kin file.
+
+    Returns
+    -------
+        Returns
+    -------
+    dict
+        Keys include ne_spline, te_keV_spline, ni_spline, ti_keV_spline
+    """
+    if os.path.exists(filename):
+        print(f"\nReading kinetic profile file: {filename}")
+        try:
+            profile_data_names = pd.read_csv(filename, sep='\s+',header=None,nrows=1)
+            profile_data_xr = xr.Dataset(pd.read_csv(filename, skiprows=1, sep='\s+', header=None,names=profile_data_names.iloc[0].values))
+            te_keV_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['te(eV)'].values/1000,extrapolate=False)
+            ti_keV_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ti(eV)'].values/1000,extrapolate=False)
+            ne_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ne(m^-3)'].values,extrapolate=False)
+            ni_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
+        except Exception as e:
+            print(f"Error reading or processing .kin file: {e}")
+            raise e
+    else:
+        print(f".kin file not found at {filename}")
+        return None
+
+    return {
+        'ne_spline': ne_spline,
+        'te_keV_spline': te_keV_spline,
+        'ni_spline': ni_spline,
+        'ti_keV_spline': ti_keV_spline
+    }
+        
+
 def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
     """Read an IDA-lite .cdf file and return kinetic and rotation splines for MRE analysis.
 
@@ -39,7 +78,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
         try:
             rotation_xr = xr.open_dataset(filename)
             if verbose:
-                print("Successfully opened rotation_.cdf")
+                print("Successfully opened IDA-lite output")
                 print("\nDataset info:")
                 print(rotation_xr)
 
@@ -93,10 +132,10 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
             print(f"  v_pol (m/s) = {v_pol_spline(test_psi_n):.3e}")
             print(f"  E_r (V/m) = {Er_spline(test_psi_n):.3e}")
         except Exception as e:
-            print(f"Error reading or processing rotation_.cdf: {e}")
+            print(f"Error reading or processing IDA-lite output: {e}")
             raise e
     else:
-        print(f"rotation_.cdf not found at {filename}")
+        print(f"IDA-lite output not found at {filename}")
 
     return_dict = {
         'ne_spline': n_e_spline,
@@ -152,9 +191,9 @@ def read_IDA_lite_all_times(filename, verbose=False):
 
             return splines_by_time
         except Exception as e:
-            print(f"Error reading or processing rotation_.cdf: {e}")
+            print(f"Error reading or processing IDA-lite output: {e}")
             raise e
     else:
-        print(f"rotation_.cdf not found at {filename}")
+        print(f"IDA-lite output not found at {filename}")
 
     return None

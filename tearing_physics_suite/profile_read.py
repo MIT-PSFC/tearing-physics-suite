@@ -29,6 +29,7 @@ def read_kin_file(filename):
             ti_keV_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ti(eV)'].values/1000,extrapolate=False)
             ne_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ne(m^-3)'].values,extrapolate=False)
             ni_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
+            omega_ExB_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['wexb(rad/s)'].values,extrapolate=False)
         except Exception as e:
             print(f"Error reading or processing .kin file: {e}")
             raise e
@@ -40,7 +41,10 @@ def read_kin_file(filename):
         'ne_spline': ne_spline,
         'te_keV_spline': te_keV_spline,
         'ni_spline': ni_spline,
-        'ti_keV_spline': ti_keV_spline
+        'ti_keV_spline': ti_keV_spline,
+        'omega_splines': {
+            'omega_ExB': omega_ExB_spline
+        }
     }
         
 

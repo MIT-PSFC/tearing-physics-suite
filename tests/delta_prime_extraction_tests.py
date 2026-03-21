@@ -31,7 +31,7 @@ use_default_eq=True
 fast=False # <- Don't change this
 test_extract_delta_primes_ = True
 test_extract_delta_primes  = True
-test_couples=True
+test_surface_coupling=True
 
 #########################################################################################################
 # load equilibrium:
@@ -42,8 +42,6 @@ default_equilibrium =  os.path.join(home_dir, 'submodules/GPEC/docs/examples/DII
 
 if use_default_eq:
     eq_filename = default_equilibrium
-else:
-    eq_filename = '/nfs/home/stubenj9/equilibria/ARC/ARC_V3A_kinetic_tokamaker_v11_257_notruncate_scale_jBS=1.05.eqdsk'
 
 print(" Getting equilibrium file from ", eq_filename)
 eq_filename_short= eq_filename.split('/')[-1]
@@ -107,7 +105,7 @@ if not fast:
 #########################################################################################################
 
 try: 
-    if test_couples:
+    if test_surface_coupling:
         dpncR = delta_prime_no_couple(delta_primes.real)
         dpfcR = delta_prime_full_couple(delta_primes.real)
         dpnnR = delta_prime_nn_couple(delta_primes.real)

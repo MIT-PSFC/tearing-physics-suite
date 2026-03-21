@@ -53,8 +53,6 @@ if use_default_eq:
         ni_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
         return profile_data_xr, te_keV_spline, ti_keV_spline, ne_spline, ni_spline
     profile_data_xr, te_keV_spline, ti_keV_spline, ne_spline, ni_spline = get_default_profs(profile_filename)
-else:
-    eq_filename = '/nfs/home/stubenj9/equilibria/ARC/ARC_V3A_kinetic_tokamaker_v11_257_notruncate_scale_jBS=1.05.eqdsk'
 
 print(" Getting equilibrium file from ", eq_filename)
 eq_filename_short= eq_filename.split('/')[-1]

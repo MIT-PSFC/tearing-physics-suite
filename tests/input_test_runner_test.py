@@ -17,7 +17,7 @@ print(" Getting equilibrium file from ", eq_filename)
 eq_filename_short= eq_filename.split('/')[-1]
 
 run_single_test = True
-run_short_test = False
+run_short_test = True
 run_all_tests = False
 run_parallel_tests = False
 

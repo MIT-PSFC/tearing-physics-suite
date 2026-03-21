@@ -8,6 +8,7 @@ import numpy as np
 import jax.numpy as jnp
 from jax import jacfwd
 import os
+import sys
 import shutil
 import pandas as pd
 import pickle as pkl
@@ -41,6 +42,8 @@ if __name__ == '__main__':
         if n_cpus < 2:
             print(f"Warning: Only {n_cpus} CPU core(s) available. Parallel test requires at least 2 cores.")
             run_parallel_test = False
+            # End the script here since the parallel test can't run:
+            sys.exit(0)
         else:
             print(f"Running parallel test with {n_cpus} CPU cores available.")
 

@@ -7,7 +7,7 @@ All development to follow Vincent Driessen's GitFlow <https://nvie.com/posts/a-s
 Short version: (requires uv, gcc, openmpi, cmake and make)  
     cd path/to/tearing-physics-suite  
     uv sync  
-    uv run tearing_phyics_suite/build_tearing_physics_suite.py  
+    uv run tearing_physics_suite/build_tearing_physics_suite.py  
     uv run tests/run_tests.py  
     source tearing_physics_suite_env.sh (optional)  
 
@@ -23,7 +23,7 @@ Long version:
     Installation may be trivial on a cluster with commands such as 'module load gcc/<version>', 'module load openmpi/<version>'. 
     If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'.
 
-    Once you have gcc, openmpi, make and cmake, you can run python script build_tearing_physics_suite.py using the command 'uv run path/to/tearing-physics-suite/tearing_phyics_suite/build_tearing_physics_suite.py'.
+    Once you have gcc, openmpi, make and cmake, you can run python script build_tearing_physics_suite.py using the command 'uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py'.
     Then, slowly and surely, this AI-written gem of a script will download the following codes from the following links:
         lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz
         hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_{version}/hdf5-1.14.6.tar.g

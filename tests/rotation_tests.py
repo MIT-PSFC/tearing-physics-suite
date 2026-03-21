@@ -53,8 +53,8 @@ if not use_IDA_lite:
     ni_spline = profile_out['ni_spline']
     omega_splines = profile_out['omega_splines']
     Er_spline=None
+    run_test=True
 else:
-
     #########################################################################################################
     # Read rotation_.cdf
     # ^This capability has been deprecated added to the function read_IDA_lite, but we keep it here for user visualisation and testing purposes.
@@ -129,7 +129,7 @@ else:
 # Run big function
 #########################################################################################################
 if run_test:
-    combined_xrb, pest3_xr_outb, input_dictb = nonlinear_resistive_calculation(eq_filename,1,ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+    combined_xrb, pest3_xr_outb, input_dictb, xarray_vec = nonlinear_resistive_calculation(eq_filename,ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
         Er_spline=Er_spline,
         omega_splines=omega_splines,
         q_surfs_of_interest=[1.5,2.0],
@@ -148,3 +148,26 @@ if run_test:
         pest_match_truncation=False,
         wd_static=True,
         debug_mre_terms = False)
+    
+#########################################################################################################
+# Print function where output is dependent on the coordinate q_surface_of_interest or psi_surface_of_interest.
+#########################################################################################################
+
+print("\n\nTesting access to output quantities that depend on q_surfs_of_interest or psi_surfs_of_interest:")
+print("Input dict keys:")
+
+variables_with_target_dim = [
+    var_name for var_name, var_data in combined_xrb.data_vars.items() 
+    if 'q_surfs_of_interest' in var_data.dims
+]
+variables_with_target_dim2 = [
+    var_name for var_name, var_data in combined_xrb.data_vars.items() 
+    if 'psi_surf_of_interest' in var_data.dims
+]
+
+# Create a new Dataset with only the filtered variables
+filtered_ds1 = combined_xrb[variables_with_target_dim]
+filtered_ds2 = combined_xrb[variables_with_target_dim2]
+
+print(filtered_ds1.values)
+print(filtered_ds2.values)

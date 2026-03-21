@@ -104,7 +104,6 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         "# ── Tearing Physics Suite repository root ────────────────────────────────",
         f"export TPSHOME={repo_root}",
         "",
-        "# ── 
         "# ── Compiler settings (required when building / linking) ─────────────────",
         "export FC=gfortran",
         "export CC=gcc",

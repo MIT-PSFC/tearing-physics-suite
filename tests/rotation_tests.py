@@ -34,6 +34,7 @@ fast=False # <- Don't change this
 use_default_eq=True
 run_resist=False
 use_IDA_lite = False
+IDA_output_cdf_path = ''
 
 #########################################################################################################
 # load equilibrium:

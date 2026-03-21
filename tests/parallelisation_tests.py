@@ -30,6 +30,7 @@ os.chdir(home_dir)
 run_test = True
 run_compile = True
 use_IDA_lite = False
+IDA_output_cdf_path = ''
 
 num_eqs = 10 # Number of equilibria to run in parallel
 

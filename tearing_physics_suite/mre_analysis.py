@@ -500,17 +500,15 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
             rhoW=1e20*mi
     """
 
-    if Er_spline is not None:
-        rdcon_xarray = add_drift_rotation(rdcon_xarray,Er_spline=Er_spline,diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     if omega_splines is not None:
         rdcon_xarray = add_rotation(rdcon_xarray,omega_splines=omega_splines)
-    if not (Er_spline is None and omega_splines is None):
-        rdcon_xarray = decorrelation_timescales(rdcon_xarray,
-                            q_surfs_of_interest=q_surfs_of_interest,
-                            psi_surfs_of_interest=psi_surfs_of_interest,   
-                            Er_spline=Er_spline,
-                            omega_splines=omega_splines)
-        rdcon_xarray = decorrelation_ratios(rdcon_xarray)
+
+    rdcon_xarray = add_drift_rotation(rdcon_xarray,diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge,Er_spline=Er_spline)
+    rdcon_xarray = decorrelation_timescales(rdcon_xarray,
+                        q_surfs_of_interest=q_surfs_of_interest,
+                        psi_surfs_of_interest=psi_surfs_of_interest,
+                        omega_splines=omega_splines)
+    rdcon_xarray = decorrelation_ratios(rdcon_xarray)
 
     return rdcon_xarray
 

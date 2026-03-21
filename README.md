@@ -8,7 +8,7 @@ Short version: (requires uv, gcc, openmpi, cmake and make)
     cd path/to/tearing-physics-suite  
     uv sync  
     uv run tearing_phyics_suite/build_tearing_physics_suite.py  
-    uv run tests/unit_test_suite.py  
+    uv run tests/run_tests.py  
     source tearing_physics_suite_env.sh (optional)  
 
 Long version:

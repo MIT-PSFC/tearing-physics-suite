@@ -512,11 +512,11 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
 
     return rdcon_xarray
 
-def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None):
+def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None, dont_override_omega_ExB=True):
     """Compute ion and electron diamagnetic rotation frequencies at all psi_n values.
 
     Calculates omega_i and omega_e from density and temperature gradients.
-    If Er_spline is provided, also computes E x B rotation frequency.
+    If Er_spline is provided, this function computes E x B rotation frequency, unless omega_ExB is already in rdcon_xarray and dont_override_omega_ExB is True.
 
     Parameters
     ----------
@@ -564,43 +564,42 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     omega_i_values = -ti_values*1e3*ni1_values/(zi*psio*ni_values)-ti1_values*1e3/(zi*psio) # Units rad/s: Ti, Te in this form have units eV*e/e = J/C = V, psio is in Weber/rad = (V*s)/rad (see Eq. 1 of https://doi.org/10.13182/FST48-968)
     omega_e_values =  te_values*1e3*ne1_values/(psio*ne_values)   +te1_values*1e3/(psio)    # Units rad/s
 
-    # Calculate ExB rotation if Er_spline is provided:
-    if Er_spline is not None:
+    # Save values onto xarray:
+    rdcon_xarray = rdcon_xarray.assign(
+        omega_i=omega_i_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
+        omega_e=omega_e_values+0.0*rdcon_xarray['psi_n']        # Units rad/s
+    )
+
+    # Calculate ExB rotation if Er_spline is provided, and omega_ExB is not already in rdcon_xarray:
+    if (Er_spline is not None) and not ('omega_ExB' in rdcon_xarray and dont_override_omega_ExB):
         Er_values = np.array(Er_spline(rdcon_xarray.psi_n.values))
         omega_ExB_values = Er_values/(psio*avg_nablapsi_values) # Units rad/s: Er units V/m, avg_nablapsi units 1/m, psio units Weber/rad = (V*s)/rad
-
-    # Save values onto xarray:
-    if Er_spline is not None:
         rdcon_xarray = rdcon_xarray.assign(
-            Er=Er_values+0.0*rdcon_xarray['psi_n'],
-            omega_i=omega_i_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
-            omega_e=omega_e_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
-            omega_ExB=omega_ExB_values+0.0*rdcon_xarray['psi_n'],   # Units rad/s
-            omega_ExB_plus_omega_e=omega_ExB_values+omega_e_values+0.0*rdcon_xarray['psi_n'], # Units rad/s
-            omega_ExB_plus_omega_i=omega_ExB_values+omega_i_values+0.0*rdcon_xarray['psi_n']  # Units rad/s
-        )
-    else:
-        rdcon_xarray = rdcon_xarray.assign(
-            omega_i=omega_i_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
-            omega_e=omega_e_values+0.0*rdcon_xarray['psi_n']        # Units rad/s
+            Er=Er_values+0.0*rdcon_xarray['psi_n'],                 # Units V/m (assuming Er_spline is in V/m)
+            omega_ExB=omega_ExB_values+0.0*rdcon_xarray['psi_n']    # Units rad/s
         )
 
-    rdcon_xarray = put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=Er_spline)
+    # Calculate total rotation frequencies if omega_ExB is present:
+    if 'omega_ExB' in rdcon_xarray:
+        rdcon_xarray = rdcon_xarray.assign(
+            omega_ExB_plus_omega_e=rdcon_xarray['omega_ExB']+omega_e_values, # Units rad/s
+            omega_ExB_plus_omega_i=rdcon_xarray['omega_ExB']+omega_i_values  # Units rad/s
+        )
+
+    rdcon_xarray = put_drift_rotation_on_surfaces(rdcon_xarray)
 
     return rdcon_xarray
 
-def put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=None):
+def put_drift_rotation_on_surfaces(rdcon_xarray):
     """Interpolate drift rotation frequencies and their psi_n derivatives onto rational surfaces.
 
     Must be called after add_drift_rotation. Adds omega_i_surf, omega_e_surf, omega_i1_surf,
-    omega_e1_surf (and ExB variants if Er_spline is provided) to rdcon_xarray.
+    omega_e1_surf (and ExB variants if omega_ExB is present) to rdcon_xarray.
 
     Parameters
     ----------
     rdcon_xarray : xr.Dataset
         Dataset with omega_i, omega_e on full psi_n grid (from add_drift_rotation).
-    Er_spline : CubicSpline or None
-        If provided, also interpolates ExB rotation quantities onto surfaces.
 
     Returns
     -------
@@ -613,12 +612,15 @@ def put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=None):
         omega_i_surf = np.array(rdcon_xarray.omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
         omega_e_surf = np.array(rdcon_xarray.omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
     )
-    if Er_spline is not None:
+    if 'omega_ExB' in rdcon_xarray:
         rdcon_xarray = rdcon_xarray.assign(
-            Er_surf = np.array(rdcon_xarray.Er.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
             omega_ExB_surf = np.array(rdcon_xarray.omega_ExB.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
             omega_ExB_plus_omega_e_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
             omega_ExB_plus_omega_i_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
+        )
+    if 'Er' in rdcon_xarray:
+        rdcon_xarray = rdcon_xarray.assign(
+            Er_surf = np.array(rdcon_xarray.Er.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
         )
 
     # Adding derivatives as surfaces:
@@ -630,7 +632,7 @@ def put_drift_rotation_on_surfaces(rdcon_xarray,Er_spline=None):
         omega_e1_surf = np.array(omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
     )
 
-    if Er_spline is not None:
+    if 'omega_ExB' in rdcon_xarray:
         omega_ExB_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
         omega_ExB_plus_omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
         omega_ExB_plus_omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
@@ -646,6 +648,7 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     """Save measured rotation frequencies onto rdcon_xarray at full psi_n grid and rational surfaces.
 
     Also computes and stores the psi_n derivative of each rotation frequency at rational surfaces.
+    Use spline key "omega_ExB" for ExB rotation frequency in rad/s.
 
     Parameters
     ----------
@@ -676,7 +679,7 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     
     return rdcon_xarray
 
-def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_interest=[0.95],omega_splines=None,Er_spline=None,verbose=True, debug=False):
+def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_interest=[0.95],omega_splines=None,verbose=True, debug=False):
     """Calculate decorrelation timescales between all m,n surfaces and selected reference surfaces.
 
     For each rotation quantity, computes 2*pi / delta_omega to get the decorrelation
@@ -694,8 +697,6 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_i
         psi_n values used as reference surfaces (default [0.95]).
     omega_splines : dict or None
         Same omega_splines passed to add_rotation; keys determine which rotations are included.
-    Er_spline : CubicSpline or None
-        If provided, ExB rotation decorrelation timescales are also computed.
     verbose : bool
         Print information about found surfaces.
     debug : bool
@@ -720,8 +721,8 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_i
     rotation_keys = rotation_keys + ['omega_i_surf']
     rotation_keys = rotation_keys + ['omega_e_surf']
 
-    # Add ExB rotation frequencies to the list of rotation keys if Er_spline is provided:
-    if Er_spline is not None:
+    # Add ExB rotation frequencies to the list of rotation keys if Er_spline is provided, or omega_
+    if 'omega_ExB' in rdcon_xarray:
         rotation_keys = rotation_keys + ['omega_ExB_surf']
         rotation_keys = rotation_keys + ['omega_ExB_plus_omega_e_surf']
         rotation_keys = rotation_keys + ['omega_ExB_plus_omega_i_surf']

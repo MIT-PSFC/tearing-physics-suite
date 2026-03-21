@@ -27,12 +27,12 @@ from tearing_physics_suite.multi_run import multi_run_, multi_compile
 
 os.chdir(home_dir)
 
-run_test = True
+run_parallel_test = True
 run_compile = True
 use_IDA_lite = False
 IDA_output_cdf_path = ''
 
-num_eqs = 10 # Number of equilibria to run in parallel
+num_eqs = 10 # Number of equilibria to run in parallel. If using IDA-lite output, check the number of time slices in the CDF file and set this accordingly.
 
 if __name__ == '__main__':
 
@@ -49,17 +49,17 @@ if __name__ == '__main__':
     eq_filename_short= eq_filename.split('/')[-1]
 
     #########################################################################################################
-    # Read rotation_.cdf (IDA-lite output) and create splines:
+    # Read IDA-lite output and create splines:
     #########################################################################################################
 
     if use_IDA_lite:
-        rotation_cdf_path = os.path.join(home_dir, 'tests', 'rotation_.cdf')
+        if os.path.exists(IDA_output_cdf_path):
+            profile_dict = read_IDA_lite(IDA_output_cdf_path, verbose=True, time_idx=100)
+        else:
+            raise FileNotFoundError(f"IDA-lite output CDF file not found at {IDA_output_cdf_path}. Please check the path and try again.")
 
-        if os.path.exists(rotation_cdf_path):
-            profile_dict = read_IDA_lite(rotation_cdf_path, verbose=True, time_idx=100)
-
-        if os.path.exists(rotation_cdf_path):
-            splines_by_time_dict_list = read_IDA_lite(rotation_cdf_path, verbose=False, time_idx=None)
+        if os.path.exists(IDA_output_cdf_path):
+            splines_by_time_dict_list = read_IDA_lite(IDA_output_cdf_path, verbose=False, time_idx=None)
 
         splines = splines_by_time_dict_list[125-num_eqs:125] # Just take 10 time slices for testing
     else:
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     master_working_dir = os.path.join(home_dir, 'tests', 'test_working_dir_parallel')
     os.makedirs(master_working_dir, exist_ok=True)
 
-    if run_test:
+    if run_parallel_test:
         combined_xr_list, input_dict_list, errors = multi_run_(eq_filenames, splines,
             master_working_dir,
             Zeff=1.5,

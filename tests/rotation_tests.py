@@ -30,9 +30,6 @@ os.chdir(home_dir)
 # user settings:
 #########################################################################################################
 
-fast=False # <- Don't change this
-use_default_eq=True
-run_resist=False
 use_IDA_lite = False
 IDA_output_cdf_path = ''
 
@@ -60,12 +57,12 @@ else:
 
     #########################################################################################################
     # Read rotation_.cdf
+    # ^This capability has been deprecated added to the function read_IDA_lite, but we keep it here for user visualisation and testing purposes.
     #########################################################################################################
-    rotation_cdf_path = os.path.join(home_dir, 'tests', 'rotation_.cdf')
-    if os.path.exists(rotation_cdf_path):
-        print(f"\nReading rotation CDF file: {rotation_cdf_path}")
+    if os.path.exists(IDA_output_cdf_path):
+        print(f"\nReading rotation CDF file: {IDA_output_cdf_path}")
         try:
-            rotation_xr = xr.open_dataset(rotation_cdf_path)
+            rotation_xr = xr.open_dataset(IDA_output_cdf_path)
             print("Successfully opened rotation_.cdf")
             print("\nDataset info:")
             print(rotation_xr)
@@ -125,7 +122,7 @@ else:
             raise e
         run_test=True
     else:
-        print(f"rotation_.cdf not found at {rotation_cdf_path}")
+        print(f"rotation_.cdf not found at {IDA_output_cdf_path}")
         run_test=False
     
 #########################################################################################################

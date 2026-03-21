@@ -9,7 +9,7 @@ import numpy as np
 
 from tearing_physics_suite.environment import home_dir
 from tearing_physics_suite.input_test_suite import *
-from tearing_physics_suite.multi_run import _get_slurm_cpus
+from tearing_physics_suite.multi_run import _get_num_cpus
 
 # Module-level map so it is picklable for multiprocessing workers
 _SCAN_FUNCTION_MAP = {
@@ -176,7 +176,7 @@ def run_multiple_scans_parallel(eq_filename, master_working_dir, scan_namelist=s
 
     os.makedirs(master_working_dir, exist_ok=True)
 
-    n_cpus = _get_slurm_cpus()
+    n_cpus = _get_num_cpus()
     n_scans = len(valid_scans)
     n_workers = min(n_cpus, n_scans)
     print(f"[run_multiple_scans_parallel] Distributing {n_scans} scans across {n_workers} workers ({n_cpus} CPUs available).")

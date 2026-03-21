@@ -5,6 +5,7 @@ import os
 from tearing_physics_suite.environment import home_dir
 from tearing_physics_suite.input_test_suite import *
 from tearing_physics_suite.input_test_runner import run_multiple_scans, run_multiple_scans_parallel
+from tearing_physics_suite.multi_run import _get_num_cpus
 
 #########################################################################################################
 # load equilibrium:
@@ -19,9 +20,18 @@ eq_filename_short= eq_filename.split('/')[-1]
 run_single_test = True
 run_short_test = True
 run_all_tests = False
-run_parallel_tests = False
+run_parallel_tests = False # Set to true to run multiple tests in parallel if you have multiple CPU cores available. 
 
 if __name__ == '__main__':
+    # Check that there are multiple processing cores available. If not, we set run_parallel_tests to False.
+    if run_parallel_tests:
+        n_cpus = _get_num_cpus()
+        if n_cpus < 2:
+            print(f"Warning: Only {n_cpus} CPU core(s) available. Parallel tests require at least 2 cores.")
+            run_parallel_tests = False
+        else:
+            print(f"Running parallel tests with {n_cpus} CPU cores available.")
+
     #########################################################################################################
     # Run single case:
     #########################################################################################################

@@ -23,18 +23,26 @@ from tearing_physics_suite.delta_prime_extraction import extract_delta_primes_, 
 from tearing_physics_suite.tearing_physics_suite import linear_resistive_calculation
 from tearing_physics_suite.mre_analysis import analyse_with_mre
 from tearing_physics_suite.profile_read import read_IDA_lite
-from tearing_physics_suite.multi_run import multi_run_, multi_compile
+from tearing_physics_suite.multi_run import multi_run_, multi_compile, _get_num_cpus
 
 os.chdir(home_dir)
 
 run_parallel_test = True
-run_compile = True
+run_compile = False # Automatically set to true after run_parallel_test completes.
 use_IDA_lite = False
 IDA_output_cdf_path = ''
-
 num_eqs = 10 # Number of equilibria to run in parallel. If using IDA-lite output, check the number of time slices in the CDF file and set this accordingly.
 
 if __name__ == '__main__':
+
+    # Check that there are multiple processing cores available. If not, we set run_parallel_test to False.
+    if run_parallel_test:
+        n_cpus = _get_num_cpus()
+        if n_cpus < 2:
+            print(f"Warning: Only {n_cpus} CPU core(s) available. Parallel test requires at least 2 cores.")
+            run_parallel_test = False
+        else:
+            print(f"Running parallel test with {n_cpus} CPU cores available.")
 
     #########################################################################################################
     # load equilibrium:
@@ -98,6 +106,7 @@ if __name__ == '__main__':
             mtheta=129,
             fail_fast=True
             )
+        run_compile = True
 
     if run_compile:
         # Run the bloody compiler:

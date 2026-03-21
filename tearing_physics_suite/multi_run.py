@@ -91,7 +91,7 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False, cl
     # Parallel loop starts here:
     os.makedirs(master_working_dir, exist_ok=True)
 
-    n_cpus = _get_slurm_cpus()
+    n_cpus = _get_num_cpus()
     n_runs = len(eq_filenames)
     n_workers = min(n_cpus, n_runs)
     print(f"[multi_run] Distributing {n_runs} runs across {n_workers} workers ({n_cpus} CPUs available via SLURM).")
@@ -247,8 +247,8 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
 
     return compiled_xr, compiled_inputs_xr
 
-def _get_slurm_cpus():
-    """Get the number of available CPUs from SLURM environment variables."""
+def _get_num_cpus():
+    """Get the number of available CPUs. Default is to use SLURM environment variables."""
     for var in ['SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_JOB_CPUS_PER_NODE']:
         val = os.environ.get(var)
         if val is not None:

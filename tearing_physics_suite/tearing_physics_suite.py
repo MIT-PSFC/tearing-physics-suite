@@ -4,7 +4,8 @@ import xarray as xr
 import numpy as np
 import copy
 import tearing_physics_suite.global_vars
-from tearing_physics_suite.environment import home_dir
+import os
+home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.mre_analysis import analyse_with_mre
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation, compile_xarrays
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes

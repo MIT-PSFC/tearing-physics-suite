@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# Master build script for tearing-physics-suite.
 """
 Master build script for tearing-physics-suite.
 
@@ -37,6 +37,13 @@ while str(_script_dir) in sys.path:
 if str(_repo_dir) in sys.path:
     sys.path.remove(str(_repo_dir))
 sys.path.insert(0, str(_repo_dir))
+
+# Set TPSHOME to the repo root for this build process (overriding any existing value)
+if 'TPSHOME' in os.environ and os.environ['TPSHOME'] != str(_repo_dir):
+    print(f"WARNING: TPSHOME environment variable ({os.environ['TPSHOME']}) "
+          f"does not match repository root ({_repo_dir}). "
+          "Overriding TPSHOME to repository root for this build.")
+os.environ['TPSHOME'] = str(_repo_dir)
 
 from tearing_physics_suite.build_netcdf_lapack import build_libraries
 from tearing_physics_suite.build_GPEC_PEST3 import build_PEST3, build_GPEC
@@ -94,7 +101,10 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         "#",
         "# Prerequisites (load before sourcing this file on Slurm/ORCD):",
         "#   module load gcc/12.2.0 openmpi/4.1.4",
+        "# ── Tearing Physics Suite repository root ────────────────────────────────",
+        f"export TPSHOME={repo_root}",
         "",
+        "# ── 
         "# ── Compiler settings (required when building / linking) ─────────────────",
         "export FC=gfortran",
         "export CC=gcc",
@@ -114,6 +124,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         f"export PATH={gpec_bin}:{pest3_bin}:$PATH",
         "",
         "echo \"tearing_physics_suite environment loaded.\"",
+        f"echo \"  TPSHOME : {repo_root}\"",
         f"echo \"  GPEC  : {gpec_bin}\"",
         f"echo \"  PEST3 : {pest3_bin}\"",
         f"echo \"  LAPACKHOME : {utils_prefix}\"",
@@ -123,26 +134,6 @@ def write_env_file(lib_paths, repo_root, out_path=None):
     out_path.write_text("\n".join(lines) + "\n")
     out_path.chmod(0o755)
     return out_path
-
-
-def write_home_dir(repo_root):
-    """Write the repository root path into tearing_physics_suite/environment.py as home_dir.
-
-    Parameters
-    ----------
-    repo_root : Path
-        Root of the tearing-physics-suite repository.
-    """
-    env_py = Path(repo_root) / "tearing_physics_suite" / "environment.py"
-    content = (
-        "# Global environment variables for the tearing physics suite\n"
-        "# Written automatically by build_tearing_physics_suite.py\n"
-        "\n"
-        f'home_dir = "{repo_root}"\n'
-    )
-    env_py.write_text(content)
-    print(f"  environment.py  : home_dir set to {repo_root}")
-
 
 def build_all(
     install_dir=None,
@@ -201,7 +192,6 @@ def build_all(
         True if every requested build step succeeded; False otherwise.
     """
     repo_root = _repo_dir
-    write_home_dir(repo_root)
 
     # Default directories
     if install_dir is None:

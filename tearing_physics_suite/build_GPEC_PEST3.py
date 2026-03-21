@@ -5,7 +5,7 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 
 
 def is_pest3_built(build_dir=None):

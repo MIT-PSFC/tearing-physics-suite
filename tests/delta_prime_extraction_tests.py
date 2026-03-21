@@ -11,7 +11,7 @@ import shutil
 import pandas as pd
 import pickle as pkl
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 
 os.chdir(home_dir)
 

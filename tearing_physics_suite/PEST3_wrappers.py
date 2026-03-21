@@ -12,7 +12,7 @@ import pickle as pkl
 import copy
 import math
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 
 
 def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_results_dir=True,

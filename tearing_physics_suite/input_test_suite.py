@@ -14,7 +14,7 @@ import xarray as xr
 import numpy as np
 
 from tearing_physics_suite.utils import create_dense_log_paramvals
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.input_scans import scan_1D_input
 
 #########################################################################################################

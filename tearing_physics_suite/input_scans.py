@@ -5,7 +5,7 @@ import xarray as xr
 import numpy as np
 import os
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 import tearing_physics_suite.fortran_wrappers as tfw
 from tearing_physics_suite.fortran_wrappers import compile_xarrays
 from tearing_physics_suite.tearing_physics_suite import delta_prime_variability

@@ -12,7 +12,7 @@ import shutil
 import pandas as pd
 import pickle as pkl
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.profile_read import read_IDA_lite, read_kin_file
 
 os.chdir(home_dir)

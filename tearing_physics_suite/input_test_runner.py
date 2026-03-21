@@ -7,7 +7,7 @@ import pandas as pd
 import xarray as xr
 import numpy as np
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.input_test_suite import *
 from tearing_physics_suite.multi_run import _get_num_cpus
 

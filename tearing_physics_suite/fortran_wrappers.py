@@ -9,7 +9,7 @@ import numpy as np
 import pickle as pkl
 import copy
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.GPEC_write_inputs import write_rdcon_stride_inputs
 from tearing_physics_suite.PEST3_wrappers import pest3_special_truncation_loop,pest3_clean_netcdf,PEST3_resistive_calculation
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes

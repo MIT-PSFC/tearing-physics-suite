@@ -201,6 +201,7 @@ def build_all(
         True if every requested build step succeeded; False otherwise.
     """
     repo_root = _repo_dir
+    write_home_dir(repo_root)
 
     # Default directories
     if install_dir is None:
@@ -335,8 +336,6 @@ def build_all(
         print("  Source it with:  source tearing_physics_suite_env.sh")
     else:
         print("\n  Skipping env file generation (no lib_paths available).")
-
-    write_home_dir(repo_root)
 
     return all_ok
 

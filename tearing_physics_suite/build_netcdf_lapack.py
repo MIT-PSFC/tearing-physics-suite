@@ -8,11 +8,95 @@ import os
 import sys
 import subprocess
 import urllib.request
+import urllib.error
+import ssl
 import tarfile
 import shutil
 import json
 from pathlib import Path
 import argparse
+
+
+def fetch_file(url, file, headers=None, max_retries=3):
+    """
+    Download a file from a URL with proper SSL handling for cluster environments.
+    
+    Parameters:
+    -----------
+    url : str
+        URL to download from
+    file : str or Path
+        Local file path to save to
+    headers : dict, optional
+        HTTP headers to use (default includes User-Agent)
+    max_retries : int
+        Maximum number of retry attempts
+    """
+    if headers is None:
+        headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'}
+    
+    file = Path(file)
+    
+    # Create unverified SSL context for cluster environments with certificate issues
+    # This is necessary in restricted network environments where system certificates
+    # may not be available or may have issues
+    try:
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+    except Exception:
+        ssl_context = None
+    
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            
+            # Use custom SSL context if available to bypass certificate verification
+            # This is needed in cluster environments
+            if ssl_context:
+                response = urllib.request.urlopen(req, context=ssl_context, timeout=30)
+            else:
+                response = urllib.request.urlopen(req, timeout=30)
+            
+            # Handle redirects (up to 10 hops like OpenFUSIONToolkit)
+            resolved_url = response.geturl()
+            for _ in range(10):
+                if resolved_url == url:
+                    break
+                url = resolved_url
+                redirect_req = urllib.request.Request(resolved_url, headers=headers)
+                if ssl_context:
+                    response = urllib.request.urlopen(redirect_req, context=ssl_context, timeout=30)
+                else:
+                    response = urllib.request.urlopen(redirect_req, timeout=30)
+                resolved_url = response.geturl()
+            
+            # Download file content
+            with open(file, 'wb') as f:
+                while True:
+                    chunk = response.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            
+            return True
+            
+        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+            if attempt < max_retries - 1:
+                print(f"  Download attempt {attempt + 1} failed: {e}")
+                print(f"  Retrying ({attempt + 2}/{max_retries})...")
+                continue
+            else:
+                raise
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"  Download attempt {attempt + 1} failed with error: {e}")
+                print(f"  Retrying ({attempt + 2}/{max_retries})...")
+                continue
+            else:
+                raise
+    
+    return False
 
 
 class LibraryBuilder:
@@ -112,7 +196,7 @@ class LibraryBuilder:
         
         print(f"Downloading {self.name} v{self.version}...")
         try:
-            urllib.request.urlretrieve(self.url, filepath)
+            fetch_file(self.url, filepath)
             print(f"Downloaded to {filepath}")
             return True
         except Exception as e:

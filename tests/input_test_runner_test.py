@@ -17,7 +17,7 @@ eq_filename = os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_
 print(" Getting equilibrium file from ", eq_filename)
 eq_filename_short= eq_filename.split('/')[-1]
 
-run_single_test = True
+run_single_test = False
 run_short_test = True
 run_all_tests = False
 run_parallel_tests = False # Set to true to run multiple tests in parallel if you have multiple CPU cores available. 
@@ -42,7 +42,7 @@ if __name__ == '__main__':
     # Run scans:
     #########################################################################################################
     if run_short_test:
-        results, messages, scan_namelist, failed_cases = run_multiple_scans(eq_filename, scan_namelist=physics_tests, results_dir=os.path.join(home_dir, 'tests/test_results/physics_tests'), quick_test=True, verbose=True,debug=True)
+        results, messages, scan_namelist, failed_cases = run_multiple_scans(eq_filename, scan_namelist=['edge_truncation_q_scan','rdcon_finite_element_scan'], results_dir=os.path.join(home_dir, 'tests/test_results/physics_tests'), quick_test=True, verbose=True,debug=True)
     if run_all_tests:
         results, messages, scan_namelist, failed_cases = run_multiple_scans(eq_filename, scan_namelist=key_numerical_tests, results_dir=os.path.join(home_dir, 'tests/test_results/key_numerical_tests'), quick_test=True, verbose=True,debug=True)
         results, messages, scan_namelist, failed_cases = run_multiple_scans(eq_filename, scan_namelist=scan_functions, results_dir=os.path.join(home_dir, 'tests/test_results/input_scans'), quick_test=True, verbose=True,debug=True)

@@ -5,16 +5,18 @@ run_tests.py
 
 Discover and run all test scripts in the tests/ directory.
 
+Test output is printed by default. Use --quiet to suppress output.
+
 Usage:
     cd /home/stubenj9/tearing-physics-suite/tests
-    uv run run_tests.py [--list] [--test=NAME] [--all] [--verbose]
+    uv run run_tests.py [--list] [--test=NAME] [--all] [--quiet]
 
 Options:
     --list          List all available test scripts and exit
     --test=NAME     Run a specific test (e.g., --test=delta_prime)
                     Can be used multiple times
     --all           Run all tests (default if no specific tests specified)
-    --verbose       Print full output from each test
+    --quiet         Suppress test output (show only summary)
     --help          Show this help message
 """
 
@@ -81,7 +83,8 @@ def run_test(test_path, verbose=False):
     test_path : Path
         Path to test script.
     verbose : bool
-        If True, print full output from the test.
+        If True, stream output in real-time as the test runs.
+        If False, capture output and display it after completion.
         
     Returns
     -------
@@ -101,40 +104,62 @@ def run_test(test_path, verbose=False):
     print(f"{'=' * 60}")
     
     try:
-        result = subprocess.run(
-            [sys.executable, str(test_path)],
-            capture_output=True,
-            text=True,
-            timeout=3600,  # 1 hour timeout
-        )
-        
-        success = result.returncode == 0
-        
-        if verbose or not success:
-            if result.stdout:
-                print("STDOUT:")
-                print(result.stdout)
-            if result.stderr:
-                print("STDERR:")
-                print(result.stderr)
+        if verbose:
+            # Stream output in real-time (new logic)
+            result = subprocess.run(
+                [sys.executable, str(test_path)],
+                timeout=3600,  # 1 hour timeout
+            )
+            success = result.returncode == 0
+            status = "✓ PASSED" if success else "✗ FAILED"
+            print(f"\n{status} (exit code: {result.returncode})")
+            
+            return {
+                'name': test_name,
+                'path': test_path,
+                'returncode': result.returncode,
+                'success': success,
+                'output': '',
+                'error': '',
+            }
         else:
-            # Print last few lines if successful
-            lines = result.stdout.split('\n') if result.stdout else []
-            for line in lines[-10:]:
-                if line.strip():
-                    print(line)
-        
-        status = "✓ PASSED" if success else "✗ FAILED"
-        print(f"\n{status} (exit code: {result.returncode})")
-        
-        return {
-            'name': test_name,
-            'path': test_path,
-            'returncode': result.returncode,
-            'success': success,
-            'output': result.stdout,
-            'error': result.stderr,
-        }
+            # Capture output for display after completion (old logic)
+            result = subprocess.run(
+                [sys.executable, str(test_path)],
+                capture_output=True,
+                text=True,
+                timeout=3600,  # 1 hour timeout
+            )
+            
+            success = result.returncode == 0
+            
+            # Display output
+            if not success:
+                # Always show full output on failure
+                if result.stdout:
+                    print("STDOUT:")
+                    print(result.stdout)
+                if result.stderr:
+                    print("STDERR:")
+                    print(result.stderr)
+            else:
+                # Print last few lines if successful
+                lines = result.stdout.split('\n') if result.stdout else []
+                for line in lines[-10:]:
+                    if line.strip():
+                        print(line)
+            
+            status = "✓ PASSED" if success else "✗ FAILED"
+            print(f"\n{status} (exit code: {result.returncode})")
+            
+            return {
+                'name': test_name,
+                'path': test_path,
+                'returncode': result.returncode,
+                'success': success,
+                'output': result.stdout,
+                'error': result.stderr,
+            }
         
     except subprocess.TimeoutExpired:
         print(f"✗ TIMEOUT (>1 hour)")
@@ -163,7 +188,7 @@ def main():
     # Parse arguments
     test_names = []
     list_only = False
-    verbose = False
+    verbose = True  # Default to True; can be suppressed with --quiet
     run_all = False
     
     for arg in sys.argv[1:]:
@@ -174,14 +199,21 @@ def main():
             list_only = True
         elif arg == "--all":
             run_all = True
-        elif arg == "--verbose":
-            verbose = True
+        elif arg == "--quiet":
+            verbose = False
         elif arg.startswith("--test="):
             test_names.append(arg.split("=", 1)[1])
         else:
             print(f"Unknown argument: {arg}")
             print(__doc__)
             sys.exit(1)
+    
+    # Print warning about verbose output default
+    if verbose:
+        print("============================================================")
+        print("Test output is being printed. Use --quiet to suppress output.")
+        print("============================================================")
+        print()
     
     # Discover tests
     tests = discover_tests()

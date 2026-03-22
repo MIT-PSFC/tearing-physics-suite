@@ -789,7 +789,7 @@ def edge_truncation_q_scan(eq_filename,results_dir = os.path.join(home_dir, 'tes
     scan_vals = kwargs.pop('scan_vals', None)
     if scan_vals is None:
         if quick_test:
-            scan_vals = [5.2,6.2,7.2]
+            scan_vals = [6.2,7.2]
         else:
             scan_vals = [2.2,3.2,4.2,5.2,6.2,7.2,8.2]
     result, message = scan_1D_input('qhigh', scan_vals, eq_filename,
@@ -820,7 +820,7 @@ def edge_truncation_q_scan_no_wall(eq_filename,results_dir = os.path.join(home_d
     scan_vals = kwargs.pop('scan_vals', None)
     if scan_vals is None:
         if quick_test:
-            scan_vals = [5.2,6.2,7.2]
+            scan_vals = [6.2,7.2]
         else:
             scan_vals = [2.2,3.2,4.2,5.2,6.2,7.2,8.2]
     result, message = scan_1D_input('qhigh', scan_vals, eq_filename,
@@ -853,7 +853,7 @@ def wall_radius_scan(eq_filename,results_dir = os.path.join(home_dir, 'tests/tes
         if superquick:
             scan_vals = [0]
         elif quick_test:
-            scan_vals = [0,0.1,0.2,21]
+            scan_vals = [0,0.1,21]
         else:
             scan_vals = [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,2,3,4,5,6,7,8,9,10,15,21]
     result, message = scan_1D_input('a_wall', scan_vals, eq_filename,

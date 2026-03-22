@@ -694,6 +694,8 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     # ------------------------------------------------------------------
     if debug:
         print("\nStep 3 (debug): Running 'make v' to show configuration...")
+    else:
+        print("\nStep 3 (optional): Skipped – pass debug=True to show build configuration.")
         try:
             result = subprocess.run(
                 ["make", "v"],
@@ -714,6 +716,8 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     # ------------------------------------------------------------------
     if rebuild or remake:
         print("\nStep 4: Cleaning previous build artifacts...")
+    else:
+        print("\nStep 4 (optional): Skipped – pass rebuild=True or remake=True to clean artifacts.")
         try:
             result = subprocess.run(
                 ["make", "clean"],

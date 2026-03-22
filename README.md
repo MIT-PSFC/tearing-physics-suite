@@ -5,11 +5,11 @@ All development to follow Vincent Driessen's GitFlow <https://nvie.com/posts/a-s
 # Installation 
 
 Short version: (requires uv, gcc, openmpi, cmake and make)  
-    cd path/to/tearing-physics-suite  
-    uv sync  
-    uv run tearing_physics_suite/build_tearing_physics_suite.py  
-    uv run tests/run_tests.py  
-    source tearing_physics_suite_env.sh (optional)  
+&emsp;cd path/to/tearing-physics-suite  
+&emsp;uv sync
+&emsp;uv run tearing_physics_suite/build_tearing_physics_suite.py  
+&emsp;source tearing_physics_suite_env.sh
+&emsp;uv run tests/run_tests.py  
 
 Long version:
 
@@ -21,7 +21,11 @@ Long version:
 2. Set up fortran environment:
     You need to install the software 'gcc', 'openmpi', 'cmake' and 'make' on your system. I used versions gcc/12.2.0 and openmpi/4.1.4, make/4.2.1 and cmake greater than 3.5 but you can try other versions at your own risk.
     Installation may be trivial on a cluster with commands such as 'module load gcc/<version>', 'module load openmpi/<version>'. 
-    If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'.
+    If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'. Specific cluster cases are provided:
+    &emsp;Engaging:
+    &emsp;&emsp;module load gcc/12.2.0 openmpi/4.1.4
+    &emsp;Omega: (separate openmpi not required)
+    &emsp;&emsp;module load gcc/11.x
 
     Once you have gcc, openmpi, make and cmake, you can run python script build_tearing_physics_suite.py using the command 'uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py'.
     Then, slowly and surely, this (largely AI-written) script will download the following codes from the following links:
@@ -35,16 +39,14 @@ Long version:
     After downloading these packages, build_tearing_physics_suite.py will build them using a combination of make and cmake software. It will link them and they should work. I recommend debugging this script with an AI agent if something
     goes wrong, but I'll make sure it works on the clusters OMEGA, SPC-LAC and Engaging, as well as macOS.
 
-3. Run tests:
+3. Load enviornmental variables: 
+    source path/to/tearing-physics-suite/tearing_physics_suite_env.sh will load various paths and environmental variables necessary to 
+    run tearing-physics-suite, as well as PEST3 and GPEC packages from the terminal.
+    This requires having first ran build_tearing_physics_suite.py, and loaded gcc and openmpi. 
+
+4. Run tests:
     'uv run path/to/tearing-physics-suite/tests/unit_test_suite.py' will go through and tell you if the package is behaving correctly. 
     Again I'll make sure it works on the clusters OMEGA, SPC-LAC and Engaging, as well as macOS.
-
-Optional local loading of enviornmental variables: 
-    To run the build PEST3 and GPEC packages from the terminal, without using the python wrappers, you can load all the necessary paths and environmental variables using the command
-    source path/to/tearing-physics-suite/tearing_physics_suite_env.sh
-    This requires having first ran build_tearing_physics_suite.py, and loaded gcc and openmpi. For example on engaging, the terminal commands are:
-        module load gcc/12.2.0 openmpi/4.1.4
-        source tearing_physics_suite_env.sh
 
 # Examples
 

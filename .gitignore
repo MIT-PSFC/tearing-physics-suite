@@ -9,3 +9,4 @@ working_dir/
 build/
 .venv/
 tearing_physics_suite/__pycache__/
+tearing_physics_suite_env.sh

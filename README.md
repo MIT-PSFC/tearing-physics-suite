@@ -24,7 +24,7 @@ Long version:
     If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'.
 
     Once you have gcc, openmpi, make and cmake, you can run python script build_tearing_physics_suite.py using the command 'uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py'.
-    Then, slowly and surely, this AI-written gem of a script will download the following codes from the following links:
+    Then, slowly and surely, this (largely AI-written) script will download the following codes from the following links:
         lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz
         hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_{version}/hdf5-1.14.6.tar.g
         netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz
@@ -39,7 +39,7 @@ Long version:
     'uv run path/to/tearing-physics-suite/tests/unit_test_suite.py' will go through and tell you if the package is behaving correctly. 
     Again I'll make sure it works on the clusters OMEGA, SPC-LAC and Engaging, as well as macOS.
 
-Optional: 
+Optional local loading of enviornmental variables: 
     To run the build PEST3 and GPEC packages from the terminal, without using the python wrappers, you can load all the necessary paths and environmental variables using the command
     source path/to/tearing-physics-suite/tearing_physics_suite_env.sh
     This requires having first ran build_tearing_physics_suite.py, and loaded gcc and openmpi. For example on engaging, the terminal commands are:
@@ -52,6 +52,8 @@ See tests/tearing_physics_suite_tests.py for example calculations of linear and 
 
 See tests/rotation_tests.py for an example calculation of the nonlinear tearing stability, with dimensionless rotation-decorrelation timescale ratios included.
 
-To run parallel calculation examples, call 'uv run tests/parallelisation_tests.py' in a multi-CPU slurm environment.
+To run parallel calculation examples, call 'uv run tests/parallelisation_tests.py' in a multi-CPU computational environment (default is slurm).
 
-To run example numerical sensitivity scans, and input variable scans, see tests/input_test_runner_test.py 
+To run example numerical sensitivity scans, and input variable scans, see 'tests/input_test_runner_test.py'. If you are in a multi-CPU computational environment, you can run multiple input sensitivity scans in parallel by setting run_parallel_tests to True in that file.
+
+Remaining tests tests/delta_prime_extraction_tests.py, tests/fortran_wrapper_test.py, tests/mre_analysis_tests.py function as unit tests.

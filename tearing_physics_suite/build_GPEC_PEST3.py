@@ -5,6 +5,8 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
+from tearing_physics_suite.compiler_utils import detect_compilers, get_cmake_fortran_flags
+
 home_dir = os.environ['TPSHOME']
 
 
@@ -285,6 +287,10 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     # Step 3: Configure PEST3 using CMake
     print(f"\nStep 3: Configuring PEST3 with CMake...")
     
+    # Detect compilers and get appropriate flags
+    compiler_info = detect_compilers()
+    cmake_fortran_flags = get_cmake_fortran_flags(compiler_info['compiler_type'])
+    
     # Create a separate build directory for CMake (clean it for fresh configure)
     cmake_build_dir = Path(build_dir) / "cmake_build"
     if cmake_build_dir.exists():
@@ -327,9 +333,9 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         f"-DCMAKE_INSTALL_PREFIX={build_dir}",
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
-        # gfortran 10+ treats argument type mismatches as errors; PEST3's legacy
-        # Fortran code requires relaxing this check.
-        "-DCMAKE_Fortran_FLAGS=-fallow-argument-mismatch",
+        # Use compiler-specific flags (gfortran needs -fallow-argument-mismatch,
+        # but ifort needs -assume byterecl, etc.)
+        f"-DCMAKE_Fortran_FLAGS={cmake_fortran_flags}",
         f"-DSUPRA_SEARCH_PATH={utils_prefix}",
         f"-DHdf5_ROOT_DIR={utils_prefix}",
         "-DHdf5_Fortran_REQUIRED=OFF",  # Our HDF5 doesn't have Fortran bindings
@@ -611,16 +617,21 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
 
     env = os.environ.copy()
 
-    # --- Compilers ---------------------------------------------------
-    env["FC"] = "gfortran"
-    env["CC"] = "gcc"
-    print(f"  FC = {env['FC']}")
+    # --- Compilers: Use environment variables or auto-detect -----------
+    compiler_info = detect_compilers()
+    env["FC"] = compiler_info['fc']
+    env["CC"] = compiler_info['cc']
+    if compiler_info['f77']:
+        env["F77"] = compiler_info['f77']
+    
+    print(f"  FC = {env['FC']} ({compiler_info['compiler_type']})")
     print(f"  CC = {env['CC']}")
 
-    # --- FFLAGS: gfortran 10+ needs -fallow-argument-mismatch --------
-    # Keep the default -O3 that the makefile sets and add the flag
-    env["FFLAGS"] = "-O3 -fallow-argument-mismatch"
+    # --- FFLAGS: Compiler-specific flags --------------------------------
+    # Use auto-detected flags for the compiler being used
+    env["FFLAGS"] = compiler_info['fflags_base']
     print(f"  FFLAGS = {env['FFLAGS']}")
+    print(f"  Compiler type detected: {compiler_info['compiler_type']}")
 
     # --- LAPACKHOME --------------------------------------------------
     # DEFAULTS.inc looks for LAPACKHOME and derives MATHHOME/MATHDIR

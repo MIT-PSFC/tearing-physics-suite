@@ -53,6 +53,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
     """
     Write a bash environment setup file that configures the shell to run
     GPEC (rdcon, stride, dcon) and PEST3 using the installed libraries.
+    Automatically detects the Fortran and C compilers and sets appropriate flags.
 
     Parameters
     ----------
@@ -72,6 +73,10 @@ def write_env_file(lib_paths, repo_root, out_path=None):
     if out_path is None:
         out_path = Path(repo_root) / "tearing_physics_suite_env.sh"
     out_path = Path(out_path)
+
+    # Detect compilers and get appropriate flags
+    from tearing_physics_suite.compiler_utils import detect_compilers
+    compiler_info = detect_compilers()
 
     # Collect unique LD_LIBRARY_PATH entries in order
     ld_dirs = []
@@ -101,13 +106,15 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         "#",
         "# Prerequisites (load before sourcing this file on Slurm/ORCD):",
         "#   module load gcc/12.2.0 openmpi/4.1.4",
+        "",
         "# ── Tearing Physics Suite repository root ────────────────────────────────",
         f"export TPSHOME={repo_root}",
         "",
-        "# ── Compiler settings (required when building / linking) ─────────────────",
-        "export FC=gfortran",
-        "export CC=gcc",
-        'export FFLAGS="-O3 -fallow-argument-mismatch"',
+        "# ── Compiler settings (auto-detected, override via FC/CC env vars) ─────────",
+        f"export FC={compiler_info['fc']}",
+        f"export CC={compiler_info['cc']}",
+        f'export FFLAGS="{compiler_info["fflags_base"]}"',
+        f"# Compiler type: {compiler_info['compiler_type']}",
         "",
         "# ── LAPACK / BLAS ─────────────────────────────────────────────────────────",
         f"export LAPACKHOME={utils_prefix}",
@@ -124,8 +131,10 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         "",
         "echo \"tearing_physics_suite environment loaded.\"",
         f"echo \"  TPSHOME : {repo_root}\"",
-        f"echo \"  GPEC  : {gpec_bin}\"",
-        f"echo \"  PEST3 : {pest3_bin}\"",
+        f"echo \"  Compiler: {compiler_info['fc']} ({compiler_info.get('compiler_type', 'unknown')})\"",
+        f"echo \"  FFLAGS : {compiler_info['fflags_base']}\"",
+        f"echo \"  GPEC   : {gpec_bin}\"",
+        f"echo \"  PEST3  : {pest3_bin}\"",
         f"echo \"  LAPACKHOME : {utils_prefix}\"",
         f"echo \"  NETCDFHOME : {netcdf_prefix}\"",
     ]

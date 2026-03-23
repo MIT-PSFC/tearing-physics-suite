@@ -104,7 +104,7 @@ uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics
 &emsp;&emsp;debugging this script with an AI agent if something goes wrong. V0 works    
 &emsp;&emsp;on the clusters OMEGA and Engaging (more to come...)
 
-5. Load enviornmental variables: 
+5. Load environmental variables: 
 ```
 source path/to/tearing-physics-suite/tearing_physics_suite_env.sh
 ```

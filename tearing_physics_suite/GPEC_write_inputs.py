@@ -598,7 +598,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    mat_flag='+mat_flag +'\n') #Construct coefficient matrices for diagnostic purposes
         f.write('    ode_flag=t' +'\n') #Integrate ODEs for determining stability of internal long-wavelength mode (must be true for GPEC)
         f.write('    vac_flag='+vac_flag +'\n') #Compute plasma, vacuum, and total energies for free-boundary modes
-        f.write('    mer_flag='+gal_flag +'\n') #Evaluate the Mercier criterian
+        f.write('    mer_flag='+gal_flag +'\n') #Evaluate the Mercier criterion
 
         f.write('    sas_flag='+sas_flag +'\n') #Safety factor (q) limit determined as q_ir+dmlim where q_ir is the equil outermost rational
         f.write('    dmlim='+str(dmlim)  +'\n') #See sas_flag

@@ -155,3 +155,7 @@ This page's MIT license only applies to the scripts inside this git repository. 
 &emsp;&emsp;&emsp;PEST3   - https://github.com/MIT-PSFC/PEST3, https://svn.code.sf.net/p/pest3code/code/    
 &emsp;&emsp;&emsp;GPEC    - https://github.com/PrincetonUniversity/GPEC    
 
+
+# Acknowledgements
+
+The development of these scripts was supported by Commonwealth Fusion Systems, and DOE FES under Award DE-SC0024368, "Open and FAIR Fusion for Machine Learning Applications", and DE-SC0014264.

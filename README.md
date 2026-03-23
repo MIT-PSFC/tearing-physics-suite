@@ -94,7 +94,7 @@ uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics
 ```
 &emsp;&emsp;will slowly download the following codes from the following links:     
 &emsp;&emsp;&emsp;lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz    
-&emsp;&emsp;&emsp;hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6.tar.gz
+&emsp;&emsp;&emsp;hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6.tar.gz    
 &emsp;&emsp;&emsp;netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz    
 &emsp;&emsp;&emsp;netcdf-fortran - https://github.com/Unidata/netcdf-fortran/archive/refs/tags/v4.6.1.tar.gz    
 &emsp;&emsp;&emsp;scimake - https://github.com/Tech-XCorp/scimake.git    

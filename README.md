@@ -5,11 +5,11 @@ All development to follow Vincent Driessen's GitFlow <https://nvie.com/posts/a-s
 # Installation 
 
 Short version: (requires uv, gcc, openmpi, cmake and make)  
-&emsp;cd path/to/tearing-physics-suite  
-&emsp;uv sync
-&emsp;uv run tearing_physics_suite/build_tearing_physics_suite.py  
-&emsp;source tearing_physics_suite_env.sh
-&emsp;uv run tests/run_tests.py  
+&emsp;cd path/to/tearing-physics-suite    
+&emsp;uv sync    
+&emsp;uv run tearing_physics_suite/build_tearing_physics_suite.py    
+&emsp;source tearing_physics_suite_env.sh    
+&emsp;uv run tests/run_tests.py    
 
 Long version:
 
@@ -21,21 +21,21 @@ Long version:
 2. Set up fortran environment:
     You need to install the software 'gcc', 'openmpi', 'cmake' and 'make' on your system. I used versions gcc/12.2.0 and openmpi/4.1.4, make/4.2.1 and cmake greater than 3.5 but you can try other versions at your own risk.
     Installation may be trivial on a cluster with commands such as 'module load gcc/<version>', 'module load openmpi/<version>'. 
-    If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'. Specific cluster cases are provided:
-    &emsp;Engaging:
-    &emsp;&emsp;module load gcc/12.2.0 openmpi/4.1.4
-    &emsp;Omega: (separate openmpi not required)
-    &emsp;&emsp;module load gcc/11.x
+    If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'. Specific cluster cases are provided:    
+    &emsp;Engaging:    
+    &emsp;&emsp;module load gcc/12.2.0 openmpi/4.1.4    
+    &emsp;Omega: (separate openmpi not required)    
+    &emsp;&emsp;module load gcc/11.x    
 
     Once you have gcc, openmpi, make and cmake, you can run python script build_tearing_physics_suite.py using the command 'uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py'.
-    Then, slowly and surely, this (largely AI-written) script will download the following codes from the following links:
-        lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz
-        hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_{version}/hdf5-1.14.6.tar.g
-        netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz
-        netcdf-fortran - https://github.com/Unidata/netcdf-fortran/archive/refs/tags/v4.6.1.tar.gz
-        scimake - https://github.com/Tech-XCorp/scimake.git
-        PEST3   - https://github.com/MIT-PSFC/PEST3 (we have a local copy of the publically available scripts from https://svn.code.sf.net/p/pest3code/code/)
-        GPEC    - https://github.com/PrincetonUniversity/GPEC
+    Then, slowly and surely, this (largely AI-written) script will download the following codes from the following links:    
+   &emsp;lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz    
+   &emsp;hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_{version}/hdf5-1.14.6.tar.g    
+   &emsp;netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz    
+   &emsp;netcdf-fortran - https://github.com/Unidata/netcdf-fortran/archive/refs/tags/v4.6.1.tar.gz    
+   &emsp;scimake - https://github.com/Tech-XCorp/scimake.git    
+   &emsp;PEST3   - https://github.com/MIT-PSFC/PEST3 (we have a local copy of the publically available scripts from https://svn.code.sf.net/p/pest3code/code/)    
+   &emsp;GPEC    - https://github.com/PrincetonUniversity/GPEC    
     After downloading these packages, build_tearing_physics_suite.py will build them using a combination of make and cmake software. It will link them and they should work. I recommend debugging this script with an AI agent if something
     goes wrong, but I'll make sure it works on the clusters OMEGA, SPC-LAC and Engaging, as well as macOS.
 

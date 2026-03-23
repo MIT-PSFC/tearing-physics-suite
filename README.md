@@ -21,7 +21,8 @@ Stable versions will have a number designation, while all active development sho
 
 # Installation (from source only)
 
-Short version: System agnostic but requires uv, gcc, openmpi, cmake and make
+#### Short version:
+System agnostic but requires uv, gcc, openmpi, cmake and make.
 ``` 
 git clone https://github.com/MIT-PSFC/tearing-physics-suite.git
 uv sync
@@ -30,7 +31,8 @@ source tearing_physics_suite_env.sh
 uv run tests/run_tests.py  
 ```
 
-Medium version: Complete install on Omega from login node, requires ssh key permissions for git clone
+#### Medium version:
+Complete install on Omega from login node, requires ssh key permissions for git clone.
 ``` 
 salloc -t 02:00:00 --mem=8G  
 module purge 
@@ -42,8 +44,7 @@ uv run tearing_physics_suite/build_tearing_physics_suite.py
 source tearing_physics_suite_env.sh
 uv run tests/run_tests.py 
 ```
-
-Medium version: Complete install on Engaging from login node, requires ssh key permissions for git clone
+Complete install on Engaging from login node, requires ssh key permissions for git clone.
 ```
 salloc -t 02:00:00 --mem=8G
 module load gcc/12.2.0 openmpi/4.1.4
@@ -55,7 +56,7 @@ source tearing_physics_suite_env.sh
 uv run tests/run_tests.py
 ```
 
-Long version: 
+#### Long version: 
 
 1. Set up fortran & c environment:    
     You need to install the software 'gcc', 'openmpi', 'cmake' and 'make' on your system. I used versions gcc/12.2.0 and openmpi/4.1.4, make/4.2.1 and cmake greater than 3.5, but you can try other versions at your own risk.
@@ -91,16 +92,14 @@ uv sync
 ``` 
 uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py
 ```
-&emsp;&emsp;will slowly download the following codes from the following links:
-```
-        lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz
-        hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_{version}/hdf5-1.14.6.tar.g
-        netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz
-        netcdf-fortran - https://github.com/Unidata/netcdf-fortran/archive/refs/tags/v4.6.1.tar.gz
-        scimake - https://github.com/Tech-XCorp/scimake.git
-        PEST3   - https://github.com/MIT-PSFC/PEST3 (we have a local copy of the publically available scripts from https://svn.code.sf.net/p/pest3code/code/)
-        GPEC    - https://github.com/PrincetonUniversity/GPEC
-```
+&emsp;&emsp;will slowly download the following codes from the following links:     
+&emsp;&emsp;&emsp;lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz    
+&emsp;&emsp;&emsp;hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_1.14.6/hdf5-1.14.6.tar.gz
+&emsp;&emsp;&emsp;netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz    
+&emsp;&emsp;&emsp;netcdf-fortran - https://github.com/Unidata/netcdf-fortran/archive/refs/tags/v4.6.1.tar.gz    
+&emsp;&emsp;&emsp;scimake - https://github.com/Tech-XCorp/scimake.git    
+&emsp;&emsp;&emsp;PEST3   - https://github.com/MIT-PSFC/PEST3 (a local copy of https://svn.code.sf.net/p/pest3code/code/)    
+&emsp;&emsp;&emsp;GPEC    - https://github.com/PrincetonUniversity/GPEC    
 &emsp;&emsp;and build them using a combination of make and cmake software. I recommend    
 &emsp;&emsp;debugging this script with an AI agent if something goes wrong. V0 works    
 &emsp;&emsp;on the clusters OMEGA and Engaging (more to come...)
@@ -118,7 +117,7 @@ uv run path/to/tearing-physics-suite/tests/unit_test_suite.py
 ```
 &emsp;&emsp;will test the package's core functionalities. These tests include the examples listed below.    
 
-For general use repeat steps 1, 3 & 5.
+#### For general use repeat steps 1, 3 & 5.
 
 # Examples
 
@@ -144,3 +143,15 @@ uv run tests/input_test_runner_test.py
 If you are in a multi-CPU computational environment, you can run multiple input sensitivity scans in parallel by setting run_parallel_tests to True in that file.
 
 Remaining tests ```tests/delta_prime_extraction_tests.py```, ```tests/fortran_wrapper_test.py```, ```tests/mre_analysis_tests.py``` function as unit tests.
+
+# Licensing
+
+This page's MIT license only applies to the scripts inside this git repository. In using or distributing this repository, you must also adhere to the licenses of the downloaded codes within, which can be found at the following URLs:    
+&emsp;&emsp;&emsp;lapack - https://github.com/Reference-LAPACK/lapack    
+&emsp;&emsp;&emsp;hdf5   - https://github.com/HDFGroup/hdf5    
+&emsp;&emsp;&emsp;netcdf - https://github.com/Unidata/netcdf-c    
+&emsp;&emsp;&emsp;netcdf-fortran - https://github.com/Unidata/netcdf-fortran    
+&emsp;&emsp;&emsp;scimake - https://github.com/Tech-XCorp/scimake.git    
+&emsp;&emsp;&emsp;PEST3   - https://github.com/MIT-PSFC/PEST3, https://svn.code.sf.net/p/pest3code/code/    
+&emsp;&emsp;&emsp;GPEC    - https://github.com/PrincetonUniversity/GPEC    
+

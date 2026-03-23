@@ -13,7 +13,7 @@ These scripts package and compute toroidal 𝚫’ values using pre-existing for
 
 ![workflow diagram](workflow_diagram.svg)
 
-Warning: tearing-physics-suite makes its own working directories to read & write fortran input & output files. These directories will be spawned inside the install directory, unless the user specifies otherwise.
+Warning: tearing-physics-suite makes its own working directories to read & write fortran input & output files. These directories will be spawned inside the tests/ directory, unless the user specifies otherwise.
 
 # Development
 

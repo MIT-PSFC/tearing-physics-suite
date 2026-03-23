@@ -1,52 +1,113 @@
 # tearing-physics-suite
 
+These scripts package and compute toroidal Delta' values using pre-existing fortran codes STRIDE, RDCON and PEST3.
+
+![workflow diagram](workflow_diagram.vsg)
+
+
+# Development
+
 All development to follow Vincent Driessen's GitFlow <https://nvie.com/posts/a-successful-git-branching-model/> to safely add features.
 
-# Installation 
+# Installation (from source only)
 
-Short version: (requires uv, gcc, openmpi, cmake and make)  
-&emsp;cd path/to/tearing-physics-suite    
-&emsp;uv sync    
-&emsp;uv run tearing_physics_suite/build_tearing_physics_suite.py    
-&emsp;source tearing_physics_suite_env.sh    
-&emsp;uv run tests/run_tests.py    
+Short version: System agnostic but requires uv, gcc, openmpi, cmake and make
+''' 
+git clone https://github.com/MIT-PSFC/tearing-physics-suite.git
+uv sync
+uv run tearing_physics_suite/build_tearing_physics_suite.py  
+source tearing_physics_suite_env.sh
+uv run tests/run_tests.py  
+'''
 
-Long version:
+Medium version: Complete install on Omega from login node, requires ssh key permissions for git clone
+''' 
+salloc -t 02:00:00 --mem=8G  
+module purge 
+module load gcc/11.x
+git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
+curl -LsSf https://astral.sh/uv/install.sh | sh 
+uv sync 
+uv run tearing_physics_suite/build_tearing_physics_suite.py
+source tearing_physics_suite_env.sh
+uv run tests/run_tests.py 
+'''
 
-1. Set up python environment:
-    Please use uv python software (simple installation guide here - https://github.com/astral-sh/uv).
-    Once you have uv, initialise the uv python environment by entering the tearing-physics-suite master and entering terminal command 'uv sync'.
-    You can now open python in the terminal with command 'uv run python' or scripts using 'uv run python_script.py'.
+Medium version: Complete install on Engaging from login node, requires ssh key permissions for git clone
+'''
+salloc -t 02:00:00 --mem=8G
+module load gcc/12.2.0 openmpi/4.1.4
+git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
+curl -LsSf https://astral.sh/uv/install.sh | sh 
+uv sync 
+uv run tearing_physics_suite/build_tearing_physics_suite.py
+source tearing_physics_suite_env.sh
+uv run tests/run_tests.py
+'''
 
-2. Set up fortran environment:
-    You need to install the software 'gcc', 'openmpi', 'cmake' and 'make' on your system. I used versions gcc/12.2.0 and openmpi/4.1.4, make/4.2.1 and cmake greater than 3.5 but you can try other versions at your own risk.
+Long version: 
+
+1. Set up fortran & c environment:
+    You need to install the software 'gcc', 'openmpi', 'cmake' and 'make' on your system. I used versions gcc/12.2.0 and openmpi/4.1.4, make/4.2.1 and cmake greater than 3.5, but you can try other versions at your own risk.
     Installation may be trivial on a cluster with commands such as 'module load gcc/<version>', 'module load openmpi/<version>'. 
-    If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'. Specific cluster cases are provided:    
-    &emsp;Engaging:    
-    &emsp;&emsp;module load gcc/12.2.0 openmpi/4.1.4    
-    &emsp;Omega: (separate openmpi not required)    
-    &emsp;&emsp;module load gcc/11.x    
+    If you have a linux system with sudo privilege, you can run the terminal command 'apt install gcc openmpi cmake make'. On macOS you can download Homebrew and run in the terminal 'brew install gcc openmpi cmake make'. Specific cluster cases are provided:
+    &emsp;Engaging:
+'''module load gcc/12.2.0 openmpi/4.1.4'''
+    &emsp;Omega: (separate openmpi not required)
+'''module load gcc/11.x'''
 
-    Once you have gcc, openmpi, make and cmake, you can run python script build_tearing_physics_suite.py using the command 'uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py'.
-    Then, slowly and surely, this (largely AI-written) script will download the following codes from the following links:    
-   &emsp;lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz    
-   &emsp;hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_{version}/hdf5-1.14.6.tar.g    
-   &emsp;netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz    
-   &emsp;netcdf-fortran - https://github.com/Unidata/netcdf-fortran/archive/refs/tags/v4.6.1.tar.gz    
-   &emsp;scimake - https://github.com/Tech-XCorp/scimake.git    
-   &emsp;PEST3   - https://github.com/MIT-PSFC/PEST3 (we have a local copy of the publically available scripts from https://svn.code.sf.net/p/pest3code/code/)    
-   &emsp;GPEC    - https://github.com/PrincetonUniversity/GPEC    
-    After downloading these packages, build_tearing_physics_suite.py will build them using a combination of make and cmake software. It will link them and they should work. I recommend debugging this script with an AI agent if something
-    goes wrong, but I'll make sure it works on the clusters OMEGA, SPC-LAC and Engaging, as well as macOS.
+2. Download source code in the directory of your choice:
+'''
+git@github.com:MIT-PSFC/tearing-physics-suite.git
+'''
+or 
+'''
+https://github.com/MIT-PSFC/tearing-physics-suite.git
+'''
 
-3. Load enviornmental variables: 
-    source path/to/tearing-physics-suite/tearing_physics_suite_env.sh will load various paths and environmental variables necessary to 
+3. Set up python environment:
+    This program utilises uv python software. A simple installation guide is available here - https://github.com/astral-sh/uv, & the linux install command is 
+''' 
+curl -LsSf https://astral.sh/uv/install.sh | sh 
+'''
+    Once you have uv, initialise the uv python environment by entering the tearing-physics-suite directory, and entering terminal command 
+''' 
+uv sync
+'''
+    You can now run python through the uv environment with command 'uv run python' or scripts using 'uv run python_script.py'.
+
+4. Build external fortran packages:
+   
+''' 
+uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py
+'''
+    will slowly download the following codes from the following links:
+'''
+        lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz
+        hdf5   - https://github.com/HDFGroup/hdf5/releases/download/hdf5_{version}/hdf5-1.14.6.tar.g
+        netcdf - https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.9.2.tar.gz
+        netcdf-fortran - https://github.com/Unidata/netcdf-fortran/archive/refs/tags/v4.6.1.tar.gz
+        scimake - https://github.com/Tech-XCorp/scimake.git
+        PEST3   - https://github.com/MIT-PSFC/PEST3 (we have a local copy of the publically available scripts from https://svn.code.sf.net/p/pest3code/code/)
+        GPEC    - https://github.com/PrincetonUniversity/GPEC
+'''
+    and build them using a combination of make and cmake software. I recommend debugging this script with an AI agent if something
+    goes wrong. V0 works on the clusters OMEGA and Engaging (more to come...)
+
+5. Load enviornmental variables: 
+'''
+source path/to/tearing-physics-suite/tearing_physics_suite_env.sh
+'''
+    will load various paths and environmental variables necessary to 
     run tearing-physics-suite, as well as PEST3 and GPEC packages from the terminal.
-    This requires having first ran build_tearing_physics_suite.py, and loaded gcc and openmpi. 
 
-4. Run tests:
-    'uv run path/to/tearing-physics-suite/tests/unit_test_suite.py' will go through and tell you if the package is behaving correctly. 
-    Again I'll make sure it works on the clusters OMEGA, SPC-LAC and Engaging, as well as macOS.
+6. Run tests:
+'''
+uv run path/to/tearing-physics-suite/tests/unit_test_suite.py
+'''
+    will test the package's core functionalities. These tests include the examples listed below.
+
+For general use after the initial installation, repeat steps 1, 3 & 5.
 
 # Examples
 

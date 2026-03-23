@@ -159,3 +159,12 @@ This page's MIT license only applies to the scripts inside this git repository. 
 # Acknowledgements
 
 The development of these scripts was supported by Commonwealth Fusion Systems, and DOE FES under Award DE-SC0024368, "Open and FAIR Fusion for Machine Learning Applications", and DE-SC0014264.
+
+# Citation
+
+If you use this code for nonlinear tearing analysis, please cite S Benjamin, _et al._ (2026), _"Macroscopic trends of neoclassical tearing stability in high-field H-mode tokamak pilot plants"_, Nuclear Fusion 66 036049 [(https://doi.org/10.1088/1741-4326/ae44ad)](https://doi.org/10.1088/1741-4326/ae44ad).    
+
+We also recommend citing the underlying 𝚫’ codes:    
+[1] Glasser, _et al._ (2016), _"Computation of resistive instabilities by matched asymptotic expansions"_, Physics of Plasmas 23 112506 [(https://doi.org/10.1063/1.4967862)](https://doi.org/10.1063/1.4967862)    
+[2] Glasser, _et al._ (2018), _"A robust solution for the resistive MHD toroidal 𝚫’ matrix in near real-time"_, Physics of Plasmas 25 082502 [(https://doi.org/10.1063/1.5029477)](https://doi.org/10.1063/1.5029477)    
+[3] Pletzer, _et al._ (1994), _"Linear Stability of Resistive MHD Modes: Axisymmetric Toroidal Computation of the Outer Region Matching Data"_, Journal of Computational Physics 115, 530-549 [(https://doi.org/10.1006/jcph.1994.1215)](https://doi.org/10.1006/jcph.1994.1215)

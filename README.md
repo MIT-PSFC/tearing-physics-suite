@@ -1,4 +1,5 @@
 # tearing-physics-suite
+[![DOI](https://zenodo.org/badge/1021062548.svg)](https://doi.org/10.5281/zenodo.19209232)
 
 A numerically robust nonlinear tokamak tearing analysis tool for large-scale database generation.
 
@@ -162,7 +163,9 @@ The development of these scripts was supported by Commonwealth Fusion Systems, a
 
 # Citation
 
-If you use this code for nonlinear tearing analysis, please cite S Benjamin, _et al._ (2026), _"Macroscopic trends of neoclassical tearing stability in high-field H-mode tokamak pilot plants"_, Nuclear Fusion 66 036049 [(https://doi.org/10.1088/1741-4326/ae44ad)](https://doi.org/10.1088/1741-4326/ae44ad).    
+Tearing-physics-suite can be cited as follows:
+- Benjamin, S., Rea, C., & MIT PSFC Disruption Studies Group. Tearing-physics-suite: A numerically robust nonlinear tokamak tearing analysis tool for large-scale database generation [Computer software]. doi:10.5281/zenodo.19209232 https://github.com/MIT-PSFC/tearing-physics-suite    
+- S Benjamin, _et al._ (2026), _"Macroscopic trends of neoclassical tearing stability in high-field H-mode tokamak pilot plants"_, Nuclear Fusion 66 036049 [(https://doi.org/10.1088/1741-4326/ae44ad)](https://doi.org/10.1088/1741-4326/ae44ad).    
 
 We also recommend citing the underlying 𝚫’ codes:    
 [1] Glasser, _et al._ (2016), _"Computation of resistive instabilities by matched asymptotic expansions"_, Physics of Plasmas 23 112506 [(https://doi.org/10.1063/1.4967862)](https://doi.org/10.1063/1.4967862)    

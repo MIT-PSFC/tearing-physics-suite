@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: >-
+  Tearing-physics-suite: A numerically robust nonlinear tokamak tearing analysis tool for large-scale database generation
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Stuart
+    family-names: Benjamin
+    email: sbenjamin@psfc.mit.edu
+    affiliation: MIT PSFC
+    orcid: 'https://orcid.org/0000-0002-6877-370X'
+  - given-names: Cristina
+    family-names: Rea
+    email: crea@psfc.mit.edu
+    affiliation: MIT PSFC
+    orcid: 'https://orcid.org/0000-0002-9948-2649'
+  - name: MIT PSFC Disruption Studies Group
+    website: 'https://disruptions.mit.edu/'
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.19209233
+    description: Zenodo
+repository-code: 'https://github.com/MIT-PSFC/tearing-physics-suite'
+url: 'https://github.com/MIT-PSFC/tearing-physics-suite'
+license: MIT

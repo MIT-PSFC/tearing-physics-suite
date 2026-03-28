@@ -1,0 +1,53 @@
+# Scripts to test the functions in input_test_runner.py
+
+import os 
+
+home_dir = os.environ['TPSHOME']
+from tearing_physics_suite.input_test_suite import *
+from tearing_physics_suite.input_test_runner import run_multiple_scans, run_multiple_scans_parallel
+from tearing_physics_suite.multi_run import _get_num_cpus
+
+#########################################################################################################
+# load equilibrium:
+#########################################################################################################
+
+# Choose equilibrium file
+eq_filename = os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT')
+
+print(" Getting equilibrium file from ", eq_filename)
+eq_filename_short= eq_filename.split('/')[-1]
+
+run_single_test = False
+run_short_test = True
+run_all_tests = False
+run_parallel_tests = False # Set to true to run multiple tests in parallel if you have multiple CPU cores available. 
+
+if __name__ == '__main__':
+    # Check that there are multiple processing cores available. If not, we set run_parallel_tests to False.
+    if run_parallel_tests:
+        n_cpus = _get_num_cpus()
+        if n_cpus < 2:
+            print(f"Warning: Only {n_cpus} CPU core(s) available. Parallel tests require at least 2 cores.")
+            run_parallel_tests = False
+        else:
+            print(f"Running parallel tests with {n_cpus} CPU cores available.")
+
+    #########################################################################################################
+    # Run single case:
+    #########################################################################################################
+    if run_single_test:
+        restarray,message = edge_truncation_q_scan(eq_filename, run_stride=True,run_pest3=True, results_dir=os.path.join(home_dir, 'tests/test_results/rdcon_finite_element_scan'), verbose=True)
+        #restarray,message = rdcon_finite_element_scan(eq_filename, results_dir=os.path.join(home_dir, 'tests/test_results/rdcon_finite_element_scan'), verbose=True, ode_flag='f')
+    #########################################################################################################
+    # Run scans:
+    #########################################################################################################
+    if run_short_test:
+        results, messages, scan_namelist, failed_cases = run_multiple_scans(eq_filename, scan_namelist=['edge_truncation_q_scan','rdcon_finite_element_scan'], results_dir=os.path.join(home_dir, 'tests/test_results/physics_tests'), quick_test=True, verbose=True,debug=True)
+    if run_all_tests:
+        results, messages, scan_namelist, failed_cases = run_multiple_scans(eq_filename, scan_namelist=key_numerical_tests, results_dir=os.path.join(home_dir, 'tests/test_results/key_numerical_tests'), quick_test=True, verbose=True,debug=True)
+        results, messages, scan_namelist, failed_cases = run_multiple_scans(eq_filename, scan_namelist=scan_functions, results_dir=os.path.join(home_dir, 'tests/test_results/input_scans'), quick_test=True, verbose=True,debug=True)
+    #########################################################################################################
+    # Run parallel scans:
+    #########################################################################################################
+    if run_parallel_tests:
+        results, messages, scan_namelist, failed_cases = run_multiple_scans_parallel(eq_filename, os.path.join(home_dir, 'tests/test_results/parallel_input_scans'), scan_namelist=physics_tests, quick_test=True, verbose=True, debug=True) 

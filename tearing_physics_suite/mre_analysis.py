@@ -1,7 +1,6 @@
 # Python functions to construct and analyse the modified Rutherford equation on modes
 
 import os
-import sys
 import shutil
 import subprocess
 import pandas as pd
@@ -17,6 +16,11 @@ from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 # Add pressure check (kinetic vs equilibrium)
 
 def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+        # Rotation splines
+        Er_spline=None, # Assuming input units of V/m
+        omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
+        q_surfs_of_interest=[1.0],
+        psi_surfs_of_interest=[0.95],
         energy_confinement_time = None,
         chi_perp_spline=None,
         k0=0.8227,
@@ -30,10 +34,29 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         force_lmfp=False, # Default False <=> whichever parallel transport calculation is more physical, lmfp or smfp, is used. Set True to always use lmfp.
         Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces.
         eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
+        diamagnetic_rotation_ion_charge=None, # Ion charge for diamagnetic rotation calculation. If None, inferred from on-axis ne/ni.
         **kwargs):
     """ 
-    Big function that calculates Delta primes with run_resistive_calculation, then runs analysis on output deltaprimes, returning
+    Executive function that calculates Delta primes with run_resistive_calculation, then runs MRE analysis on output deltaprimes, returning
     a fully combined xarray.
+
+    Parameters
+    ----------
+    eq_filename : str
+        Path to MHD equilibrium file.
+    nn : int
+        Toroidal mode number.
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+        Density (m^-3) and temperature (keV) profiles as functions of normalised poloidal flux.
+
+    Returns
+    -------
+    combined_xr : xr.Dataset
+        Combined xarray containing Delta primes, MRE terms, and island width analysis.
+    pest3_xr : xr.Dataset or None
+        Separate PEST3 output if it could not be merged into combined_xr.
+    input_dict : dict
+        Dictionary of all input parameters used in the calculation.
     """ 
 
     # Check that either energy_confinement_time or chi_perp_spline is defined:
@@ -64,7 +87,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Fill out rdcon_xr with important MRE terms:
     #########################################################################################################
-    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac)
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
@@ -168,9 +191,21 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     return combined_xr, pest3_xr_out, input_dict
 
 def mre_raw_interp(rdcon_xarray):
-    """
-    Interpolate MRE terms onto rational surfaces using cubic splines. Requires mre_flag & geom_flag='t' (as per default) 
-    when running RDCON.
+    """Interpolate MRE terms onto rational surfaces using cubic splines.
+
+    Requires mre_flag & geom_flag='t' (as per default) when running RDCON.
+    Interpolates Di, Dr, H, Dnc, tau_a, tau_r, ftr, mufrac, Wc, avg_B, avg_Bp, avg_Bt,
+    avg_r, avg_R and other geometric/MRE quantities from the full psi grid onto psi_n_rational.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset from RDCON with full-grid MRE and geometry variables.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with _surf variables added at rational surface locations.
     """
     #########################################################################################################
     # Put mre terms onto surfaces:
@@ -184,7 +219,7 @@ def mre_raw_interp(rdcon_xarray):
     taur_prefac_surf = rdcon_xarray.tau_r.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     ftr_surf = rdcon_xarray.ftr.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     mufrac_surf = rdcon_xarray.mufrac.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    #avg_mu0Jbs_dot_B_surf = rdcon_xarray.avg_mu0Jbs_dot_B.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
+    avg_nabla_psi_surf = rdcon_xarray.avg_nabla_psi.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     Dnc_surf = rdcon_xarray.Dnc.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     Wc_prefac_surf = rdcon_xarray.Wc.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_mu0Jpara_surf = rdcon_xarray.avg_mu0Jpara.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
@@ -211,7 +246,7 @@ def mre_raw_interp(rdcon_xarray):
         taur_prefac_surf =taur_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
         ftr_surf =ftr_surf+0.0*rdcon_xarray['psi_n_rational'],
         mufrac_surf =mufrac_surf+0.0*rdcon_xarray['psi_n_rational'],
-        #avg_mu0Jbs_dot_B_surf =avg_mu0Jbs_dot_B_surf+0.0*rdcon_xarray['psi_n_rational'], removed because broken!
+        avg_nabla_psi_surf =avg_nabla_psi_surf+0.0*rdcon_xarray['psi_n_rational'],
         Dnc_surf =Dnc_surf+0.0*rdcon_xarray['psi_n_rational'],
         Wc_prefac_surf =Wc_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_mu0Jpara_surf =avg_mu0Jpara_surf+0.0*rdcon_xarray['psi_n_rational'],
@@ -232,11 +267,30 @@ def mre_raw_interp(rdcon_xarray):
 
 def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
                                 taur_prefac_surf,taua_prefac_surf,DeltaPrime_crits_no_X0,H_surf):
-    """
-    Calculates X0, S, taua, taur, and Delta_prime_crit given the necessary inputs. Use case: comparison with simulation.
-        Take three values from your resistive MHD simulation at a chosen set of rational surfaces: resistivity (eta in  Ohm m), mass_density (kg / m^3), and toroidal mode number n.
-        Then take four pre-calculated terms at those same rational surfaces: taur_prefac_surf, taua_prefac_surf, DeltaPrime_crit_no_X0, and H_surf. Returns
-        X0, S, taua, taur, and Delta_prime_crit at each rational surface for your simulation.
+    """Calculate X0, S, taua, taur, and Delta_prime_crit for comparison with resistive MHD simulations.
+
+    Takes simulation values (resistivity, mass density) and pre-calculated equilibrium terms
+    at rational surfaces to compute dimensionless MRE parameters.
+
+    Parameters
+    ----------
+    eta : array-like
+        Spitzer resistivity in Ohm*m at each rational surface.
+    mass_densities : array-like
+        Mass density in kg/m^3 at each rational surface.
+    n : int
+        Toroidal mode number.
+    taur_prefac_surf, taua_prefac_surf : array-like
+        Resistive and Alfven time prefactors at rational surfaces (from RDCON).
+    DeltaPrime_crits_no_X0 : array-like
+        Critical Delta' values before X0 correction.
+    H_surf : array-like
+        H parameter (curvature/pressure gradient term) at rational surfaces.
+
+    Returns
+    -------
+    X0s, Ss, tauas, taurs, DeltaPrime_crits : np.ndarray
+        Dimensionless parameters and critical Delta' at each rational surface.
     """
     assert len(eta) == len(mass_densities) == len(taur_prefac_surf) == len(taua_prefac_surf) == len(DeltaPrime_crits_no_X0) == len(H_surf), "All input arrays must be the same length."
     X0s = np.zeros(len(eta))
@@ -254,6 +308,25 @@ def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
 
 
 def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
+    """Compute Spitzer resistivity and Coulomb logarithm on rational surfaces and full psi grid.
+
+    Adds variables eta_spitz, eta_spitz_surf, lnLamb_ei, lnLamb_ei_surf (and ee variants)
+    to rdcon_xarray using Wesson Tokamaks formulae.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain ne_m3, te_keV (full grid) and ne_m3_surf, te_keV_surf (on rational surfaces).
+    eta_fac : float
+        Multiplicative factor applied to Spitzer resistivity (e.g. to match simulation values).
+    Coulomb_logarithm : float or None
+        If provided, overrides the Wesson formula with a fixed value.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with resistivity variables added.
+    """
     # Keep up to date with res_func in equilibrium_helper
     if Coulomb_logarithm is None:
         # Coulomb Logarithm using Wesson Tokamaks page 727:
@@ -276,7 +349,7 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     return rdcon_xarray
 
 
-def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0):
+def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=[1.0],psi_surfs_of_interest=[0.95],diamagnetic_rotation_ion_charge=None):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just 
     deals with values out of rdcon_xarray, and natural flux coordinates. Requires mre_flag & geom_flag='t' (as per default) 
@@ -330,6 +403,12 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                                         ne_m3_surf =np.array(ne_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'],
                                         ti_keV_surf =np.array(ti_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'],
                                         te_keV_surf =np.array(te_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'])
+
+    # Put gradients of kinetic information onto surfaces:
+    rdcon_xarray = rdcon_xarray.assign(ni1_m3_surf = np.array(ni_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
+                                        ne1_m3_surf = np.array(ne_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
+                                        ti1_keV_surf = np.array(ti_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
+                                        te1_keV_surf = np.array(te_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'])
     
     # Check if average_ion_mass is in rdcon_xarray:
     if not 'average_ion_mass' in rdcon_xarray:
@@ -421,12 +500,408 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
             rhoW=1e20*mi
     """
 
+    if omega_splines is not None:
+        rdcon_xarray = add_rotation(rdcon_xarray,omega_splines=omega_splines)
+
+    rdcon_xarray = add_drift_rotation(rdcon_xarray,diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge,Er_spline=Er_spline)
+    rdcon_xarray = decorrelation_timescales(rdcon_xarray,
+                        q_surfs_of_interest=q_surfs_of_interest,
+                        psi_surfs_of_interest=psi_surfs_of_interest,
+                        omega_splines=omega_splines)
+    rdcon_xarray = decorrelation_ratios(rdcon_xarray)
+
+    return rdcon_xarray
+
+def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None, dont_override_omega_ExB=True):
+    """Compute ion and electron diamagnetic rotation frequencies at all psi_n values.
+
+    Calculates omega_i and omega_e from density and temperature gradients.
+    If Er_spline is provided, this function computes E x B rotation frequency, unless omega_ExB is already in rdcon_xarray and dont_override_omega_ExB is True.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain ne_m3, ni_m3, te_keV, ti_keV, avg_nabla_psi, and psio.
+    Er_spline : CubicSpline or None
+        Radial electric field profile in V/m as a function of normalised poloidal flux.
+    diamagnetic_rotation_ion_charge : float or None
+        Ion charge state for diamagnetic frequency. If None, inferred from on-axis ne/ni.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with omega_i, omega_e (and omega_ExB if Er_spline provided) added.
+    """
+
+    # Necessary kinetic values of interest:
+    ne_values = np.array(rdcon_xarray.ne_m3.values)
+    ni_values = np.array(rdcon_xarray.ni_m3.values)
+    te_values = np.array(rdcon_xarray.te_keV.values)
+    ti_values = np.array(rdcon_xarray.ti_keV.values)
+    avg_nablapsi_values = np.array(rdcon_xarray.avg_nabla_psi.values) # <|nabla psi|> 
+    psio = np.array(rdcon_xarray.psio)
+    # Single species approximation of ion charge, assuming on-axis density satisfies quasi-neutrality:
+    if diamagnetic_rotation_ion_charge is not None:
+        zi = diamagnetic_rotation_ion_charge
+    else:
+        zi = ne_values[0]/ni_values[0]
+    rdcon_xarray = rdcon_xarray.assign(ne_on_ni_axis = zi)
+
+    #Derivatives (from splines):
+    ne_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
+    ni_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
+    te_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
+    ti_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
+    ne1_values = np.array(ne_spline(rdcon_xarray.psi_n,1))
+    ni1_values = np.array(ni_spline(rdcon_xarray.psi_n,1))
+    te1_values = np.array(te_spline(rdcon_xarray.psi_n,1))
+    ti1_values = np.array(ti_spline(rdcon_xarray.psi_n,1))
+
+    # Check lengths:
+    assert len(ne_values) == len(rdcon_xarray.psi_n) == len(avg_nablapsi_values)
+
+    # Diamagnetic drift frequency in radians/s.
+    omega_i_values = -ti_values*1e3*ni1_values/(zi*psio*ni_values)-ti1_values*1e3/(zi*psio) # Units rad/s: Ti, Te in this form have units eV*e/e = J/C = V, psio is in Weber/rad = (V*s)/rad (see Eq. 1 of https://doi.org/10.13182/FST48-968)
+    omega_e_values =  te_values*1e3*ne1_values/(psio*ne_values)   +te1_values*1e3/(psio)    # Units rad/s
+
+    # Save values onto xarray:
+    rdcon_xarray = rdcon_xarray.assign(
+        omega_i=omega_i_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
+        omega_e=omega_e_values+0.0*rdcon_xarray['psi_n']        # Units rad/s
+    )
+
+    # Calculate ExB rotation if Er_spline is provided, and omega_ExB is not already in rdcon_xarray:
+    if (Er_spline is not None) and not ('omega_ExB' in rdcon_xarray and dont_override_omega_ExB):
+        Er_values = np.array(Er_spline(rdcon_xarray.psi_n.values))
+        omega_ExB_values = Er_values/(psio*avg_nablapsi_values) # Units rad/s: Er units V/m, avg_nablapsi units 1/m, psio units Weber/rad = (V*s)/rad
+        rdcon_xarray = rdcon_xarray.assign(
+            Er=Er_values+0.0*rdcon_xarray['psi_n'],                 # Units V/m (assuming Er_spline is in V/m)
+            omega_ExB=omega_ExB_values+0.0*rdcon_xarray['psi_n']    # Units rad/s
+        )
+
+    # Calculate total rotation frequencies if omega_ExB is present:
+    if 'omega_ExB' in rdcon_xarray:
+        rdcon_xarray = rdcon_xarray.assign(
+            omega_ExB_plus_omega_e=rdcon_xarray['omega_ExB']+omega_e_values, # Units rad/s
+            omega_ExB_plus_omega_i=rdcon_xarray['omega_ExB']+omega_i_values  # Units rad/s
+        )
+
+    rdcon_xarray = put_drift_rotation_on_surfaces(rdcon_xarray)
+
+    return rdcon_xarray
+
+def put_drift_rotation_on_surfaces(rdcon_xarray):
+    """Interpolate drift rotation frequencies and their psi_n derivatives onto rational surfaces.
+
+    Must be called after add_drift_rotation. Adds omega_i_surf, omega_e_surf, omega_i1_surf,
+    omega_e1_surf (and ExB variants if omega_ExB is present) to rdcon_xarray.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with omega_i, omega_e on full psi_n grid (from add_drift_rotation).
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with rotation _surf and _1_surf variables added.
+    """
+
+    # Adding values at surfaces
+    rdcon_xarray = rdcon_xarray.assign(
+        omega_i_surf = np.array(rdcon_xarray.omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
+        omega_e_surf = np.array(rdcon_xarray.omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
+    )
+    if 'omega_ExB' in rdcon_xarray:
+        rdcon_xarray = rdcon_xarray.assign(
+            omega_ExB_surf = np.array(rdcon_xarray.omega_ExB.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_e_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_i_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
+        )
+    if 'Er' in rdcon_xarray:
+        rdcon_xarray = rdcon_xarray.assign(
+            Er_surf = np.array(rdcon_xarray.Er.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
+        )
+
+    # Adding derivatives as surfaces:
+    omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_i.values,extrapolate=False)
+    omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_e.values,extrapolate=False)
+
+    rdcon_xarray = rdcon_xarray.assign(
+        omega_i1_surf = np.array(omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
+        omega_e1_surf = np.array(omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
+    )
+
+    if 'omega_ExB' in rdcon_xarray:
+        omega_ExB_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
+        omega_ExB_plus_omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
+        omega_ExB_plus_omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
+        rdcon_xarray = rdcon_xarray.assign(
+            omega_ExB1_surf = np.array(omega_ExB_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_e1_surf = np.array(omega_ExB_plus_omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
+            omega_ExB_plus_omega_i1_surf = np.array(omega_ExB_plus_omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
+        )
+
+    return rdcon_xarray
+
+def add_rotation(rdcon_xarray,omega_splines=None):
+    """Save measured rotation frequencies onto rdcon_xarray at full psi_n grid and rational surfaces.
+
+    Also computes and stores the psi_n derivative of each rotation frequency at rational surfaces.
+    Use spline key "omega_ExB" for ExB rotation frequency in rad/s.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset to add rotation data to.
+    omega_splines : dict of CubicSpline
+        Mapping of rotation name (e.g. 'omega_tor') to CubicSpline(psi_n) in rad/s.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with {key}, {key}_surf, and {key}1_surf variables added for each spline.
+    """
+
+    for key in omega_splines:
+        spline = omega_splines[key]
+        rdcon_xarray = rdcon_xarray.assign(
+            **{key: np.array(spline(rdcon_xarray.psi_n.values))+0.0*rdcon_xarray['psi_n']}
+        )
+        # Put on surfaces:
+        rdcon_xarray = rdcon_xarray.assign(
+            **{f"{key}_surf": np.array(spline(rdcon_xarray.psi_n_rational.values))+0.0*rdcon_xarray['psi_n_rational']}
+        )
+        # Put derivatives on surfaces:
+        rdcon_xarray = rdcon_xarray.assign(
+            **{f"{key}1_surf": np.array(spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']}
+        )
+    
+    return rdcon_xarray
+
+def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_interest=[0.95],omega_splines=None,verbose=True, debug=False):
+    """Calculate decorrelation timescales between all m,n surfaces and selected reference surfaces.
+
+    For each rotation quantity, computes 2*pi / delta_omega to get the decorrelation
+    timescale (seconds) relative to reference surfaces defined by q value or psi_n.
+
+    Warning: Assumes omega_splines are in units of radians/s.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with rotation quantities already added (via add_rotation / add_drift_rotation).
+    q_surfs_of_interest : list of float
+        q values whose largest-psi_n rational surface is used as a reference (default [1]).
+    psi_surfs_of_interest : list of float
+        psi_n values used as reference surfaces (default [0.95]).
+    omega_splines : dict or None
+        Same omega_splines passed to add_rotation; keys determine which rotations are included.
+    verbose : bool
+        Print information about found surfaces.
+    debug : bool
+        If True, returns the first decorrelation DataArray early for debugging.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with {key}_tdecorr_qsurf and {key}_tdecorr_psisurf variables added,
+        plus rotation_keys coordinate.
+    """
+    #########################################################################################################
+    # Defining a short-list of all terms to calculate decorrelation timescales for.
+    #########################################################################################################
+
+    # Start with the generalised rotation frequencies from omega_splines:
+    rotation_keys = omega_splines.keys() if omega_splines is not None else []
+    # Add '_surf' suffix to rotation keys where its missing. These terms should already be added to rdcon_xarray by add_rotation.
+    rotation_keys = [key if '_surf' in key else f"{key}_surf" for key in rotation_keys]
+
+    # Add the drift rotation frequencies to the list of rotation keys:
+    rotation_keys = rotation_keys + ['omega_i_surf']
+    rotation_keys = rotation_keys + ['omega_e_surf']
+
+    # Add ExB rotation frequencies to the list of rotation keys if Er_spline is provided, or omega_
+    if 'omega_ExB' in rdcon_xarray:
+        rotation_keys = rotation_keys + ['omega_ExB_surf']
+        rotation_keys = rotation_keys + ['omega_ExB_plus_omega_e_surf']
+        rotation_keys = rotation_keys + ['omega_ExB_plus_omega_i_surf']
+
+    # Sanity check that all these keys are in rdcon_xarray:
+    for key in rotation_keys:
+        # Confirm that key ends in '_surf':
+        if not key.endswith('_surf'):
+            no_suffix_key = None
+            raise ValueError(f"Key {key} does not end in '_surf'. Debug function decorrelation_timescales")
+        else:
+            no_suffix_key = key[:-5] # Remove '_surf' suffix to get the key without it
+
+        if key not in rdcon_xarray:
+            print(f"Available keys in rdcon_xarray: {rdcon_xarray.data_vars.keys()}")
+            print(f"Missing key: {key}")
+            raise ValueError(f"Key {key} not found in rdcon_xarray. Please check that add_rotation and add_drift_rotation have been run, and that omega_splines keys match the keys in rdcon_xarray.")
+
+        if no_suffix_key not in rdcon_xarray:
+            print(f"Available keys in rdcon_xarray: {rdcon_xarray.data_vars.keys()}")
+            print(f"Missing key: {no_suffix_key}")
+            raise ValueError(f"Key {no_suffix_key} not found in rdcon_xarray. Please check that add_rotation and add_drift_rotation have been run, and that omega_splines keys match the keys in rdcon_xarray.")
+
+    #########################################################################################################
+    # Convert q_surfs_of_interest to psi_n values
+    #########################################################################################################
+
+    psi_n_at_q_surfs_of_interest = [] # List to store the psi_n values at the rational surfaces of interest
+    for q_surf in q_surfs_of_interest:
+        #########################################################################################################
+        # Find largest psi_n value where the q profile crosses the q value of interest.
+        #########################################################################################################
+        shifted_q_spline = CubicSpline(rdcon_xarray.psi_n.values, np.array(rdcon_xarray.q.values-q_surf),extrapolate=False)
+        # Count how many times q_spline crosses this q_surf, and get the corresponding psi_n values:
+        q_roots = shifted_q_spline.roots()
+        if len(q_roots) == 0:
+            if verbose: print(f"No rational surface found for q={q_surf}.")
+            psi_n_at_q_root = np.nan
+        elif len(q_roots) > 1:
+            if verbose: print(f"Multiple rational surfaces found for q={q_surf}. Using the largest root at psi_n={q_roots.max()}.")
+            psi_n_at_q_root = q_roots.max()
+        else:
+            if verbose: print(f"One rational surface found for q={q_surf} at psi_n={q_roots[0]}.")
+            psi_n_at_q_root = q_roots[0]
+
+        psi_n_at_q_surfs_of_interest.append(psi_n_at_q_root)
+
+    #########################################################################################################
+    # Cycle through keys and calculate decorrelation timescales
+    #########################################################################################################
+    for key in rotation_keys:
+        key_no_suffix = key[:-5] # Remove '_surf' suffix to get the key without it
+        decorellation_data_arrays_qsurf = []    # List to store the decorrelation data arrays for each q surface of interest for this key
+        decorellation_data_arrays_psisurf = []  # List to store the decorrelation data arrays for each psi surface of interest for this key
+
+        #########################################################################################################
+        # q_surfs_of_interest loop:
+        #########################################################################################################
+        for psi_n_at_q_root in psi_n_at_q_surfs_of_interest:
+            # If nans, just make an array of nans for this surface of interest and move on to the next one:
+            # Important because we want the dimension of q_surfs_of_interest to be consistent across all timeslices in a shot...
+            if np.isnan(psi_n_at_q_root):
+                decorellation_data_array = xr.full_like(rdcon_xarray[key], np.nan)
+                decorellation_data_arrays_qsurf.append(decorellation_data_array)
+                continue
+
+            rotation_freq_at_surf_of_interest = rdcon_xarray[key_no_suffix].interp(psi_n=psi_n_at_q_root,method="cubic").values
+
+            # Double check rotation_freq_at_surf_of_interest is a scalar:
+            if np.ndim(rotation_freq_at_surf_of_interest) != 0:
+                print(f"Rotation frequency at surface of interest for key {key} is not a scalar. Value: {rotation_freq_at_surf_of_interest}")
+                raise ValueError(f"Rotation frequency at surface of interest for key {key} is not a scalar. Please debug decorrelation_timescales.")
+
+            # Differences for rotation key:
+            decorellation_data_array = rdcon_xarray[key]-rotation_freq_at_surf_of_interest # Frequency difference (in rad/s)
+            decorellation_data_array = np.pi*2/decorellation_data_array # Convert to decorrelation timescale in seconds (assuming an entire 2pi rotation = decorrelation)
+            decorellation_data_arrays_qsurf.append(decorellation_data_array)
+
+        # Stack the decorrelation data arrays for each surface of interest into a single xarray DataArray with a new dimension 'q_surfs_of_interest':
+        if len(psi_n_at_q_surfs_of_interest) > 0:
+            decorellation_data_arrays_qsurf = xr.concat(decorellation_data_arrays_qsurf, dim='q_surfs_of_interest')
+            decorellation_data_arrays_qsurf = decorellation_data_arrays_qsurf.assign_coords(q_surfs_of_interest=q_surfs_of_interest) # Assign the q values of interest as coordinates for this new dimension
+
+        # Check you get what you're expecting:
+        if debug:
+            return decorellation_data_arrays_qsurf
+
+        #########################################################################################################
+        # psi_surfs_of_interest loop:
+        #########################################################################################################
+        for psi_n_of_interest in psi_surfs_of_interest:
+            # Check if psi_n_of_interest is in the range of psi_n values in rdcon_xarray:
+            if psi_n_of_interest < rdcon_xarray.psi_n.min() or psi_n_of_interest > rdcon_xarray.psi_n.max():
+                print(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Must be between {rdcon_xarray.psi_n.min()} and {rdcon_xarray.psi_n.max()}.")
+                raise ValueError(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Please check your input to decorrelation_timescales.")
+
+            rotation_freq_at_surf_of_interest = rdcon_xarray[key_no_suffix].interp(psi_n=psi_n_of_interest,method="cubic").values
+
+            # Double check rotation_freq_at_surf_of_interest is a scalar:
+            if np.ndim(rotation_freq_at_surf_of_interest) != 0:
+                print(f"Rotation frequency at surface of interest for key {key} is not a scalar. Value: {rotation_freq_at_surf_of_interest}")
+                raise ValueError(f"Rotation frequency at surface of interest for key {key} is not a scalar. Please debug decorrelation_timescales.")
+
+            decorellation_data_array = rdcon_xarray[key]-rotation_freq_at_surf_of_interest # Frequency difference (in rad/s)
+            decorellation_data_array = np.pi*2/decorellation_data_array # Convert to decorrelation timescale in seconds (assuming an entire 2pi rotation = decorrelation)
+            decorellation_data_arrays_psisurf.append(decorellation_data_array)
+
+        # Stack the decorrelation data arrays for each surface of interest into a single xarray DataArray with a new dimension 'psi_surf_of_interest':
+        if len(psi_surfs_of_interest) > 0:
+            decorellation_data_arrays_psisurf = xr.concat(decorellation_data_arrays_psisurf, dim='psi_surf_of_interest')
+            decorellation_data_arrays_psisurf = decorellation_data_arrays_psisurf.assign_coords(psi_surf_of_interest=psi_surfs_of_interest) # Assign the psi_n values of interest as coordinates for this new dimension
+
+        # Now we have two xarray DataArrays for this key: one with decorrelation timescales to rational surfaces of interest, and one with decorrelation timescales to psi surfaces of interest. We can save these onto rdcon_xarray with new keys:
+        if len(psi_n_at_q_surfs_of_interest) > 0:
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf": decorellation_data_arrays_qsurf})  
+        if len(psi_surfs_of_interest) > 0:
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf": decorellation_data_arrays_psisurf})
+
+    # Save rotation keys onto xarray for later reference:
+    rdcon_xarray = rdcon_xarray.assign(rotation_keys=rotation_keys)
+
+    return rdcon_xarray
+
+def decorrelation_ratios(rdcon_xarray):
+    """Calculate ratios of decorrelation timescales to physics-relevant timescales.
+
+    For each rotation key, computes the decorrelation time normalised by taua_surf, taur_surf,
+    and Q0_surf. Must be called after decorrelation_timescales.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with _tdecorr_qsurf and _tdecorr_psisurf variables.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with _on_taua, _on_taur, and _Q0 ratio variables added.
+    """
+    
+    for key in rdcon_xarray.rotation_keys.values:
+        key_no_suffix = key[:-5] # Remove '_surf' suffix to get the key without it
+
+        if f"{key_no_suffix}_tdecorr_qsurf" in rdcon_xarray:
+            taua_surf___ = rdcon_xarray['taua_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
+            taur_surf___ = rdcon_xarray['taur_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
+            Q0_surf___ = rdcon_xarray['Q0_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
+
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_on_taua": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]/taua_surf___})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_on_taur": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]/taur_surf___})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_Q0": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]*Q0_surf___})
+
+        if f"{key_no_suffix}_tdecorr_psisurf" in rdcon_xarray:
+            taua_surf____ = rdcon_xarray['taua_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
+            taur_surf____ = rdcon_xarray['taur_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
+            Q0_surf____ = rdcon_xarray['Q0_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
+
+    
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taua": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taua_surf____})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taur": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taur_surf____})
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_Q0": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]*Q0_surf____})
+
     return rdcon_xarray
 
 def mre_flux_gradients(rdcon_xarray):
-    """
-    Calculate the gradient of certain values with respect to magnetic flux coordinate,
-    on modes, using Cubic splines.
+    """Compute psi_n gradients of q and mu0*p, and the dimensionless flux shear factor s.
+
+    Also integrates dV/dpsi to get enclosed plasma volume at each rational surface.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with q, mu0p, dvdpsi on the full psi_n grid.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with dq_dpsi_n_surf, dmu0p_dpsi_n_surf, flux_shear_s_surf,
+        and V_surf variables added.
     """
 
     # Make cubic splines of terms I want to differentiate:
@@ -471,11 +946,24 @@ def mre_flux_gradients(rdcon_xarray):
     return rdcon_xarray
 
 def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
-    """
-    Calculate the linear, critical (single helicity) Delta' for an instability on each surface,
-    using a couple of different formulations.
-    The first formulation is Glasser et al. Phys. Fluids 1975, Eq 111.
-    The second formulation is from Connor et al. PPCF 2015, Eq 59.
+    """Calculate the linear critical Delta' for tearing instability onset on each rational surface.
+
+    Implements two formulations:
+    1. Glasser, Greene & Johnson, Phys. Fluids 1975, Eq. 111
+    2. Connor, Hastie & Helander, PPCF 2015, Eq. 59
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Dataset with H_surf, Dr_surf, X0_surf, and chi_para variables.
+    force_lmfp : bool
+        If True, always use the long-mean-free-path chi_para formulation.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with DeltaPrime_crit_GGJ_surf, DeltaPrime_crit_CHH_surf,
+        and related variables added.
     """
     import math
 
@@ -661,9 +1149,25 @@ def extract_critical_mre_factors_on_modes(
     return code_xarray
 
 def mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_vec_lowres):
-    """
-        Defines for a particular surface (where wd_function and surface quantities are set)
-        a function that takes in a delta prime and outputs delta prime dependent MRE values.
+    """Build a closure that maps a Delta' value to nonlinear MRE outputs for a single surface.
+
+    Parameters
+    ----------
+    wd_function : callable
+        w_bar -> wd_bar mapping from generate_wd_function.
+    Dr, Di, Dnc, H : float
+        MRE equilibrium parameters at this surface.
+    k1, C0 : float
+        MRE model constants.
+    prefac : float
+        Prefactor converting psi_norm units to SI.
+    w_vec, w_vec_lowres : array-like
+        Island width grids (high-res for root-finding, low-res for output).
+
+    Returns
+    -------
+    DP_to_MRE : callable
+        Function(delta_prime_surf) -> (dwdt_vec, w_marg, w_sat, w_max_loc, dwdtau_max, wd_at_marg).
     """
     def DP_to_MRE(delta_prime_surf):
         dwdt_vec_low_res = np.full_like(w_vec_lowres, np.nan)
@@ -768,10 +1272,27 @@ def extract_critical_mre_factors_on_modes_DEPRECATED(rdcon_xarray,Delta_prime_ve
     return rdcon_xarray
 
 def extract_mre_factors_old(dwdtau_vec, w_vec): #Update with cubic spline?
-    """
-    Extracts the critical MRE factors from the dwdtau_vec and w_vec.
-    Returns the marginally stable island width, saturated island width, 
-    location of maximum island width, and the maximum dwdtau value.
+    """Extract critical MRE factors from dwdtau(w) using sign-change zero-crossing.
+
+    Superseded by extract_mre_factors (cubic spline version).
+
+    Parameters
+    ----------
+    dwdtau_vec : array-like
+        MRE right-hand-side evaluated over w_vec.
+    w_vec : array-like
+        Island width grid (normalised poloidal flux).
+
+    Returns
+    -------
+    w_marg : float
+        Marginally stable island width (first zero crossing, if dwdtau starts negative).
+    w_sat : float
+        Saturated island width (last zero crossing, if dwdtau ends negative).
+    w_max_loc : float
+        Island width at maximum growth rate.
+    dwdtau_max : float
+        Peak dwdtau value.
     """
     # Find where dwdtau crosses zero:
     zero_crossings = np.where(np.diff(np.sign(dwdtau_vec)))[0]
@@ -798,12 +1319,26 @@ def extract_mre_factors_old(dwdtau_vec, w_vec): #Update with cubic spline?
 
     return w_marg, w_sat, w_max_loc, dwdtau_max
 
-
 def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
-    """
-    Extracts the critical MRE factors from the dwdtau_vec and w_vec.
-    Returns the marginally stable island width, saturated island width, 
-    location of maximum island width, and the maximum dwdtau value.
+    """Extract critical MRE factors from dwdtau(w) using cubic spline root-finding.
+
+    Parameters
+    ----------
+    dwdtau_vec : array-like
+        MRE right-hand-side evaluated over w_vec.
+    w_vec : array-like
+        Island width grid (normalised poloidal flux).
+
+    Returns
+    -------
+    w_marg : float
+        Marginally stable island width (first spline root, if dwdtau starts negative).
+    w_sat : float
+        Saturated island width (last spline root, if dwdtau ends negative).
+    w_max_loc : float
+        Island width at maximum growth rate (refined via derivative root).
+    dwdtau_max : float
+        Peak dwdtau value at w_max_loc.
     """
     dwdtau_spln=CubicSpline(w_vec,dwdtau_vec,extrapolate=False)
     dwdtau_deriv_spln=CubicSpline(w_vec,dwdtau_spln(w_vec,1),extrapolate=False) 
@@ -841,6 +1376,21 @@ def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
     return w_marg, w_sat, w_max_loc, dwdtau_max
 
 def get_local_max(xvec,yvec):
+    """Find the local maximum of yvec, returning the corresponding (x, y) pair.
+
+    If multiple peaks exist, returns the one at the largest x value.
+    Returns (nan, nan) if no peaks are found.
+
+    Parameters
+    ----------
+    xvec, yvec : array-like
+        x and y data arrays of equal length.
+
+    Returns
+    -------
+    x_peak, y_peak : float
+        Coordinates of the selected peak.
+    """
     peak_inds = find_peaks(yvec)[0]
     if len(peak_inds) == 0:
         return np.nan, np.nan
@@ -864,6 +1414,25 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
     since if the chi_para_smfp and chi_para_lmfp are equal, this formula cuts chi_para in half, which I don't agree with.
 
     If iterator is False, we calculate the ratio of chi_perp/chi_para at the specific island size being evaluated (I think this is more correct).
+    Requires rdcon_xarray to have been through cross_field_transport.py.
+
+    Parameters
+    ----------
+    rdcon_xarray_surf : xr.Dataset
+        Single-surface slice with chi_perp_surf, chi_para_smfp_surf,
+        chi_para_lmfp_no_w_surf, Wc_prefac_m_surf, X0_surf.
+    force_lmfp : bool
+        Use only the long-mean-free-path chi_para (ignore smfp).
+    iterator : bool
+        If True, iterates wd to self-consistency (ignores input w_bar).
+        If False (default), evaluates chi_para at the given w_bar directly.
+    use_Fitz_formula : bool
+        Use Fitzpatrick 2023 Eq. 14.209 harmonic mean for chi_para.
+
+    Returns
+    -------
+    wd_function : callable
+        Function(w_bar) -> wd_bar.
     """
 
     chi_perp = rdcon_xarray_surf['chi_perp_surf'].values
@@ -910,25 +1479,27 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
     return wd_function
 
 def dwdtau(w_bar: float, wd_function: 'function', DeltaPrimeGPEC: float, Dr: float, Di: float, Dnc: float, H: float, k1: float, C0: float):
-    """
-    Returns the right hand side of the MRE from Schlutt and Hegna PoP 2012 & Hegna 1999, using normalised
-    poloidal flux space as per Rosenburg PoP 2002. Units are psi_p_norm^(-1)
+    """Evaluate the right-hand side of the Modified Rutherford Equation.
+
+    Combines Delta' drive, GGJ curvature stabilisation, and neoclassical bootstrap terms.
+    From Schlutt & Hegna PoP 2012 and Hegna 1999, in normalised poloidal flux space
+    (Rosenburg PoP 2002). Units: psi_p_norm^(-1).
     """
     wd_bar=wd_function(w_bar)
     return DeltaPrime_bar(w_bar, DeltaPrimeGPEC, Di) + Delta_GGJ(w_bar, wd_bar, Dr, Di, H, k1, C0) + Delta_nc(w_bar, wd_bar, Dnc, k1, C0)
         
 def Delta_nc(w_bar: float, wd_bar: float, Dnc: float, k1: float, C0: float):
-    """
-    Calculates the neoclassical bootstrap drive terms in the MRE from Schlutt and Hegna PoP 2012,
-    converted to normalised poloidal flux space. This whole term has units psi_norm^(-1).
+    """Neoclassical bootstrap current drive term of the MRE (Schlutt & Hegna PoP 2012).
+
+    Converted to normalised poloidal flux space. Units: psi_norm^(-1).
     """
     return k1*Dnc*w_bar/(w_bar**2+(wd_bar**2)*k1/(C0*0.81))
 
 def Delta_GGJ(w_bar: float, wd_bar: float, Dr: float, Di: float, H: float, k1: float, C0: float):
-    """
-    Calculates the curvature stabilisation term in the MRE from Schlutt and Hegna PoP 2012,
-    converted to normalised poloidal flux space. Note typo in that paper; to agree with Hegna 1999 in 
-    the toroidal limit, we use k1 instead of k0. This whole term has units psi_norm^(-1).
+    """Glasser-Greene-Johnson curvature stabilisation term of the MRE (Schlutt & Hegna PoP 2012).
+
+    Converted to normalised poloidal flux space. Note typo in that paper; to agree with Hegna 1999 in 
+    the toroidal limit, we use k1 instead of k0. Units: psi_norm^(-1).
     """
     alpha_l=0.5-np.sqrt(-Di)
     alpha_s=0.5+np.sqrt(-Di)
@@ -937,10 +1508,10 @@ def Delta_GGJ(w_bar: float, wd_bar: float, Dr: float, Di: float, H: float, k1: f
     return k1*Dh/denom
 
 def DeltaPrime_bar(w_bar: float, DeltaPrimeGPEC: float, Di: float):
-    """
-    Calculates the delta prime term for the MRE from Hegna PoP 1999 & Schlutt and Hegna PoP 2012
-    (note the typo in the latter), converted to normalised poloidal flux space as per Rosenburg PoP 2002. 
-    Note DeltaPrimeGPEC has units psi_norm^{-2sqrt(-Di)}. This whole term has units psi_norm^(-1).
+    """Delta' drive term of the MRE (Hegna PoP 1999, Schlutt & Hegna PoP 2012 - note the type in the latter).
+
+    Converted to normalised poloidal flux space as per Rosenburg PoP 2002.
+    Note DeltaPrimeGPEC has units psi_norm^{-2*sqrt(-Di)}. This term has units psi_norm^(-1).
     """
     alpha_l=0.5-np.sqrt(-Di)
     return DeltaPrimeGPEC*(w_bar/2)**(-2*alpha_l)*np.sqrt(-4*Di)

@@ -1,0 +1,173 @@
+# Tests for rotation analysis: nonlinear resistive calculation with rotation splines and radial electric field
+
+from scipy.interpolate import CubicSpline
+import math
+import xarray as xr
+import sympy
+import numpy as np
+import jax.numpy as jnp
+from jax import jacfwd
+import os
+import shutil
+import pandas as pd
+import pickle as pkl
+
+home_dir = os.environ['TPSHOME']
+os.chdir(home_dir)
+
+from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
+from tearing_physics_suite.fortran_wrappers import compile_xarrays
+from tearing_physics_suite.utils import trim_nans
+from tearing_physics_suite.delta_prime_extraction import extract_delta_primes_, extract_delta_primes, delta_prime_no_couple, delta_prime_full_couple, delta_prime_nn_couple, delta_prime_2nn_couple, get_delta_prime_divisors,extract_variances
+from tearing_physics_suite.tearing_physics_suite import linear_resistive_calculation, nonlinear_resistive_calculation
+from tearing_physics_suite.mre_analysis import analyse_with_mre
+from tearing_physics_suite.profile_read import read_IDA_lite, read_kin_file
+
+
+os.chdir(home_dir)
+
+#########################################################################################################
+# user settings:
+#########################################################################################################
+
+use_IDA_lite = False
+IDA_output_cdf_path = ''
+
+#########################################################################################################
+# load equilibrium:
+#########################################################################################################
+
+# Choose equilibrium file
+default_equilibrium =  os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT')
+eq_filename = default_equilibrium
+print(" Getting equilibrium file from ", eq_filename)
+
+
+if not use_IDA_lite:
+    eq_filename = default_equilibrium
+    profile_filename = eq_filename+'.kin'
+    profile_out = read_kin_file(profile_filename)
+    te_keV_spline = profile_out['te_keV_spline']
+    ti_keV_spline = profile_out['ti_keV_spline']
+    ne_spline = profile_out['ne_spline']
+    ni_spline = profile_out['ni_spline']
+    omega_splines = profile_out['omega_splines']
+    Er_spline=None
+    run_test=True
+else:
+    #########################################################################################################
+    # Read rotation_.cdf
+    # ^This capability has been deprecated added to the function read_IDA_lite, but we keep it here for user visualisation and testing purposes.
+    #########################################################################################################
+    if os.path.exists(IDA_output_cdf_path):
+        print(f"\nReading rotation CDF file: {IDA_output_cdf_path}")
+        try:
+            rotation_xr = xr.open_dataset(IDA_output_cdf_path)
+            print("Successfully opened rotation_.cdf")
+            print("\nDataset info:")
+            print(rotation_xr)
+            print("\nData variables:")
+            for var in rotation_xr.data_vars:
+                print(f"  {var}: {rotation_xr[var].dims} {rotation_xr[var].shape}")
+            print("\nCoordinates:")
+            for coord in rotation_xr.coords:
+                print(f"  {coord}: {rotation_xr[coord].shape}")
+            print("\nAttributes:")
+            for attr in rotation_xr.attrs:
+                print(f"  {attr}: {rotation_xr.attrs[attr]}")
+            #########################################################################################################
+            # Create cubic splines on psi_n for first time point
+            #########################################################################################################
+            print("\n\nCreating cubic splines on psi_n for first time point...")
+            psi_n_vals = rotation_xr.psi_n.values
+            time_idx = 100  # Use first time point
+            # Extract data for time point
+            n_e_vals = rotation_xr.n_e.isel(time=time_idx).values
+            T_e_vals = rotation_xr.T_e.isel(time=time_idx).values
+            n_iC12_vals = rotation_xr.n_12C6.isel(time=time_idx).values
+            T_iC12_vals = rotation_xr.T_12C6.isel(time=time_idx).values
+            n_i_vals = n_e_vals-6*n_iC12_vals  # Assuming carbon is the only impurity, and quasi-neutrality holds
+            T_i_vals = T_iC12_vals  # Assuming ion temperature is the same as carbon ion temperature
+            omega_tor_vals = rotation_xr.omega_tor_12C6.isel(time=time_idx).values
+            v_pol_vals = rotation_xr.v_pol.isel(time=time_idx).values
+            E_r_vals = rotation_xr.E_r.isel(time=time_idx).values
+            # Create cubic splines
+            n_e_spline = CubicSpline(psi_n_vals, n_e_vals, extrapolate=False)
+            T_e_spline = CubicSpline(psi_n_vals, T_e_vals, extrapolate=False)
+            n_i_spline = CubicSpline(psi_n_vals, n_i_vals, extrapolate=False)
+            T_i_spline = CubicSpline(psi_n_vals, T_i_vals, extrapolate=False)
+            omega_tor_spline = CubicSpline(psi_n_vals, omega_tor_vals, extrapolate=False)
+            v_pol_spline = CubicSpline(psi_n_vals, v_pol_vals, extrapolate=False)
+            Er_spline = CubicSpline(psi_n_vals, E_r_vals, extrapolate=False)
+            print("✓ Successfully created splines:")
+            print(f"  - n_e (electron density)")
+            print(f"  - T_e (electron temperature)")
+            print(f"  - omega_tor (toroidal rotation)")
+            print(f"  - v_pol (poloidal velocity)")
+            print(f"  - E_r (radial electric field)")
+            # Test evaluation at a point
+            test_psi_n = 0.5
+            print(f"\nTest evaluation at psi_n = {test_psi_n}:")
+            print(f"  n_e = {n_e_spline(test_psi_n):.3e}")
+            print(f"  T_e = {T_e_spline(test_psi_n):.3e}")
+            print(f"  omega_tor = {omega_tor_spline(test_psi_n):.3e}")
+            print(f"  v_pol = {v_pol_spline(test_psi_n):.3e}")
+            print(f"  E_r = {Er_spline(test_psi_n):.3e}")
+            # Create omega_splines dictionary
+            omega_splines = {
+                'omega_tor': omega_tor_spline
+            }
+        except Exception as e:
+            print(f"Error reading or processing rotation_.cdf: {e}")
+            raise e
+        run_test=True
+    else:
+        print(f"rotation_.cdf not found at {IDA_output_cdf_path}")
+        run_test=False
+    
+#########################################################################################################
+# Run big function
+#########################################################################################################
+if run_test:
+    combined_xrb, pest3_xr_outb, input_dictb, xarray_vec = nonlinear_resistive_calculation(eq_filename,ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+        Er_spline=Er_spline,
+        omega_splines=omega_splines,
+        q_surfs_of_interest=[1.5,2.0],
+        psi_surfs_of_interest=[0.3,0.95],
+        average_ion_mass=2.5,
+        Zeff=1.5,
+        run_stride=True,
+        run_pest3=True,
+        vac_flag='f',
+        ode_flag='f',
+        etol=1e-7,
+        nx=64,
+        mpsi=128,
+        mtheta=129,
+        energy_confinement_time=0.12,
+        pest_match_truncation=False,
+        wd_static=True,
+        debug_mre_terms = False)
+    
+#########################################################################################################
+# Print function where output is dependent on the coordinate q_surface_of_interest or psi_surface_of_interest.
+#########################################################################################################
+
+print("\n\nTesting access to output quantities that depend on q_surfs_of_interest or psi_surfs_of_interest:")
+print("Input dict keys:")
+
+variables_with_target_dim = [
+    var_name for var_name, var_data in combined_xrb.data_vars.items() 
+    if 'q_surfs_of_interest' in var_data.dims
+]
+variables_with_target_dim2 = [
+    var_name for var_name, var_data in combined_xrb.data_vars.items() 
+    if 'psi_surf_of_interest' in var_data.dims
+]
+
+# Create a new Dataset with only the filtered variables
+filtered_ds1 = combined_xrb[variables_with_target_dim]
+filtered_ds2 = combined_xrb[variables_with_target_dim2]
+
+print(filtered_ds1.values)
+print(filtered_ds2.values)

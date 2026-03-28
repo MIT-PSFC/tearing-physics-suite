@@ -5,9 +5,27 @@ import xarray as xr
 import numpy as np
 
 def trim_nans(delta_primes,delta_prime_errs=None):
-    """ Cuts nans off the final rows/columns of a square delta_prime matrix. Assumes 
-    the underlying matrix (no nans) is also square. If delta_prime_errs is also provided,
-    this matrix will be trimmed of the same number of rows and columns as the delta_primes matrix. """
+    """Remove trailing NaN rows/columns from a square Delta' matrix.
+
+    Assumes NaNs only appear in the final rows and columns, and that the
+    underlying non-NaN sub-matrix is also square.
+
+    Parameters
+    ----------
+    delta_primes : np.ndarray
+        Square Delta' matrix, possibly with NaN padding.
+    delta_prime_errs : np.ndarray or None
+        Matching error matrix; trimmed identically if provided.
+
+    Returns
+    -------
+    delta_primes : np.ndarray
+        Trimmed square matrix.
+    nans_in_col1 : int
+        Number of NaN rows/columns removed.
+    delta_prime_errs : np.ndarray or None
+        Trimmed error matrix (or None).
+    """
     assert delta_primes.shape[0] == delta_primes.shape[1], "Input matrix is not square."
     if not delta_prime_errs is None:
         assert delta_primes.shape[0] == delta_prime_errs.shape[0] == delta_prime_errs.shape[1], "Delta prime errors have different shape to Delta primes."
@@ -38,17 +56,23 @@ def trim_nans(delta_primes,delta_prime_errs=None):
     return delta_primes, nans_in_col1, delta_prime_errs
 
 def create_dense_log_paramvals(start=1e-1, end=1e-7, points_per_decade=10, extra_density_regions=None):
-    """
-    Create densely packed parameter values in logarithmic scale.
-    
-    Parameters:
-    start: Starting value (1e-1)
-    end: Ending value (1e-7)
-    points_per_decade: Base number of points per decade
-    extra_density_regions: List of tuples (min_val, max_val, extra_points) for regions needing more density <- MIGHT BE BROKEN
-    
-    Returns:
-    list of parameter values in descending order
+    """Create densely packed parameter values in logarithmic scale.
+
+    Parameters
+    ----------
+    start : float
+        Starting value.
+    end : float
+        Ending value.
+    points_per_decade : int
+        Base number of points per decade.
+    extra_density_regions : list of tuple or None
+        (min_val, max_val, extra_points) for regions needing more density.
+
+    Returns
+    -------
+    list of float
+        Parameter values in descending order.
     """
     
     # Calculate the log range

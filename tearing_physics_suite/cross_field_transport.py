@@ -1,22 +1,26 @@
 # Python functions to construct cross-field transport terms for the modified Rutherford equation
 
-import os
-import sys
-import shutil
-import subprocess
-import pandas as pd
 import xarray as xr
 import numpy as np
 from scipy.interpolate import CubicSpline
 
 # Checked
 def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
-    """
-    Calculates the parallel thermal diffusivity in units m^2/s, within a mangetic island, assuming the mean free path
-    is so long such that it is set by the island connection length and not the electron-ion collision time.
-    The island width dependence is not included in this function. 
+    """Long-mean-free-path parallel thermal diffusivity at rational surfaces, without island width factor. This calculation assumes the 
+    island connection length is setting the parallel transport timescale, not the electron-ion collision time.
 
-    Input is the rdcon_xarray after it has gone through mre_terms_on_modes.
+    Implements Fitzpatrick 2023 Eq. 14.206, converted to normalised poloidal flux space
+    (Rosenburg PoP 2002 Eq. 33). Divide by island width to get chi_parallel_lmfp.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain v_te_surf, psi_n_rational, flux_shear_s_surf, ro, n.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with chi_para_lmfp_no_w_surf [m^2/s] added.
     """
     R0 = rdcon_xarray.ro
     n = rdcon_xarray.n
@@ -29,11 +33,19 @@ def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
     return rdcon_xarray
 
 def chi_para_lmfp_noisland_on_modes(rdcon_xarray):
-    """
-    Calculates the parallel thermal diffusivity in units m^2/s on a rational surface (no island present), assuming the mean free path
-    is so long such that it is set by (half) the field line connection length and not the electron-ion collision time.
+    """Long-mean-free-path parallel thermal diffusivity with no island, using (half) the helical field line connection length instead of 
+    electron-ion collision time (Fitzpatrick 1995 Eq. 132, divided by electron density). Appropriate when no island is present.
 
-    Input is the rdcon_xarray after it has gone through mre_terms_on_modes.
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain avg_R_surf, avg_r_surf, q_rational, v_te_surf, n.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with helical_correction_length_surf [m] and
+        chi_para_lmfp_noisland_surf [m^2/s] added.
     """
     n = rdcon_xarray.n
     m_ints = np.round(n*rdcon_xarray['q_rational'].values).astype(int)
@@ -69,11 +81,21 @@ def chi_para_lmfp_noisland_on_modes(rdcon_xarray):
 
 # Checked
 def chi_para_smfp_on_modes(rdcon_xarray,Zeff):
-    """
-    Calculates the parallel thermal diffusivity in units m^2/s, assuming the mean free path
-    is set by the electron-ion collision time.
-    
-    Input is the rdcon_xarray after it has gone through mre_terms_on_modes and Zeffective.
+    """Short-mean-free-path parallel thermal diffusivity at rational surfaces.
+
+    Implements Fitzpatrick 2023 Eq. 14.205: chi_para set by assuming the mean free path is set by the electron-ion collision time.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain taue_surf and v_te_surf.
+    Zeff : float
+        Effective ion charge.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with chi_para_smfp_surf [m^2/s] added.
     """
 
     # Fitzpatrick 2023 14.205
@@ -95,7 +117,8 @@ def chi_perp_on_modes(rdcon_xarray,
     Default operation with energy_confinement_time assumes all energy goes through each surface (see **). 
     However if minor_radius and areal_elongation are provided, we apply the Fitzpatrick 1995 formula (see ***).
 
-    Parameters:
+    Parameters
+    ----------
     rdcon_xarray : xarray.DataArray
         The xarray containing the radial coordinate data.
     areal_elongations : float, optional
@@ -106,6 +129,11 @@ def chi_perp_on_modes(rdcon_xarray,
         The energy confinement time of the plasma, used if chi_perp_spline is not provided.
     chi_perp_spline : CubicSpline, optional
         A precomputed spline for the perpendicular thermal diffusivity, used if provided.
+
+    Returns
+    ----------
+    xr.Dataset
+        Input dataset with chi_perp_surf [m^2/s] added.
     """
 
     if not (chi_perp_spline is None): # Use chi_perp_spline

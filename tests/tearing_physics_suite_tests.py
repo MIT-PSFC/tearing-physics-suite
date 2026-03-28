@@ -3,27 +3,19 @@
 from scipy.interpolate import CubicSpline
 import math
 import xarray as xr
-from sympy import Matrix
 import sympy
 import numpy as np
 import jax.numpy as jnp
 from jax import jacfwd
 import os
-import sys
 import shutil
-import subprocess
 import pandas as pd
-import xarray as xr
-import numpy as np
-import unittest
 import pickle as pkl
-import jax.numpy as jnp
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 
 os.chdir(home_dir)
 
-#from tearing_physics_suite.input_scans import scan_1D_input,extract_scanned_xrs
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
 from tearing_physics_suite.fortran_wrappers import compile_xarrays
 from tearing_physics_suite.utils import trim_nans
@@ -61,8 +53,6 @@ if use_default_eq:
         ni_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
         return profile_data_xr, te_keV_spline, ti_keV_spline, ne_spline, ni_spline
     profile_data_xr, te_keV_spline, ti_keV_spline, ne_spline, ni_spline = get_default_profs(profile_filename)
-else:
-    eq_filename = '/nfs/home/stubenj9/equilibria/ARC/ARC_V3A_kinetic_tokamaker_v11_257_notruncate_scale_jBS=1.05.eqdsk'
 
 print(" Getting equilibrium file from ", eq_filename)
 eq_filename_short= eq_filename.split('/')[-1]
@@ -88,10 +78,12 @@ if test_linear_calculation:
 #########################################################################################################
 
 combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(eq_filename,
-    ni_spline=ni_spline,
-    ne_spline=ne_spline,
-    te_keV_spline=te_keV_spline,
-    ti_keV_spline=ti_keV_spline,
+    ni_spline,
+    ne_spline,
+    te_keV_spline,
+    ti_keV_spline,
+    Zeff=1.5,
+    average_ion_mass=2.5,
     energy_confinement_time=0.12,
     debug_global_mre_quantities=False,
     nvec=[1,2],

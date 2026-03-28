@@ -4,12 +4,21 @@ import xarray as xr
 import numpy as np
 import copy
 import tearing_physics_suite.global_vars
-from tearing_physics_suite.environment import home_dir
+import os
+home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.mre_analysis import analyse_with_mre
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation, compile_xarrays
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 
-def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, Zeff, average_ion_mass,
+def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, 
+    Zeff = None, 
+    average_ion_mass = None,
+    diamagnetic_rotation_ion_charge=None,
+    # Rotation splines
+    Er_spline=None, # Assuming input units of V/m
+    omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
+    q_surfs_of_interest=[1.0],
+    psi_surfs_of_interest=[0.95],
     Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces, to match M3DC1 simulations for example.
     eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
     nvec = [1],
@@ -25,11 +34,43 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     debug_global_mre_quantities=False,
     psi_pedestal_cutoff=0.9, # Surfaces inside this cutoff in norm. pol. flux are included when finding the minimum marginally stable island width 
     **kwargs):
-    """ Runs linear and nonlinear tearing analysis on an equilibrium over a range 
-    of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
-    setting the operational parameters of STRIDE, RDCON and PEST3.
-    We explicity ask for Zeff and average_ion_mass at this point to ensure the user has decided on a self-consistent set of profiles.
+    """Run linear and nonlinear tearing analysis on an equilibrium for multiple toroidal mode numbers set by nvec.
+
+    Wraps run_resistive_calculation (Delta' computation) and analyse_with_mre
+    (modified Rutherford equation island evolution model). Requires Zeff and average_ion_mass to ensure user has chosen
+    self-consistent kinetic profiles.
+
+    Parameters
+    ----------
+    eq_filename : str
+        Path to the equilibrium file.
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+        Ion/electron density [m^-3] and temperature [keV] vs psi_n.
+    Zeff : float
+        Effective ion charge (for chi_para and bootstrap current).
+    average_ion_mass : float
+        Mean ion mass in AMU (for Alfven speed / mass density).
+    nvec : list of int
+        Toroidal mode numbers to analyse.
+    **kwargs
+        Forwarded to run_resistive_calculation (STRIDE/RDCON/PEST3 options).
+
+    Returns
+    -------
+    combined_xr : xr.Dataset or None
+        Combined xarray with Delta primes, MRE quantities, and global metrics across all n.
+    input_dict_out : dict
+        Merged input parameters from RDCON/STRIDE/PEST3 across all n.
+    pest3_xr_vec : list of xr.Dataset
+        PEST3-specific xarray outputs per n (None entries if PEST3 failed).
+    xarray_vec : list of xr.Dataset
+        Per-n combined xarray datasets before concatenation.
     """
+
+    if Zeff is None:
+        raise ValueError("Zeff must be provided for nonlinear resistive calculation.")
+    if average_ion_mass is None:
+        raise ValueError("average_ion_mass must be provided for nonlinear resistive calculation.")
 
     xarray_vec = []
     pest3_xr_vec = []
@@ -44,6 +85,10 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         #   Run numerical stability test...
 
         comb_n_xr, n_pest3_xr, n_input_dict = analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+            Er_spline=Er_spline,
+            omega_splines=omega_splines,
+            q_surfs_of_interest=q_surfs_of_interest,
+            psi_surfs_of_interest=psi_surfs_of_interest,
             energy_confinement_time=energy_confinement_time,
             chi_perp_spline=chi_perp_spline,
             k0=k0,
@@ -52,6 +97,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
             wd_static=wd_static,
             Zeff=Zeff,
             average_ion_mass=average_ion_mass,
+            diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge,
             force_lmfp=force_lmfp,
             **kwargs)
 
@@ -111,9 +157,20 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
 def clean_multi_n_dictionaries(input_dict_vec):
-    """ 
-        Cleans up a list of dictionaries by removing the 'nn' key and grouping nn-dependent inputs into sub-dictionaries within the main dictionary,
-        with names formatted as 'n{nn}_dependent_inputs'.
+    """Merge per-n input dictionaries into a single dict, grouping n-dependent entries.
+
+    Keys that vary across n values are placed into sub-dictionaries named
+    'n{nn}_dependent_inputs'. The 'nn' key is removed from all dicts.
+
+    Parameters
+    ----------
+    input_dict_vec : list of dict
+        One dictionary per toroidal mode number, each containing an 'nn' key.
+
+    Returns
+    -------
+    dict
+        Merged dictionary. If only one n, returns that dict directly.
     """
 
     # Remove n from all dicts in input_dict_vec:
@@ -176,7 +233,9 @@ def clean_multi_n_dictionaries(input_dict_vec):
     return first_dict
 
 def compare_dicts(d1,d2):
-    """ Compares two dictionaries, returning True if they are identical, False otherwise.
+    """Compare two dictionaries, returning True if all keys and values match.
+
+    Prints which keys or values differ.
     """
     if d1.keys() != d2.keys():
         print("Dictionaries have different keys:")
@@ -194,6 +253,17 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     """ Runs linear tearing analysis on an equilibrium over a range 
     of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
     setting the operational parameters of STRIDE, RDCON and PEST3.
+
+    Returns
+    -------
+    combined_xr : xr.Dataset or None
+        Combined xarray with Delta primes across all n.
+    input_dict_out : dict
+        Merged input parameters from RDCON/STRIDE/PEST3.
+    pest3_xr_vec : list of xr.Dataset
+        PEST3-specific outputs per n.
+    xarray_vec : list of xr.Dataset
+        Per-n combined xarray datasets.
     """
 
     xarray_vec = []
@@ -258,10 +328,24 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
 def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
-    """ 
-    Ranks nonlinear stability of all modes, and computes least stable modes
-    via two metrics: largest nondimensional island growth rate (max_dwdtau), and smallest
-    seed island needed to initiate an NTM (min_w_marg).
+    """Rank nonlinear stability of all modes across n and rational surfaces.
+
+    Computes least-stable-mode metrics: largest nondimensional island growth rate
+    (max_dwdtau) and smallest seed island needed to initiate NTM onset (min_w_marg). Rankings
+    are computed per (Delta_prime_type, code) combination within psi_pedestal_cutoff.
+
+    Parameters
+    ----------
+    combined_xr : xr.Dataset
+        Multi-n combined dataset with w_marg_surf and dwdtau_max_surf.
+    psi_pedestal_cutoff : float
+        Exclude modes with psi_n_rational above this value from ranking.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with min_w_marg_allsurf, max_dwdtau_allsurf,
+        min_w_marg_rank, and max_dwdtau_rank variables added.
     """
     # Min w_marg_surf over all m, n
     # Max dwdtau over all m, n
@@ -339,13 +423,35 @@ def delta_prime_variability(xarray,comparison_var='code',
         #abs_PEST_threshold=0.3,
         #rel_PEST_threshold=0.1
         ):
-    """ 
-    Function that compares Delta_prime_surf across the variable 'comparison_var'. 
-    The comparison is performed for all m,n modes, across all Delta_prime_surf types.
-    
+    """Compare Delta_prime_surf across a dimension (e.g. 'code') for all modes.
+
+    Records absolute and relative differences. Handles special comparisons:
+    STRIDE vs RDCON ('GPEC') and GPEC vs PEST3 ('GPECvsPEST').
+
     Boolean True False values are generated to check whether the differences in Delta_prime_surf lie within the bounds 
     set by abs_threshold, rel_threshold, abs_PEST_threshold, and rel_PEST_threshold.
+
+    Parameters
+    ----------
+    xarray : xr.Dataset or xr.xarray.DataArray
+        If xr.Dataset, must contain Delta_prime_surf. Must have comparison_var as a dimension.
+    comparison_var : str
+        Dimension along which to compare (default 'code').
+    run_bool_check : bool
+        If True, also checks whether differences exceed thresholds.
+    abs_threshold, rel_threshold : float
+        Thresholds for the boolean checks.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset with Delta_prime_diff_across_* and Delta_prime_reldiff_across_* added.
+        If run_bool_check, also returns four boolean scalars.
     """
+
+    # Convert xarray into Dataset if it isn't already one:
+    if isinstance(xarray, xr.DataArray):
+        xarray = xarray.to_dataset(name='Delta_prime_surf')
 
     #########################################################################################################
     # check xarray has comparison_var in it
@@ -388,9 +494,26 @@ def delta_prime_variability(xarray,comparison_var='code',
     return xarray
 
 def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_name=''):
-    """ 
-    Computes absolute and relative differences in Delta_prime_surf across the variable 'comparison_var'. 
-    Will use comparison_var for the new variable name unless override_name is specified. """
+    """Compute absolute and relative Delta' differences across comparison_var.
+
+    Adds Delta_prime_diff_across_{name}, Delta_prime_reldiff_across_{name} to xarray.
+
+    Parameters
+    ----------
+    xarray : xr.Dataset
+        Target dataset.
+    Delta_prime_surf : xr.DataArray
+        Delta' values to compare. Must have comparison_var as a dimension.
+    comparison_var : str
+        Dimension along which to compute max - min.
+    override_name : str
+        If non-empty, used in output variable names instead of comparison_var.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with difference variables added.
+    """
 
     Delta_prime_diffs_across_var = np.abs(Delta_prime_surf.max(dim=comparison_var)-Delta_prime_surf.min(dim=comparison_var))
     Delta_prime_reldiffs_across_var = Delta_prime_diffs_across_var / np.abs(Delta_prime_surf).mean(dim=comparison_var)
@@ -408,9 +531,20 @@ def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_
 
     return xarray
 
-def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_prime_type='single helicity'):
-    """ Checks if the relative difference in Delta primes across comparison_var
-    exceeds the specified thresholds. Does so in for all m,n modes, as well as all m,n within psi95. """
+def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_prime_type='single helicity',drop_pest=False):
+    """Check whether Delta' differences across comparison_var exceed thresholds.
+
+    Tests both all modes and modes within psi_n < 0.95.
+
+    Returns
+    -------
+    xr.Dataset
+        Updated dataset with *_thresh_exceeded variables.
+    abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere : xr.DataArray
+        Whether absolute / relative thresholds are exceeded for any (r, n).
+    abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere : xr.DataArray
+        Same, restricted to modes within psi_n < 0.95.
+    """
 
     absdiffs_name = f'Delta_prime_diff_across_{comparison_var}'
     reldiffs_name = f'Delta_prime_reldiff_across_{comparison_var}'
@@ -420,28 +554,43 @@ def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_
         f'{reldiffs_name}_thresh_exceeded': xarray[reldiffs_name] > rel_threshold
     })
 
+    abs_thresh_exceeded_da = xarray[f'{absdiffs_name}_thresh_exceeded']
+    rel_thresh_exceeded_da = xarray[f'{reldiffs_name}_thresh_exceeded']
+
     #########################################################################################################
     # Applying psi_n_rational mask to check if thresh exceeded within the q95 window
     #########################################################################################################
-    psi_n_rational_like_absdiffs = xarray.psi_n_rational+0.0*xarray[absdiffs_name]
+    psi_n_rational_copy = xarray.psi_n_rational.mean(dim=comparison_var)
+    psi_n_rational_like_absdiffs = psi_n_rational_copy.broadcast_like(xarray[f'{absdiffs_name}_thresh_exceeded'])
 
-    abs_thresh_exceeded_within_q95 = xarray[absdiffs_name].where(psi_n_rational_like_absdiffs < 0.95)
-    rel_thresh_exceeded_within_q95 = xarray[reldiffs_name].where(psi_n_rational_like_absdiffs < 0.95)
+    abs_thresh_exceeded_within_q95 = xarray[f'{absdiffs_name}_thresh_exceeded'].where(psi_n_rational_like_absdiffs < 0.95, drop=True)
+    rel_thresh_exceeded_within_q95 = xarray[f'{reldiffs_name}_thresh_exceeded'].where(psi_n_rational_like_absdiffs < 0.95, drop=True)
 
-    #xarray = xarray.assign({
-    #    f'{absdiffs_name}_thresh_exceeded_psi95': abs_thresh_exceeded_within_q95,
-    #    f'{reldiffs_name}_thresh_exceeded_psi95': rel_thresh_exceeded_within_q95
-    #})
+    #########################################################################################################
+    # Optional: drop pest3 from the boolean checks, since it's expected to differ more and is less relevant for input scans.
+    #########################################################################################################
+
+    if drop_pest and 'pest3' in xarray.code.values:
+        abs_thresh_exceeded_da = abs_thresh_exceeded_da.where(xarray.code != 'pest3', drop=True)
+        rel_thresh_exceeded_da = rel_thresh_exceeded_da.where(xarray.code != 'pest3', drop=True)
+        abs_thresh_exceeded_within_q95 = abs_thresh_exceeded_within_q95.where(xarray.code != 'pest3', drop=True)
+        rel_thresh_exceeded_within_q95 = rel_thresh_exceeded_within_q95.where(xarray.code != 'pest3', drop=True)
 
     #########################################################################################################
     # Cycling over all m,n
     #########################################################################################################
 
-    abs_thresh_exceeded_anywhere_da = xarray[f'{absdiffs_name}_thresh_exceeded'].any(dim=["r","n"])
-    rel_thresh_exceeded_anywhere_da = xarray[f'{reldiffs_name}_thresh_exceeded'].any(dim=["r","n"])
+    # Check if absdiffs_name has dims "nn" in them:
+    if "nn" in xarray[absdiffs_name].dims:
+        reduce_dims = ["r", "nn"]
+    else:
+        reduce_dims = ["r"]
 
-    abs_thresh_exceeded_psi95_anywhere_da = abs_thresh_exceeded_within_q95.any(dim=["r","n"])
-    rel_thresh_exceeded_psi95_anywhere_da = rel_thresh_exceeded_within_q95.any(dim=["r","n"])
+    abs_thresh_exceeded_anywhere_da = abs_thresh_exceeded_da.any(dim=reduce_dims)
+    rel_thresh_exceeded_anywhere_da = rel_thresh_exceeded_da.any(dim=reduce_dims)
+
+    abs_thresh_exceeded_psi95_anywhere_da = abs_thresh_exceeded_within_q95.any(dim=reduce_dims)
+    rel_thresh_exceeded_psi95_anywhere_da = rel_thresh_exceeded_within_q95.any(dim=reduce_dims)
 
     #########################################################################################################
     # Choosing a specific type of Delta prime for the comparison:

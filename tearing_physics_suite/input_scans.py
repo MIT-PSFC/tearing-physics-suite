@@ -1,36 +1,47 @@
-# Python functions to scan input parameters during the resistive calculation 
+# Python functions to scan input parameters during the resistive calculation, testing numerical and physics sensitivities
 
 import pandas as pd
 import xarray as xr
 import numpy as np
 import os
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 import tearing_physics_suite.fortran_wrappers as tfw
 from tearing_physics_suite.fortran_wrappers import compile_xarrays
+from tearing_physics_suite.tearing_physics_suite import delta_prime_variability
 
 def scan_1D_input(input_name,input_values,eq_filename,
         nn,
         debug=False,
+        abs_threshold=0.05,
+        rel_threshold=0.05,
         **kwargs):
-    """
-    Runs a 1D scan over a specified input parameter for the resistive calculation.
+    """Run a 1D parameter scan of the resistive calculation.
 
-    Parameters:
-        input_name: str, name of the input parameter to scan
-        input_values: list, values to scan over
-        eq_filename: str, path to the equilibrium file
-        nn: int, number of modes to use in the calculation
-        kwargs: additional keyword arguments to pass to the run_resistive_calculation function
+    Parameters
+    ----------
+    input_name : str
+        Name of the input parameter to scan.
+    input_values : list
+        Values to scan over.
+    eq_filename : str
+        Path to the equilibrium file.
+    nn : int
+        Toroidal mode number.
+    debug : bool
+        If True, return raw results list before post-processing.
+    abs_threshold : float
+        Absolute threshold for Delta' variation check.
+    rel_threshold : float
+        Relative threshold for Delta' variation check.
+    **kwargs
+        Forwarded to run_resistive_calculation.
 
-    Returns output of extract_scanned_xrs:
-        xarrays: list of xarrays containing the results of the scan
-        pest3_xarrays: list of xarrays containing the results from pest3 (separate in case there is a discrepancy in the number of modes)
-        input_dicts: list of dictionaries containing the input parameters for each run
-        input_values: list of values used for the scan
-        input_name: str, name of the input parameter scanned
-        message: str, message containing the input values, single-helicity delta prime results and q-surface information
-        deltaprimes: list of lists containing first set of delta prime values for each run
+    Returns
+    -------
+    tuple
+        Output of extract_scanned_xrs: (xarrays, pest3_xarrays, input_dicts,
+        input_values, input_name, message, deltaprimes).
     """
     #########################################################################################################
     # Check input name isn't in kwargs
@@ -79,33 +90,51 @@ def scan_1D_input(input_name,input_values,eq_filename,
         results.append(result)
 
     if debug:
-        return results
+        return results, input_name, abs_threshold, rel_threshold
 
-    return extract_scanned_xrs(results, input_name)
+    return extract_scanned_xrs(results, input_name, abs_threshold, rel_threshold, output_prefix_tmp)
 
-def extract_scanned_xrs(results, input_name):
+def extract_scanned_xrs(results, input_name, abs_threshold, rel_threshold, output_prefix_tmp):
+    """Post-process raw scan results into structured outputs.
+
+    Parameters
+    ----------
+    results : list of tuple
+        Raw outputs from run_resistive_calculation, one per scan value.
+    input_name : str
+        Name of the scanned input parameter.
+    abs_threshold : float
+        Absolute threshold for Delta' variation check.
+    rel_threshold : float
+        Relative threshold for Delta' variation check.
+
+    Returns
+    -------
+    xarrays : list of xr.Dataset
+        Combined xarray per scan value.
+    pest3_xarrays : list of xr.Dataset
+        PEST3-specific xarray per scan value.
+    input_dicts : list of dict
+        Input parameters for each run.
+    input_values : list
+        Scanned parameter values.
+    input_name : str
+        Name of the scanned parameter.
+    message : str
+        Summary of Delta' results and q-surface information.
+    deltaprimes : list of list
+        First-surface single-helicity Delta' for each code and scan value.
     """
-    Extracts the results from the scan and returns them in an xarray.
-    Parameters:
-        results: list of tuples, each tuple contains the xarrays and input dictionaries from the resistive calculation  
-        input_name: str, name of the input parameter scanned
 
-    Returns:
-        xarrays: list of xarrays containing the results of the scan
-        pest3_xarrays: list of xarrays containing the results from pest3 (separate in case there is a discrepancy in the number of modes)
-        input_dicts: list of dictionaries containing the input parameters for each run
-        input_values: list of values used for the scan
-        input_name: str, name of the input parameter scanned
-        message: str, message containing the input values, single-helicity delta prime results and q-surface information
-        deltaprimes: list of lists containing first set of delta prime values for each run
-    """
     xarrays = []
     pest3_xarrays = []
     input_dicts = []
     input_values = []
+
     #########################################################################################################
     # Simple loop to extract xarrays and input_dicts from results
     #########################################################################################################
+
     for result in results:
         combined_xr, pest3_xr,input_dict = compile_xarrays(*result)
         assert input_name in input_dict, f"Debug scan_1D_input: {input_name} not found in input_dict, available keys: {input_dict.keys()}"
@@ -114,11 +143,16 @@ def extract_scanned_xrs(results, input_name):
         xarrays.append(combined_xr)
         pest3_xarrays.append(pest3_xr)
         input_dicts.append(input_dict)
+
     #########################################################################################################
     # Build message, and delta primes (first surface, single helicity only)
     #########################################################################################################
+
     deltaprimes = []
-    message = str("   "+input_name+":"+str(input_values)+'\n')
+    if output_prefix_tmp != '':
+        message = str(" "+input_name+"("+output_prefix_tmp+"): "+str(input_values)+'\n')
+    else:
+        message = str(" "+input_name+": "+str(input_values)+'\n')
     xarrays_msg = []
     for i in range(len(xarrays)):
         if xarrays[i] is not None:  
@@ -136,193 +170,167 @@ def extract_scanned_xrs(results, input_name):
         if not np.isnan(xarrays_msg[0].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0)):
             message+=str("   PEST3 delta prime:"+str([xarrays_msg[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])+'\n')
             deltaprimes.append([xarrays_msg[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])
+
     #########################################################################################################
     # Add q-surface info to the message:
     #########################################################################################################
+
     # Check if all values in a 1D array are the same [xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))] are the same
     if np.all(np.array([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))]) == xarrays_msg[0].r.values[0]): 
-        message+=str("   at q-surface "+ str(xarrays_msg[0].r.values[0]))
+        message+=str("   at q-surface "+ str(xarrays_msg[0].r.values[0])+"\n")
     else:
-        message+=str("   q-surfaces:"+ str([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))]))
-    return xarrays, pest3_xarrays, input_dicts, input_values, input_name, message, deltaprimes
+        message+=str("   q-surfaces:"+ str([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))])+"\n")
 
-'''
-# UNFINISHED, DEPRECATED
-def extract_Delta_primes_1D(results, input_name):
+    #########################################################################################################
+    # Use delta_prime_variability to formalise result:
+    #########################################################################################################
+    DP_surf_xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere = delta_prime_variability_runner(xarrays, input_values, input_name, message, abs_threshold, rel_threshold)
+
+    message+=str(" "+f"Delta' relative diff across core modes > {rel_threshold*100}%:  {rel_thresh_exceeded_psi95_anywhere.values} for {rel_thresh_exceeded_psi95_anywhere.code.values}\n")
+
+    results_dict = {
+        'xarrays': xarrays,
+        'pest3_xarrays': pest3_xarrays,
+        'input_dicts': input_dicts,
+        'input_values': input_values,
+        'input_name': input_name,
+        'deltaprimes': deltaprimes,
+        'DP_surf_xarray': DP_surf_xarray,
+        'abs_thresh_exceeded_anywhere': abs_thresh_exceeded_anywhere,
+        'rel_thresh_exceeded_anywhere': rel_thresh_exceeded_anywhere,
+        'abs_thresh_exceeded_psi95_anywhere': abs_thresh_exceeded_psi95_anywhere,
+        'rel_thresh_exceeded_psi95_anywhere': rel_thresh_exceeded_psi95_anywhere,
+        'message': message,
+    }
+
+    return results_dict, message
+
+
+def delta_prime_variability_runner(xarrays, input_values, input_name, message, abs_threshold, rel_threshold):
     """
-    Extracts the results from the scan and returns them in an xarray.
-    """
-    data = []
-    for result in results:
-        rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict = result
-        # Combine rdcon_xr['Delta_prime'], stride_xr['Delta_prime'], pest3_xr['Delta_prime'] into one DataFrame
-        rdcon_delta_prime = None
-        stride_delta_prime = None
-        pest3_delta_prime = None
-        pest3_delta_prime_errs = None
-        if not rdcon_stride_input_dict is None:
-            if not pest3_input_dict is None:
-                rdcon_stride_input_dict.update(pest3_input_dict)
-                output_dict = rdcon_stride_input_dict
-        elif not pest3_input_dict is None:
-            output_dict = pest3_input_dict
+    Function to run delta_prime_variability, to check whether Delta' changed a lot across the input scan.
 
-        assert input_name in output_dict, f"Debug scan_1D_input: {input_name} not found in output_dict, available keys: {output_dict.keys()}"
+    Parameters
+    ----------
+    xarrays : list of xr.Dataset
+        List of xarrays containing Delta_prime_surf for each scan value.
+    input_values : list
+        List of scanned parameter values corresponding to each xarray.
+    input_name : str
+        Name of the scanned parameter, used for labeling the output xarray.
+    message : str
+        Message to be printed during processing.
+    abs_threshold : float
+        Absolute threshold for delta prime variability check.
+    rel_threshold : float
+        Relative threshold for delta prime variability check.
 
-        delta_prime_DAs = []
-        delta_prime_perr_DAs = []
-        if not (rdcon_xr is None):
-            if 'Delta_prime' in rdcon_xr:
-                rdcon_delta_prime_da = rdcon_xr['Delta_prime']
-                rdcon_delta_prime_da = rdcon_delta_prime_da.expand_dims(dim='code', axis=0)
-                rdcon_delta_prime_da['code'] = ['r']
-                delta_prime_DAs.append(rdcon_delta_prime_da)
+    Returns
+    -------
+    tuple
+        Output of delta_prime_variability: (xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere)
 
-        if not (stride_xr is None):
-            if 'Delta_prime' in stride_xr:
-                stride_delta_prime_da = stride_xr['Delta_prime']
-                stride_delta_prime_da = stride_delta_prime_da.expand_dims(dim='code', axis=0)
-                stride_delta_prime_da['code'] = ['s']
-                delta_prime_DAs.append(stride_delta_prime_da)
-
-
-        if not (pest3_xr is None):
-            if 'Delta_prime' in pest3_xr:
-                pest3_delta_prime_da = pest3_xr['Delta_prime']
-                pest3_delta_prime_da = pest3_delta_prime_da.expand_dims(dim='code', axis=0)
-                pest3_delta_prime_da['code'] = ['p']
-                delta_prime_DAs.append(pest3_delta_prime_da)
-                if 'Delta_prime_perr' in pest3_xr:
-                    pest3_delta_prime_err_da = pest3_xr['Delta_prime_perr']
-                    pest3_delta_prime_err_da = pest3_delta_prime_err_da.expand_dims(dim='code', axis=0)
-                    pest3_delta_prime_err_da['code'] = ['p']
-                    pest3_delta_prime_err_da = pest3_delta_prime_err_da.expand_dims(dim='i', axis=3)
-                    pest3_delta_prime_err_da['i'] = [0]
-                    delta_prime_perr_DAs.append(pest3_delta_prime_err_da)
-
-        # Take 5, then:  get all concatenation working
-        # Then, add qsing or something... (one for each code)
-        # Then, change verbose to extract first few diagonal elements
-
-        #pest3_delta_prime_errs = pest3_xr['Delta_prime_perr']
-        # Add 1d dimension for i
-        #pdper_dataarray = pest3_delta_prime_errs.expand_dims(dim='i', axis=2)
-        # Set i to 0
-        #pdper_dataarray['i'] = [0]
-        # Add 1d dimension for code
-        #pdper_dataarray = pdper_dataarray.expand_dims(dim='code', axis=0)
-        #pdper_dataarray['code'] = ['p']
-
-        delta_prime_xr = xr.concat(delta_prime_DAs, dim='code').to_dataset(name='Delta_prime')
-
-        if len(delta_prime_perr_DAs) > 0:
-            delta_prime_err_da = xr.concat(delta_prime_perr_DAs, dim='code')
-            # Combine the two xarrays
-            delta_prime_xr = xr.merge([delta_prime_xr, delta_prime_err_da.to_dataset(name='Delta_prime_perr')])
-
-        # Set 'input_name' as a coordinate, with values from the output_dict
-        delta_prime_xr[input_name] = xr.DataArray(
-            output_dict[input_name],
-            dims=[input_name],
-            coords={input_name: [output_dict[input_name]]}
-        )
-        data.append(delta_prime_xr)
-
-    # Combine all xarrays into one
-    if len(data) > 0:
-        xr_data = xr.concat(data, dim=input_name)
-        # Set the input_name as a coordinate
-        xr_data[input_name] = xr.DataArray()
-    else:
-        xr_data = xr.Dataset()
-
-    #
-    df = pd.DataFrame(data)
-    df.set_index(input_name, inplace=True)
-    #Get xarray from df
-    xr_data = xr.Dataset.from_dataframe(df)
-
-    return xr_data
-
-# UNFINISHED, # DEPRECATED
-def scan_2D_inputs(input_names, input1_values, input2_values, eq_filename, nn,
-        **kwargs):
-    """
-    Runs a 2D scan over specified input parameters for the resistive calculation.
-    input_names: list of str, names of the input parameters to scan
-    input1_values: list, values to scan over for the first input parameter
-    input2_values: list, values to scan over for the second input parameter
-    eq_filename: str, path to the equilibrium file
-    nn: int, number of modes to use in the calculation
-    kwargs: additional keyword arguments to pass to the run_resistive_calculation function
     """
 
-    # Check input_names are length 2
-    assert len(input_names) == 2
+    #########################################################################################################
+    # Compile delta prime xarrays into one xarray with an added coordinate for the scanned parameter.
+    #########################################################################################################
+    delta_prime_xarray = delta_prime_compiler(xarrays, input_values, input_name)
 
-    # Check input1_name and input2_name are not in kwargs
-    if input_names[0] in kwargs:
-        kwargs.pop(input_names[0])
-    if input_names[1] in kwargs:
-        kwargs.pop(input_names[1])
+    #########################################################################################################
+    # Run delta_prime_variability  
+    #########################################################################################################
 
-    results = []
-    for value1 in input1_values:
-        for value2 in input2_values:
-            # Add input names and values to output_prefix
-            kwargs["output_prefix"] += f"{input_names[0]}_{value1}_{input_names[1]}_{value2}"
+    xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere = delta_prime_variability(delta_prime_xarray, comparison_var = input_name, run_bool_check=True, abs_threshold=abs_threshold, rel_threshold=rel_threshold)
+    
+    return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
 
-            print(f"Running scan for {input_names[0]} = {value1}, {input_names[1]} = {value2}")
-            result = tfw.run_resistive_calculation(
-                eq_filename,
-                nn,
-                **{input_names[0]: value1, input_names[1]: value2},
-                **kwargs
-            )
-            results.append(result)
-
-    return extract_m_Delta_primes_2D(results, input_names), results
-
-#UNFINISHED
-def extract_m_Delta_primes_2D(results, input_names):
+def delta_prime_compiler(xarray_list, input_values, input_name, run_concatenation=True):
     """
-    Extracts the results from the 2D scan and returns them in a DataFrame.
+    Function takes a list of xarrays (one per scan value), extracts Delta_prime_surf and psi_n_rational from each, and compiles them into a single xarray for comparison. 
 
+    Parameters
+    ----------
+    xarray_list : list of xr.Dataset
+        List of xarrays containing Delta_prime_surf, psi_n_rational for each scan value.
+    input_values : list
+        List of scanned parameter values corresponding to each xarray.
+    input_name : str
+        Name of the scanned parameter, used for labeling the output xarray.
+
+    Returns
+    -------
+    xr.Dataset
+        Compiled xarray containing Delta_prime_surf for all scan values, with an added coordinate for the scanned parameter.
     """
-    data = []
-    for result in results:
-        rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict = result
-        # Combine rdcon_xr['Delta_prime'], stride_xr['Delta_prime'], pest3_xr['Delta_prime'] into one DataFrame
-        rdcon_delta_prime = None
-        stride_delta_prime = None
-        pest3_delta_prime = None
-        pest3_delta_prime_errs = None
-        
-        if not (rdcon_xr is None):
-            if 'Delta_prime' in rdcon_xr:
-                rdcon_delta_prime = rdcon_xr['Delta_prime'].values
-        if not (stride_xr is None):
-            if 'Delta_prime' in stride_xr:
-                stride_delta_prime = stride_xr['Delta_prime'].values
-        if not (pest3_xr is None):
-            if 'Delta_prime' in pest3_xr:
-                pest3_delta_prime = pest3_xr['Delta_prime'].values
-            if 'Delta_prime_perr' in pest3_xr:
-                pest3_delta_prime_errs = pest3_xr['Delta_prime_perr'].values
 
-        data.append({
-            'DP_rdcon': rdcon_delta_prime,
-            'DP_stride': stride_delta_prime,
-            'DP_pest3': pest3_delta_prime,
-            'DP_pest3_err': pest3_delta_prime_errs,
-            input_names[0]: rdcon_stride_input_dict[input_names[0]],
-            input_names[1]: rdcon_stride_input_dict[input_names[1]]
-        })
+    #########################################################################################################
+    # Extract Delta_prime_surf from each xarray, and add a coordinate for the scanned parameter.
+    #########################################################################################################
 
-    df = pd.DataFrame(data)
-    df.set_index([input_names[0], input_names[1]], inplace=True)
-    #Get xarray from df
-    xr_data = xr.Dataset.from_dataframe(df)
+    delta_prime_arrays = []
+    psi_n_arrays = []
+    for i, xarr in enumerate(xarray_list):
+        if xarr is not None and 'Delta_prime_surf' in xarr:
+            dp_surf = xarr['Delta_prime_surf']
+            dp_surf = dp_surf.expand_dims({input_name: [input_values[i]]})
+            delta_prime_arrays.append(dp_surf)
+            if 'psi_n_rational' in xarr:
+                psi_n = xarr['psi_n_rational']
+                psi_n = psi_n.expand_dims({input_name: [input_values[i]]})
+                psi_n_arrays.append(psi_n)
+        else:
+            print(f"Warning: 'Delta_prime_surf' not found in xarray for scan value {input_values[i]}. Skipping this value.")
+    if len(delta_prime_arrays) == 0:
+        raise ValueError("No valid 'Delta_prime_surf' found in any xarrays. Cannot compile results.")
 
-    return xr_data
-'''
+    #########################################################################################################
+    # Check each delta_prime_array has the same dimensions and coordinates (except for the scanned parameter)
+    #########################################################################################################
+    reference_coords = delta_prime_arrays[0].drop_vars(input_name).coords
+    same_coords = True
+    for i, dp_array in enumerate(delta_prime_arrays):
+        dp_coords = dp_array.drop_vars(input_name).coords
+        if not dp_coords.equals(reference_coords):
+            print(f"Warning: Coordinates of 'Delta_prime_surf' in xarray for scan value {input_values[i]} do not match reference coordinates. Skipping this value.")
+            same_coords = False
+
+    #########################################################################################################
+    # Trim edge r, r_prime values if they are nans across all scan values, to allow concatenation. 
+    #########################################################################################################
+    if not same_coords and run_concatenation:
+        print("Warning: Some xarrays have different coordinates. Trimming edge values.")
+        # Find minimum and maximum r values across all delta_prime_arrays, ignoring nans:
+        min_r = -np.inf
+        max_r = np.inf
+        for dp_array in delta_prime_arrays:
+            if dp_array is not None:
+                r_values = dp_array.coords['r'].values
+                min_r = max(min_r, np.nanmin(r_values))
+                max_r = min(max_r, np.nanmax(r_values))
+        # Trim each delta_prime_array and psi_n_array to the common r range:
+        for i, dp_array in enumerate(delta_prime_arrays):
+            if dp_array is not None:
+                dp_array = dp_array.sel(r=slice(min_r, max_r))
+                delta_prime_arrays[i] = dp_array
+        for i, psi_n in enumerate(psi_n_arrays):
+            if psi_n is not None:
+                psi_n = psi_n.sel(r=slice(min_r, max_r))
+                psi_n_arrays[i] = psi_n
+
+    # Double check all delta_prime_arrays now have the same coordinates after trimming:
+    reference_coords = delta_prime_arrays[0].drop_vars(input_name).coords
+    for i, dp_array in enumerate(delta_prime_arrays):
+        dp_coords = dp_array.drop_vars(input_name).coords
+        if not dp_coords.equals(reference_coords):
+            print(f"Warning: Coordinates of 'Delta_prime_surf' in xarray for scan value {input_values[i]} are :{dp_array.coords}, which still do not match reference coordinates {reference_coords} after trimming.")
+            if not run_concatenation:
+                raise ValueError(f"After trimming, coordinates of 'Delta_prime_surf' in xarray for scan value {input_values[i]} still do not match reference coordinates. Cannot compile results.")
+
+    compiled_xr = xr.concat(delta_prime_arrays, dim=input_name)
+
+    assert len(psi_n_arrays) == len(delta_prime_arrays), "Number of psi_n_arrays does not match number of delta_prime_arrays. Cannot compile results."
+    compiled_psi_n = xr.concat(psi_n_arrays, dim=input_name)
+    compiled_xr = xr.merge([compiled_xr, compiled_psi_n])
+
+    return compiled_xr

@@ -7,11 +7,10 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-import unittest
 import pickle as pkl
 
 import tearing_physics_suite
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 import tearing_physics_suite.fortran_wrappers as tfw
 
 os.chdir(home_dir)

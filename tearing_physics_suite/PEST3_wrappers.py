@@ -12,12 +12,12 @@ import pickle as pkl
 import copy
 import math
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 
 
 def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_results_dir=True,
         working_dir=os.path.join(home_dir, 'working_dir'),
-        pest3_dir=os.path.join(home_dir, 'submodules/PEST3/build/pest3'),
+        pest3_dir=os.path.join(home_dir, 'submodules/PEST3/cmake_build/pest3'),
         verbose=True,
         debug=False,
         fresh_start=True,
@@ -46,41 +46,42 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
         extra_input_string_pest='',      # Extra input string to pass to PEST3, e.g. for additional control parameters. See pest3_dir/pest3.hh for details.
         ):
     """
-    Run PEST3 resistive calculation by calling the PEST3 fortran executable to run in a working directory of user choice.
-    Prints files both to the working directory and to output_location if specified. Use output_prefix for customizing output filenames.
-    For a full list of keyword arguments, see pest3.hh in pest3_dir. Alternatively, run the pest3 executable with ./pest3x -h in pest3_dir.
+    Run PEST3 resistive calculation by calling the PEST3 Fortran executable.
 
-    Parameters:
-    eq_filename (str): Path to the equilibrium file. Cannot be too long (strange old fortran...)
-    nn (int): Toroidal mode number.
-    make_working_dir (bool): If True, create a working directory.
-    working_dir (str): Path to the working directory. Will be created if it does not exist and make_working_dir is True.
-    pest3_dir (str): Path to the PEST3 build directory.
-    verbose (bool): If True, print verbose output.
-    fresh_start (bool): If True, remove existing calculations from the working directory.
-    output_location (str): If specified, save the output files to this location.
-    output_prefix (str): Prefix for the output files.
-    save_input (bool): If True, save the input parameters used for PEST3 calculation to a netCDF file.
-    save_terminal_output (bool): If True, save the terminal output to pest3_terminal_output_n{nn}.txt in the working directory. If fresh_start is True, the file will be removed if it exists.
+    For a full list of keyword arguments, see pest3.hh in pest3_dir,
+    or run ./pest3x -h in pest3_dir.
 
-    eq_type_pest (int): Type of the input equilibrium file for PEST3. Default is 3 (efit eqdsk). See pest3_dir/pest3.hh for other options.
-    kband_pest (int): Poloidal Fourier modes span -|kband_pest|,...+|kband_pest|.
-    rational_surface_control_pest (str): String to control the computation of rational surfaces. Use 'xxx' to compute Delta's for the first 3 rational surfaces, '.' to skip.
-    psilow_pest (float): Lower bound for the magnetic flux surface. Default is 1e-4.
-    psihigh_pest (float): Upper bound for the magnetic flux surface. Default is 0.995. Does not behave the same as GPEC's psihigh (debugging needed).
-    a_wall_pest (float): Distance of the conformal ideal wall from the plasma in units of minor radius. Default is 20. a_wall_pest > 10 implies wall at infinity, a_wall_pest = 0 implies internal mode only. See pest3.hh for more details.
-    mtheta_pest (int): Number of poloidal rays for eqdsk mapping. Large values (~800) likely introduce numerical instabilities. Default is 257.
-    mpsi_pest (int): Number of radial grid intervals for equilibrium quantities for eqdsk mapping. Large values (~800) likely introduce numerical instabilities. Default is 400.
-    nx_string_pest (str): String for the number of radial finite elements per non-singular interval. Convergence should obey nx^(-2) going to zero, hence multiple values are specified. 
-    nx_pest (int): Number of radial finite elements per non-singular interval. Default is 0, which means nx_string_pest is used.
-    large_sol_extent_pest (float): Large solution extent for PEST3, see pest3_dir/pest3.hh for details. Default is 0.9.
-    solver_pest (str): String for the PEST3 solver options, see pest3_dir/pest3.hh for details.
-    extra_input_string_pest (str): Extra input string to pass to PEST3, e.g. for additional control parameters. See pest3_dir/pest3.hh for details.
+    Parameters
+    ----------
+    eq_filename : str
+        Path to the equilibrium file.
+    nn : int
+        Toroidal mode number.
+    working_dir : str
+        Path to the working directory.
+    verbose : bool
+        Print verbose output.
+    fresh_start : bool
+        Remove existing calculations from working_dir before running.
+    output_location : str or None
+        If specified, save output files to this location.
+    output_prefix : str
+        Prefix for output filenames.
+    q_rationals : np.ndarray or None
+        Rational surface q values (from GPEC) for dimension alignment.
+    r, r_prime : np.ndarray or None
+        Surface label coordinates (from GPEC) for dimension alignment.
+    **PEST3-specific kwargs**
+        See inline comments for eq_type_pest, kband_pest, psihigh_pest, etc.
 
-    Returns:
-    pest3_xr (xarray): Xarray containing the PEST3 output.
-    pest3_ran (bool): True if PEST3 was run successfully.
-    pest3_input_dict (dict): Dictionary containing all input parameters used for PEST3 calculation.
+    Returns
+    -------
+    pest3_xr : xr.Dataset or None
+        PEST3 output dataset.
+    pest3_ran : bool
+        Whether PEST3 ran successfully.
+    pest3_input_dict : dict
+        Input parameters used for the calculation.
     """
 
     #########################################################################################################
@@ -271,17 +272,30 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
                                 truncimax=10,
                                 nx_truncdebug=False, **kwargs):
     """
-    Sets psihigh values for PEST3 based on the q-truncation point of the GPEC calculation (qlim_actual). Does so by running 
-    a very fast PEST3 calculation with a single toroidal mode number (nn=1), creating a spline from the PEST3 q output vs psi 
-    output, and finding the root of the spline at the value of qlim_actual.
-    
-    Parameters:
-    eq_filename (str): Path to the equilibrium file.
-    nn (int): Toroidal mode number.
-    qlim_actual (float): Actual q limit value from GPEC/STRIDE calculations.
+    Find psihigh for PEST3 that matches the GPEC q-truncation point, using bisection.
 
-    Returns:
-    float: The psihigh value to be used in PEST3 calculation.
+    Runs fast, low-resolution PEST3 calculations to iteratively narrow the
+    psihigh_pest value until the output q-boundary matches qlim_actual.
+
+    Parameters
+    ----------
+    eq_filename : str
+        Path to the equilibrium file.
+    nn : int
+        Toroidal mode number.
+    qlim_actual : float
+        Target q limit from GPEC/STRIDE calculations.
+    pest3_kwargs_dict : dict
+        PEST3 keyword arguments.
+    truncimax : int
+        Maximum bisection iterations.
+
+    Returns
+    -------
+    psihigh : float
+        psihigh_pest value matching qlim_actual.
+    success : bool
+        Whether the truncation loop converged.
     """
 
     pest3_kwargs_dict_local=copy.deepcopy(pest3_kwargs_dict)
@@ -367,18 +381,28 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
                                 nx_trunc=1000,
                                 debug=False,
                                 nx_truncdebug=False, **kwargs):
-    """
-    Sets psihigh values for PEST3 based on the q-truncation point of the GPEC calculation (qlim_actual). Does so by running 
-    a very fast PEST3 calculation with a single toroidal mode number (nn=1), creating a spline from the PEST3 q output vs psi 
-    output, and finding the root of the spline at the value of qlim_actual.
-    
-    Parameters:
-    eq_filename (str): Path to the equilibrium file.
-    nn (int): Toroidal mode number.
-    qlim_actual (float): Actual q limit value from GPEC/STRIDE calculations.
+    """Find psihigh for PEST3 using a single high-resolution spline interpolation.
 
-    Returns:
-    float: The psihigh value to be used in PEST3 calculation.
+    Runs one PEST3 calculation at full psi range and interpolates to find the
+    psihigh value where q matches qlim_actual. Used inside pest3_special_truncation_loop.
+
+    Parameters
+    ----------
+    eq_filename : str
+        Path to the equilibrium file.
+    nn : int
+        Toroidal mode number.
+    qlim_actual : float
+        Target q limit from GPEC/STRIDE calculations.
+    pest3_kwargs_dict : dict
+        PEST3 keyword arguments.
+
+    Returns
+    -------
+    psihigh : float
+        psihigh_pest value matching qlim_actual.
+    success : bool
+        Whether PEST3 ran and interpolation succeeded.
     """
 
     pest3_kwargs_dict_local=copy.deepcopy(pest3_kwargs_dict)
@@ -444,19 +468,29 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
     return psi_trunc_frac, pest3_trunc_ran
 
 def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r=None, r_prime=None):
-    """
-    Process the PEST3 netCDF output to standardize dimensions and variable names. If multiple rational
-    surfaces are calculated, redefinies rescaled Delta primes in GPEC units.
+    """Standardize PEST3 NetCDF output dimensions, variables, and unit conventions.
 
-    Parameters:
-    ps3 (xarray.Dataset): The PEST3 output dataset.
-    debug (bool): If True, print debug information.
-    drop_soln_info (bool): If True, drop variables related to the full solution (e.g. x1frbo_re, x1frbo_im).
-                            Set False at your own risk (may lead to dimension conflicts).
-    q_rationals: either None, or np.array
+    Renames dimensions, rescales Delta' values to GPEC units via
+    pest3_rescale_deltaprimes, and optionally aligns surface labels with
+    GPEC rational surfaces.
 
-    Returns:
-    xarray.Dataset: The processed PEST3 dataset with standardized dimensions and variable names.
+    Parameters
+    ----------
+    ps3 : xr.Dataset
+        Raw PEST3 output dataset.
+    debug : bool
+        Print debug information.
+    drop_soln_info : bool
+        Drop full-solution variables (x1frbo_re, etc.) to avoid dimension conflicts.
+    q_rationals : np.ndarray or None
+        GPEC rational surface q values for alignment.
+    r, r_prime : np.ndarray or None
+        GPEC surface label coordinates for alignment.
+
+    Returns
+    -------
+    xr.Dataset
+        Processed dataset with standardized dimensions and rescaled Delta' values.
     """
 
     #########################################################################################################
@@ -524,6 +558,12 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 if debug: print(f"Dropping variable {varname} with {len(da.dims)} dimensions.")
                 ps3 = ps3.drop_vars(varname)
 
+    assert 'r' not in ps3.data_vars, "PEST3 output already has a variable named 'r'. Check PEST3 output and cleaning logic."
+    assert 'r_prime' not in ps3.data_vars, "PEST3 output already has a variable named 'r_prime'. Check PEST3 output and cleaning logic."
+    if 'r_temp' not in ps3.dims:
+        print("PEST3 data variables: ", ps3.dims)
+        raise ValueError("PEST3 output does not have a variable named 'r_temp'. Check PEST3 output and cleaning logic.")
+    
     for varname, da in ps3.data_vars.items():
         if len(missing_m_from_pest) > 0:
             # We expand ps3[varname] such that ps3[varname].r matches input DataArray r:
@@ -536,7 +576,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 # Set the coordinates of temp_da to match r:
                 temp_da.coords['r'] = r
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
             elif 'r_temp' in da.dims and 'r_prime_temp' in da.dims:
                 # We expand ps3[varname] such that ps3[varname].r matches input DataArray r and ps3[varname].r_prime matches input DataArray r_prime:
@@ -549,7 +589,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 temp_da.coords['r'] = r
                 temp_da.coords['r_prime'] = r_prime
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
         else:
             # Just rename 'r_temp' to 'r' and 'r_prime_temp' to 'r_prime':
@@ -559,7 +599,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 # Set the coordinates of temp_da to match r:
                 temp_da.coords['r'] = r
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
             elif 'r_temp' in da.dims and 'r_prime_temp' in da.dims:
                 tempvals = da.values
@@ -568,7 +608,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
                 temp_da.coords['r'] = r
                 temp_da.coords['r_prime'] = r_prime
                 # Replace da with temp_da in ps3:
-                ps3.drop_vars(varname)
+                ps3 = ps3.drop_vars(varname)
                 ps3[varname] = temp_da
         
     if len(ps3.cmatch.dims) > 0:

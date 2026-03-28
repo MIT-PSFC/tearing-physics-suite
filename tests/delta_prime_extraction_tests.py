@@ -2,27 +2,19 @@
 
 import math
 import xarray as xr
-from sympy import Matrix
 import sympy
 import numpy as np
 import jax.numpy as jnp
 from jax import jacfwd
 import os
-import sys
 import shutil
-import subprocess
 import pandas as pd
-import xarray as xr
-import numpy as np
-import unittest
 import pickle as pkl
-import jax.numpy as jnp
 
-from tearing_physics_suite.environment import home_dir
+home_dir = os.environ['TPSHOME']
 
 os.chdir(home_dir)
 
-#from tearing_physics_suite.input_scans import scan_1D_input,extract_scanned_xrs
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
 from tearing_physics_suite.fortran_wrappers import compile_xarrays
 from tearing_physics_suite.utils import trim_nans
@@ -39,7 +31,7 @@ use_default_eq=True
 fast=False # <- Don't change this
 test_extract_delta_primes_ = True
 test_extract_delta_primes  = True
-test_couples=True
+test_surface_coupling=True
 
 #########################################################################################################
 # load equilibrium:
@@ -50,8 +42,6 @@ default_equilibrium =  os.path.join(home_dir, 'submodules/GPEC/docs/examples/DII
 
 if use_default_eq:
     eq_filename = default_equilibrium
-else:
-    eq_filename = '/nfs/home/stubenj9/equilibria/ARC/ARC_V3A_kinetic_tokamaker_v11_257_notruncate_scale_jBS=1.05.eqdsk'
 
 print(" Getting equilibrium file from ", eq_filename)
 eq_filename_short= eq_filename.split('/')[-1]
@@ -115,7 +105,7 @@ if not fast:
 #########################################################################################################
 
 try: 
-    if test_couples:
+    if test_surface_coupling:
         dpncR = delta_prime_no_couple(delta_primes.real)
         dpfcR = delta_prime_full_couple(delta_primes.real)
         dpnnR = delta_prime_nn_couple(delta_primes.real)

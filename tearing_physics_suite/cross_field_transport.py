@@ -127,7 +127,7 @@ def chi_perp_on_modes(rdcon_xarray,
         The minor radius of the plasma, used if chi_perp_spline is not provided.
     energy_confinement_time : float, optional
         The energy confinement time of the plasma, used if chi_perp_spline is not provided.
-    chi_perp_spline : CubicSpline, optional
+    chi_perp_spline : 1DSpline, optional
         A precomputed spline for the perpendicular thermal diffusivity, used if provided.
 
     Returns

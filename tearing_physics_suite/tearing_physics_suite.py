@@ -44,7 +44,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     ----------
     eq_filename : str
         Path to the equilibrium file.
-    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : 1DSpline
         Ion/electron density [m^-3] and temperature [keV] vs psi_n.
     Zeff : float
         Effective ion charge (for chi_para and bootstrap current).

@@ -46,7 +46,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         Path to MHD equilibrium file.
     nn : int
         Toroidal mode number.
-    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : 1DSpline
         Density (m^-3) and temperature (keV) profiles as functions of normalised poloidal flux.
 
     Returns
@@ -358,13 +358,13 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     Parameters:
     rdcon_xarray : xarray.DataArray
         The xarray containing the radial coordinate data.
-    ni_spline : CubicSpline
+    ni_spline : 1DSpline
         Spline for ion density in m^(-3) on normalised poloidal flux.
-    ne_spline : CubicSpline
+    ne_spline : 1DSpline
         Spline for electron density in m^(-3) on normalised poloidal flux.
-    ti_spline : CubicSpline
+    ti_spline : 1DSpline
         Spline for ion temperature in KeV on normalised poloidal flux.
-    te_spline : CubicSpline
+    te_spline : 1DSpline
         Spline for electron temperature in KeV on normalised poloidal flux.
     
     Returns:
@@ -522,7 +522,7 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     ----------
     rdcon_xarray : xr.Dataset
         Must contain ne_m3, ni_m3, te_keV, ti_keV, avg_nabla_psi, and psio.
-    Er_spline : CubicSpline or None
+    Er_spline : 1DSpline or None
         Radial electric field profile in V/m as a function of normalised poloidal flux.
     diamagnetic_rotation_ion_charge : float or None
         Ion charge state for diamagnetic frequency. If None, inferred from on-axis ne/ni.
@@ -654,8 +654,8 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     ----------
     rdcon_xarray : xr.Dataset
         Dataset to add rotation data to.
-    omega_splines : dict of CubicSpline
-        Mapping of rotation name (e.g. 'omega_tor') to Akima1DInterpolator(psi_n) in rad/s.
+    omega_splines : dict of 1DSplines
+        Mapping of rotation name (e.g. 'omega_tor') to a rotation spline (on psi_n) in rad/s.
 
     Returns
     -------

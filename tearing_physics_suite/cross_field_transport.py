@@ -2,7 +2,7 @@
 
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import Akima1DInterpolator
 
 # Checked
 def chi_para_lmfp_no_w_on_modes(rdcon_xarray):

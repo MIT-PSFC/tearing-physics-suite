@@ -6,7 +6,7 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline #, make_interp_spline
+from scipy.interpolate import Akima1DInterpolator #, make_interp_spline
 from scipy.signal import find_peaks
 import tearing_physics_suite.global_vars as gv
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
@@ -548,10 +548,10 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     rdcon_xarray = rdcon_xarray.assign(ne_on_ni_axis = zi)
 
     #Derivatives (from splines):
-    ne_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
-    ni_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
-    te_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
-    ti_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
+    ne_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
+    ni_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
+    te_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
+    ti_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
     ne1_values = np.array(ne_spline(rdcon_xarray.psi_n,1))
     ni1_values = np.array(ni_spline(rdcon_xarray.psi_n,1))
     te1_values = np.array(te_spline(rdcon_xarray.psi_n,1))
@@ -624,8 +624,8 @@ def put_drift_rotation_on_surfaces(rdcon_xarray):
         )
 
     # Adding derivatives as surfaces:
-    omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_i.values,extrapolate=False)
-    omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_e.values,extrapolate=False)
+    omega_i_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_i.values,extrapolate=False)
+    omega_e_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_e.values,extrapolate=False)
 
     rdcon_xarray = rdcon_xarray.assign(
         omega_i1_surf = np.array(omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
@@ -633,9 +633,9 @@ def put_drift_rotation_on_surfaces(rdcon_xarray):
     )
 
     if 'omega_ExB' in rdcon_xarray:
-        omega_ExB_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
-        omega_ExB_plus_omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
-        omega_ExB_plus_omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
+        omega_ExB_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
+        omega_ExB_plus_omega_e_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
+        omega_ExB_plus_omega_i_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
         rdcon_xarray = rdcon_xarray.assign(
             omega_ExB1_surf = np.array(omega_ExB_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
             omega_ExB_plus_omega_e1_surf = np.array(omega_ExB_plus_omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
@@ -655,7 +655,7 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     rdcon_xarray : xr.Dataset
         Dataset to add rotation data to.
     omega_splines : dict of CubicSpline
-        Mapping of rotation name (e.g. 'omega_tor') to CubicSpline(psi_n) in rad/s.
+        Mapping of rotation name (e.g. 'omega_tor') to Akima1DInterpolator(psi_n) in rad/s.
 
     Returns
     -------
@@ -755,7 +755,7 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_i
         #########################################################################################################
         # Find largest psi_n value where the q profile crosses the q value of interest.
         #########################################################################################################
-        shifted_q_spline = CubicSpline(rdcon_xarray.psi_n.values, np.array(rdcon_xarray.q.values-q_surf),extrapolate=False)
+        shifted_q_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, np.array(rdcon_xarray.q.values-q_surf),extrapolate=False)
         # Count how many times q_spline crosses this q_surf, and get the corresponding psi_n values:
         q_roots = shifted_q_spline.roots()
         if len(q_roots) == 0:
@@ -905,8 +905,8 @@ def mre_flux_gradients(rdcon_xarray):
     """
 
     # Make cubic splines of terms I want to differentiate:
-    q_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.q.values,extrapolate=False)
-    mu0p_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.mu0p.values,extrapolate=False)
+    q_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.q.values,extrapolate=False)
+    mu0p_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.mu0p.values,extrapolate=False)
 
     # Calculate the gradients of these terms:
     dq_dpsi_n = q_spline.derivative()(rdcon_xarray.psi_n.values)
@@ -937,7 +937,7 @@ def mre_flux_gradients(rdcon_xarray):
     )
 
     # Get plasma volumes on surfaces by integrating dVdpsi:
-    dVdpsi_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.dvdpsi.values, extrapolate=False)
+    dVdpsi_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.dvdpsi.values, extrapolate=False)
     min_psi_n = rdcon_xarray.psi_n.values.min()
     V_surf = [dVdpsi_spline.integrate(min_psi_n, i) for i in rdcon_xarray.psi_n_rational.values]
     rdcon_xarray = rdcon_xarray.assign(
@@ -1340,8 +1340,8 @@ def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
     dwdtau_max : float
         Peak dwdtau value at w_max_loc.
     """
-    dwdtau_spln=CubicSpline(w_vec,dwdtau_vec,extrapolate=False)
-    dwdtau_deriv_spln=CubicSpline(w_vec,dwdtau_spln(w_vec,1),extrapolate=False) 
+    dwdtau_spln=Akima1DInterpolator(w_vec,dwdtau_vec,extrapolate=False)
+    dwdtau_deriv_spln=Akima1DInterpolator(w_vec,dwdtau_spln(w_vec,1),extrapolate=False) 
 
     # Find where dwdtau crosses zero:
     zero_crossings = dwdtau_spln.roots(extrapolate=False)

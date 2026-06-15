@@ -3,7 +3,9 @@
 import os
 import pandas as pd
 import xarray as xr
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import Akima1DInterpolator
+import h5py
+import numpy as np
 
 def read_kin_file(filename):
     """Read a .kin profile file and create cubic splines for kinetic profiles.
@@ -25,11 +27,11 @@ def read_kin_file(filename):
         try:
             profile_data_names = pd.read_csv(filename, sep='\s+',header=None,nrows=1)
             profile_data_xr = xr.Dataset(pd.read_csv(filename, skiprows=1, sep='\s+', header=None,names=profile_data_names.iloc[0].values))
-            te_keV_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['te(eV)'].values/1000,extrapolate=False)
-            ti_keV_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ti(eV)'].values/1000,extrapolate=False)
-            ne_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ne(m^-3)'].values,extrapolate=False)
-            ni_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
-            omega_ExB_spline = CubicSpline(profile_data_xr['psi'].values, profile_data_xr['wexb(rad/s)'].values,extrapolate=False)
+            te_keV_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['te(eV)'].values/1000,extrapolate=False)
+            ti_keV_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['ti(eV)'].values/1000,extrapolate=False)
+            ne_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['ne(m^-3)'].values,extrapolate=False)
+            ni_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
+            omega_ExB_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['wexb(rad/s)'].values,extrapolate=False)
         except Exception as e:
             print(f"Error reading or processing .kin file: {e}")
             raise e
@@ -114,13 +116,13 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
             E_r_vals = rotation_xr.E_r.isel(time=time_idx).values
 
             # Create cubic splines
-            n_e_spline = CubicSpline(psi_n_vals, n_e_vals, extrapolate=False)
-            T_e_spline = CubicSpline(psi_n_vals, T_e_vals, extrapolate=False)
-            n_i_spline = CubicSpline(psi_n_vals, n_i_vals, extrapolate=False)
-            T_i_spline = CubicSpline(psi_n_vals, T_i_vals, extrapolate=False)
-            omega_tor_spline = CubicSpline(psi_n_vals, omega_tor_12C6_vals, extrapolate=False)
-            v_pol_spline = CubicSpline(psi_n_vals, v_pol_vals, extrapolate=False)
-            Er_spline = CubicSpline(psi_n_vals, E_r_vals, extrapolate=False)
+            n_e_spline = Akima1DInterpolator(psi_n_vals, n_e_vals, extrapolate=False)
+            T_e_spline = Akima1DInterpolator(psi_n_vals, T_e_vals, extrapolate=False)
+            n_i_spline = Akima1DInterpolator(psi_n_vals, n_i_vals, extrapolate=False)
+            T_i_spline = Akima1DInterpolator(psi_n_vals, T_i_vals, extrapolate=False)
+            omega_tor_spline = Akima1DInterpolator(psi_n_vals, omega_tor_12C6_vals, extrapolate=False)
+            v_pol_spline = Akima1DInterpolator(psi_n_vals, v_pol_vals, extrapolate=False)
+            Er_spline = Akima1DInterpolator(psi_n_vals, E_r_vals, extrapolate=False)
             print("✓ Successfully created splines:")
             print(f"  - n_e (electron density)")
             print(f"  - T_e (electron temperature)")

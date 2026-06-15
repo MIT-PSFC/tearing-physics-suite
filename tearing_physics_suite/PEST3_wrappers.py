@@ -7,7 +7,7 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import Akima1DInterpolator
 import pickle as pkl
 import copy
 import math
@@ -441,7 +441,7 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
         return 0, False
 
     # Make cubic spline of pest3_xr.psinew.values and psipest3_xr.qa.values, shifted to the value of qlim_actual:
-    cs = CubicSpline(pest3_xr['psinew'].values, (pest3_xr['qa'].values-qlim_actual),extrapolate=False)
+    cs = Akima1DInterpolator(pest3_xr['psinew'].values, (pest3_xr['qa'].values-qlim_actual),extrapolate=False)
     roots = cs.roots()
 
     # Check if the cubic spline has roots:

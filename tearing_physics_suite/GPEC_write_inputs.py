@@ -31,6 +31,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         out_2d='f',         #Ascii output of processed 2D data
         bin_2d='f',         #Binary output of processed 2D data
         dump_flag='f',      #Binary dump of basic equilibrium data and 2D rzphi spline
+        out_ahg2msc='f',    #Output deprecated ahg2msc.out files (used to communicate with vacuum, now done through memory)
         a_wall=21           #Controls ideal conformal shell distance. See vac.in description below.
         ):
     """Write the equil.in input file for GPEC equilibrium processing.
@@ -79,6 +80,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('    out_2d='+out_2d  +'\n') #Ascii output of processed 2D data
     f.write('    bin_2d='+bin_2d  +'\n') #Binary output of processed 2D data
     f.write('    dump_flag='+dump_flag +'\n') #Binary dump of basic equilibrium data and 2D rzphi spline
+    f.write('    out_ahg2msc='+out_ahg2msc +'\n') #Output deprecated ahg2msc.out files
     f.write('/'+'\n')
 
     f.close()
@@ -482,7 +484,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'verbose': verbose
     }
     
-    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,**kwargs)
+    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,out_ahg2msc=out_ahg2msc,**kwargs)
     #combine the dictionaries
     return_dict.update(equil_dict)
     
@@ -569,8 +571,6 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    bin_bal1='+bin_bal1  +'\n') #Binary output for bal_flag poloidal functions
         f.write('    out_bal2='+out_bal2  +'\n') #Ascii output for bal_flag functions
         f.write('    bin_bal2='+bin_bal2  +'\n') #Binary output for bal_flag functions
-        if not (out_ahg2msc is None):
-            f.write('    out_ahg2msc='+out_ahg2msc  +'\n')
         f.write('    MRE_flag='+MRE_flag  +'\n') #If true, outputs modified rutherford equation data
         f.write('    geom_flag='+geom_flag  +'\n') #If true, outputs surface integral information for the equilibrium
         f.write('/'+'\n')
@@ -642,8 +642,6 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    bin_bal2='+bin_bal2  +'\n') #Binary output for bal_flag functions
 
         f.write("""    netcdf_out=t""" +'\n') #Replicate ascii stride.out and delta_prime.out information in a netcdf file
-        if not (out_ahg2msc is None):
-            f.write('    out_ahg2msc='+out_ahg2msc  +'\n') 
         f.write('/'+'\n')
 
         f.write('&stride_params'+'\n')

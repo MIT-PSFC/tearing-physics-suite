@@ -208,7 +208,7 @@ def clean_multi_n_dictionaries(input_dict_vec):
         first_value = input_dict_vec2[0][key]
         all_same = True
         for i, d in enumerate(input_dict_vec2[1:], 1):
-            if d[key] != first_value:
+            if key not in d or d[key] != first_value:
                 all_same = False
         if not all_same:
             keys_with_varied_values.append(key)
@@ -221,7 +221,7 @@ def clean_multi_n_dictionaries(input_dict_vec):
         for i, nn in enumerate(nn_vec[1:], 1):
             nn_dep_dict = {}
             for key in keys_with_varied_values:
-                nn_dep_dict[key] = input_dict_vec2[i][key]
+                nn_dep_dict[key] = input_dict_vec2[i].get(key, None)
             for key in extra_keys_alln[i-1]:
                 nn_dep_dict[key] = input_dict_vec2[i][key]
             nn_dep_dict_name = f'n{nn}_dependent_inputs'

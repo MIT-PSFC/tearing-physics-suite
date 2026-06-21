@@ -201,24 +201,27 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     
     if run_pest3:
         pest3_trunc_ran = False
-        if pest_match_truncation and ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)) and allow_trunc_loop:
-            if verbose: print("Running pest3 truncation algorithm. qlim_actual = ", qlim_actual)
-            if psilow_actual > rdcon_stride_input_dict['psilow'] and (psilow_actual != 100):
-                print("WARNING: axis truncation in RDCON/STRIDE differs from PEST3 truncation. Results may not be comparable.")
-            if qlim_actual > -100:
-                psihigh_trunc_pest, pest3_trunc_ran = pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dict,
-                    make_working_dir=make_working_dir,
-                    working_dir=working_dir,
-                    pest3_dir=pest3_dir,
-                    verbose=verbose,
-                    fresh_start=fresh_start,
-                    output_location=None,
-                    save_input=False,
-                    output_prefix_special=output_prefix,
-                    save_terminal_output=save_terminal_output,
-                )
-                if pest3_trunc_ran:
-                    pest3_kwargs_dict['psihigh_pest'] = psihigh_trunc_pest
+        try:
+            if pest_match_truncation and ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)) and allow_trunc_loop:
+                if verbose: print("Running pest3 truncation algorithm. qlim_actual = ", qlim_actual)
+                if psilow_actual > rdcon_stride_input_dict['psilow'] and (psilow_actual != 100):
+                    print("WARNING: axis truncation in RDCON/STRIDE differs from PEST3 truncation. Results may not be comparable.")
+                if qlim_actual > -100:
+                    psihigh_trunc_pest, pest3_trunc_ran = pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dict,
+                        make_working_dir=make_working_dir,
+                        working_dir=working_dir,
+                        pest3_dir=pest3_dir,
+                        verbose=verbose,
+                        fresh_start=fresh_start,
+                        output_location=None,
+                        save_input=False,
+                        output_prefix_special=output_prefix,
+                        save_terminal_output=save_terminal_output,
+                    )
+                    if pest3_trunc_ran:
+                        pest3_kwargs_dict['psihigh_pest'] = psihigh_trunc_pest
+        except Exception as e:
+            if verbose: print(e)
 
         if not ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)):
             print("**************************************************************** WARNING **********************************************************************")
@@ -226,12 +229,18 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
             print("**************************************************************** WARNING **********************************************************************")
             raise RuntimeError
 
-        pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
-            eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
-            working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
-            fresh_start=fresh_start, output_location=output_location,
-            output_prefix=output_prefix, save_input=save_input,
-            save_terminal_output=save_terminal_output, q_rationals=q_rationals, r=r, r_prime=r_prime, **pest3_kwargs_dict)
+        try: 
+            pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
+                eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
+                working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
+                fresh_start=fresh_start, output_location=output_location,
+                output_prefix=output_prefix, save_input=save_input,
+                save_terminal_output=save_terminal_output, q_rationals=q_rationals, r=r, r_prime=r_prime, **pest3_kwargs_dict)
+        except Exception as e:
+            pest3_ran = False
+            pest3_xr = None
+            pest3_input_dict = None
+            if verbose: print(e)
 
         if verbose:
             print("Pest3 ran:",pest3_ran, "Pest3 truncation ran:", pest3_trunc_ran)        

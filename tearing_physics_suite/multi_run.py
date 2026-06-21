@@ -242,8 +242,8 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
     #     print(f"[multi_compile] Compiled {len(combined_xr_list)} runs. Saved to {compiled_path}")
 
 
-    compiled_xr.to_netcdf(os.path.join(master_working_dir, 'compiled_combined_xr.nc'))
-    compiled_inputs_xr.to_netcdf(os.path.join(master_working_dir, 'compiled_inputs_xr.nc'))
+    compiled_xr.to_netcdf(os.path.join(master_working_dir, 'compiled_combined_xr.nc'), engine="scipy")
+    compiled_inputs_xr.to_netcdf(os.path.join(master_working_dir, 'compiled_inputs_xr.nc'), engine="scipy")
 
     return compiled_xr, compiled_inputs_xr
 
@@ -338,7 +338,7 @@ def _worker_batch(args):
                     combined_xr = combined_xr.assign(time_idx=profile_dict['time_idx'])
                 if 'shot_id' in profile_dict:
                     combined_xr = combined_xr.assign(shot_id=profile_dict['shot_id'])
-                combined_xr.to_netcdf(xr_path)
+                combined_xr.to_netcdf(xr_path, engine="scipy")
             print(f"[multi_run] Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) completed successfully.")
             run_results.append((idx, True, None))
         except Exception as e:

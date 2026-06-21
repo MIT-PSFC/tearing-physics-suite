@@ -433,12 +433,12 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
         if run_rdcon and rdcon_xr is not None:
             if override_save and os.path.isfile(os.path.join(output_location, rdcon_output_name)):
                 os.remove(os.path.join(output_location, rdcon_output_name))
-            rdcon_xr.to_netcdf(os.path.join(output_location, rdcon_output_name))
+            rdcon_xr.to_netcdf(os.path.join(output_location, rdcon_output_name), engine="scipy")
             if verbose: print(f"Saved rdcon output to {os.path.join(output_location, rdcon_output_name)}")
         if run_stride and stride_xr is not None:
             if override_save and os.path.isfile(os.path.join(output_location, stride_output_name)):
                 os.remove(os.path.join(output_location, stride_output_name))
-            stride_xr.to_netcdf(os.path.join(output_location, stride_output_name))
+            stride_xr.to_netcdf(os.path.join(output_location, stride_output_name), engine="scipy")
             if verbose: print(f"Saved stride output to {os.path.join(output_location, stride_output_name)}")
         if save_input:
             if override_save and os.path.isfile(os.path.join(output_location, output_prefix + eq_filename + '_rdcon_stride_input_n'+str(nn)+'.pkl')):

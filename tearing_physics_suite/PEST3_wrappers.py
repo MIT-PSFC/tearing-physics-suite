@@ -245,7 +245,7 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
             pest3_output_name = str(output_prefix + eq_filename.split(".")[0] + '_pest3_n'+str(nn)+'.nc')
             if override_save and os.path.isfile(os.path.join(output_location, pest3_output_name)):
                 os.remove(os.path.join(output_location, pest3_output_name))
-            pest3_xr.to_netcdf(os.path.join(output_location, pest3_output_name))
+            pest3_xr.to_netcdf(os.path.join(output_location, pest3_output_name), engine="scipy")
             if verbose: print(f"Saved PEST3 output to {os.path.join(output_location, pest3_output_name)}")
         if save_terminal_output:
             if os.path.exists(os.path.join(working_dir, terminal_output_file)):

@@ -6,6 +6,7 @@
 ## distributes the runs across available CPU cores, and collects the outputs into a list of xarrays and a list of input dicts.
 
 import os
+import sys
 import glob
 import multiprocessing
 import pickle as pkl
@@ -289,6 +290,13 @@ def _worker_batch(args):
     os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
     os.makedirs(working_dir, exist_ok=True)
+
+    log_path = os.path.join(master_working_dir, f"worker_{worker_id}.log")
+    _log_fh = open(log_path, "w", buffering=1)  # line-buffered
+    os.dup2(_log_fh.fileno(), 1)
+    os.dup2(_log_fh.fileno(), 2)
+    sys.stdout = _log_fh
+    sys.stderr = _log_fh
 
     run_results = []
     for idx, eq_filename, profile_dict in batch:

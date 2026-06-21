@@ -361,8 +361,8 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
 
     rdcon_stride_input_dict = write_rdcon_stride_inputs(working_dir, eq_filename, nn=nn, run_stride=run_stride, run_rdcon=run_rdcon, fresh_start=fresh_start, **kwargs)
 
-    rdcon_output_name = str(output_prefix + eq_filename + '_rdcon_n'+str(nn)+'.nc')
-    stride_output_name = str(output_prefix + eq_filename + '_stride_n'+str(nn)+'.nc')
+    rdcon_output_name = str(output_prefix + eq_filename.split(".")[0] + '_rdcon_n'+str(nn)+'.nc')
+    stride_output_name = str(output_prefix + eq_filename.split(".")[0] + '_stride_n'+str(nn)+'.nc')
 
     #########################################################################################################
     # Call executables:

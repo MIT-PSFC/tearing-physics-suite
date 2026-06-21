@@ -242,7 +242,7 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
 
     if output_location is not None:
         if pest3_xr is not None:
-            pest3_output_name = str(output_prefix + eq_filename + '_pest3_n'+str(nn)+'.nc')
+            pest3_output_name = str(output_prefix + eq_filename.split(".")[0] + '_pest3_n'+str(nn)+'.nc')
             if override_save and os.path.isfile(os.path.join(output_location, pest3_output_name)):
                 os.remove(os.path.join(output_location, pest3_output_name))
             pest3_xr.to_netcdf(os.path.join(output_location, pest3_output_name))

@@ -177,7 +177,8 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
     if os.path.exists(os.path.join(master_working_dir, 'errors.pkl')):
         with open(os.path.join(master_working_dir, 'errors.pkl'), 'rb') as f:
             errors = pkl.load(f)
-        print(f"[multi_compile] Found error log with {len(errors)} failed runs.")
+        num_errors = sum(1 for v in errors.values() if v is not None)
+        print(f"[multi_compile] Found error log with {num_errors} failed runs.")
         if debug:
             for idx, err_msg in sorted(errors.items()):
                 print(f"[multi_compile] Run {idx} error: {err_msg}")

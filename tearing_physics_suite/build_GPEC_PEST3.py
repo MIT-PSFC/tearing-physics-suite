@@ -968,7 +968,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
             print("\n".join(tail[-10:]) if tail else "(no output)")
             return result.returncode
         except subprocess.TimeoutExpired:
-            print(f"  TIMED OUT (>300 s)")
+            print(f"  TIMED OUT (>60 s)")
             return -1
         except Exception as e:
             print(f"  ERROR: {e}")

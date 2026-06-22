@@ -6,7 +6,7 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import Akima1DInterpolator #, make_interp_spline
+from scipy.interpolate import Akima1DInterpolator, CubicSpline
 from scipy.signal import find_peaks
 import tearing_physics_suite.global_vars as gv
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
@@ -90,7 +90,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
-    rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
+    rdcon_xr = chi_para_smfp_on_modes(rdcon_xr)
     rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
     rdcon_xr = deltaprime_crit_on_modes(rdcon_xr, force_lmfp=force_lmfp)
 
@@ -234,6 +234,12 @@ def mre_raw_interp(rdcon_xarray):
     avg_Bsq_on_nabla_psisq_surf = rdcon_xarray.avg_1.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_Bsq_surf = rdcon_xarray.avg_5.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_dpsisq_surf = rdcon_xarray.avg_7.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
+    # Zeff gets special treatment:
+    # Handle Zeff - it may be a DataArray or already a numpy array
+    psi_N_Zeff_vals = rdcon_xarray.psi_N_Zeff.values if hasattr(rdcon_xarray.psi_N_Zeff, 'values') else rdcon_xarray.psi_N_Zeff
+    Zeff_vals = rdcon_xarray.Zeff.values if hasattr(rdcon_xarray.Zeff, 'values') else rdcon_xarray.Zeff
+    Zeff_spline = CubicSpline(psi_N_Zeff_vals, Zeff_vals, extrapolate=False) # Cubic spline to be consistent with GPEC/rdcon/mercier.f
+    Zeff_surf = Zeff_spline(rdcon_xarray['psi_n_rational'].values)
     #########################################################################################################
     # Load these surface values into the xarray:
     #########################################################################################################
@@ -260,7 +266,8 @@ def mre_raw_interp(rdcon_xarray):
         avg_Rsq_surf =avg_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_Bsq_on_nabla_psisq_surf = avg_Bsq_on_nabla_psisq_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_Bsq_surf = avg_Bsq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational']
+        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational'],
+        Zeff_surf = Zeff_surf+0.0*rdcon_xarray['psi_n_rational']
     )
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray
@@ -430,9 +437,8 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         taue_surf = 1.09*(10**16)*(rdcon_xarray['te_keV_surf']**(3/2))*(1/rdcon_xarray['ne_m3_surf'])*(1/rdcon_xarray['lnLamb_ei_surf'])) # seconds
 
     # mu_e_on_nu_e from Callen, 2010 UW-CPTC 09-6R, taking banana limit of eq. B17 (& B14).
-    Zeff = rdcon_xarray.Zeff
     rdcon_xarray = rdcon_xarray.assign(
-        mu_e_on_nu_e_surf = (rdcon_xarray['ftr_surf']/rdcon_xarray['fc_surf'])*(1+0.533/Zeff)) #Dimless
+        mu_e_on_nu_e_surf = (rdcon_xarray['ftr_surf']/rdcon_xarray['fc_surf'])*(1+0.533/rdcon_xarray['Zeff_surf'])) #Dimless
 
     # Neoclassical resistivity from Spitzer resistivity:
     rdcon_xarray = rdcon_xarray.assign(

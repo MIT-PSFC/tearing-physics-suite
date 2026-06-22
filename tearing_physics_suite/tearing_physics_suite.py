@@ -46,8 +46,9 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         Path to the equilibrium file.
     ni_spline, ne_spline, te_keV_spline, ti_keV_spline : 1DSpline
         Ion/electron density [m^-3] and temperature [keV] vs psi_n.
-    Zeff : float
+    Zeff : dict or scalar
         Effective ion charge (for chi_para and bootstrap current).
+        If dict, 'x' are psi_n values, 'y' are Zeff(psi_n) values.
     average_ion_mass : float
         Mean ion mass in AMU (for Alfven speed / mass density).
     nvec : list of int
@@ -69,6 +70,12 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     if Zeff is None:
         raise ValueError("Zeff must be provided for nonlinear resistive calculation.")
+    if not isinstance(Zeff, dict):
+        try:
+            float(Zeff)  # Validate Zeff is numeric
+        except (TypeError, ValueError):
+            raise ValueError("Zeff must be a scalar number or a dict with 'x' and 'y' keys.")
+        Zeff = {'x':[0.0,1.0],'y': [Zeff,Zeff]}
     if average_ion_mass is None:
         raise ValueError("average_ion_mass must be provided for nonlinear resistive calculation.")
 

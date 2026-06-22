@@ -307,8 +307,8 @@ def _worker_batch(args):
             per_profile_kwargs['Er_spline'] = profile_dict['Er_spline']
         if 'omega_splines' not in per_profile_kwargs and 'omega_splines' in profile_dict:
             per_profile_kwargs['omega_splines'] = profile_dict['omega_splines']
-        if 'Zeff_spline' not in per_profile_kwargs and 'Zeff_spline' in profile_dict:
-            per_profile_kwargs['Zeff'] = profile_dict['Zeff_spline']
+        if 'Zeff' not in per_profile_kwargs and 'Zeff' in profile_dict:
+            per_profile_kwargs['Zeff'] = profile_dict['Zeff']
         if 'chi_perp_spline' not in per_profile_kwargs and 'chi_perp_spline' in profile_dict:
             per_profile_kwargs['chi_perp_spline'] = profile_dict['chi_perp_spline']
         if 'energy_confinement_time' not in per_profile_kwargs and 'energy_confinement_time' in profile_dict:

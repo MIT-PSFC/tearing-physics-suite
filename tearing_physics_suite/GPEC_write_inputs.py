@@ -279,7 +279,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             sing_order_ceiling='f', # Auto detect the minium order to be retained in power series...
 
             regrid_flag='f',        # Redo the grid generation for galerkin method
-            Zeff=1.52,              # Plasma Z effective
+            Zeff={'x':[0.0,1.0],'y':[1.52,1.52]}, # Plasma Z effective dict, 'x' is psi_n, 'y' is Zeff
 
             #RDCON_OUTPUT
             crit_break='t',         # Color of the crit curve changes when crossing a singular surface
@@ -554,7 +554,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    sing_order_ceiling='+sing_order_ceiling +'\n') # Auto detect the minium order to be retained in power series
 
         f.write('    regrid_flag='+regrid_flag  +'\n') #Redo the grid generation for galerkin method
-        f.write('    Zeff='+str(Zeff) +'\n') #Plasma Z effective
+        f.write('    psi_N_Zeff='+','.join(str(v) for v in Zeff['x'])+'\n') #Plasma Z effective psi_n values
+        f.write('    Zeff='+','.join(str(v) for v in Zeff['y'])+'\n') #Plasma Z effective values
         f.write('/'+'\n')
 
         f.write('&RDCON_OUTPUT'+'\n')

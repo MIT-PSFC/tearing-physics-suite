@@ -215,8 +215,18 @@ def clean_multi_n_dictionaries(input_dict_vec):
         first_value = input_dict_vec2[0][key]
         all_same = True
         for i, d in enumerate(input_dict_vec2[1:], 1):
-            if key not in d or d[key] != first_value:
+            if key not in d:
                 all_same = False
+            else:
+                try:
+                    not_equal = d[key] != first_value
+                    # Handle numpy arrays and other iterables
+                    if hasattr(not_equal, '__iter__'):
+                        not_equal = np.any(not_equal)
+                    if not_equal:
+                        all_same = False
+                except (ValueError, TypeError):
+                    all_same = False
         if not all_same:
             keys_with_varied_values.append(key)
 

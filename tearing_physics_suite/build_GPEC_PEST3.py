@@ -961,7 +961,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=60,
             )
             combined = result.stdout + result.stderr
             tail = combined.strip().splitlines()

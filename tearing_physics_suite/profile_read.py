@@ -6,6 +6,31 @@ import xarray as xr
 from scipy.interpolate import Akima1DInterpolator
 import h5py
 import numpy as np
+import pickle
+from tearing_physics_suite.sampling_DB import GPRProfilePerturber
+
+class _IndexMap:
+    """Picklable map_object: ``map_object(idx)`` returns ``flat_list[idx]``."""
+    def __init__(self, flat_list):
+        self.flat_list = flat_list
+
+    def __call__(self, idx):
+        return self.flat_list[idx]
+
+    def __getitem__(self, idx):
+        return self.flat_list[idx]
+
+    def __len__(self):
+        return len(self.flat_list)
+
+    def __iter__(self):
+        return iter(self.flat_list)
+
+class _IndexMapUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if name == "_IndexMap":          # intercept regardless of original module
+            return _IndexMap
+        return super().find_class(module, name)   # everything else: normal lookup
 
 def read_kin_file(filename):
     """Read a .kin profile file and create cubic splines for kinetic profiles.
@@ -49,8 +74,7 @@ def read_kin_file(filename):
         }
     }
         
-
-def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
+def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_keys=[]):
     """Read an IDA-lite .cdf file and return kinetic and rotation splines for MRE analysis.
 
     If time_idx is None, delegates to read_IDA_lite_all_times to process every time slice.
@@ -75,6 +99,8 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
         If time_idx is None, returns a list of such dicts (one per time).
     """
 
+    extra_key_vals = []
+
     if time_idx is None:
         return read_IDA_lite_all_times(filename, verbose=verbose)
 
@@ -82,7 +108,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
         if verbose:
             print(f"\nReading rotation CDF file: {filename}")
         try:
-            rotation_xr = xr.open_dataset(filename)
+            rotation_xr = xr.open_dataset(filename,engine='h5netcdf')
             if verbose:
                 print("Successfully opened IDA-lite output")
                 print("\nDataset info:")
@@ -101,7 +127,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
             #########################################################################################################
             # Create cubic splines on psi_n for first time point
             #########################################################################################################
-            print("\n\nCreating cubic splines on psi_n for first time point...")
+            if verbose: print("\n\nCreating cubic splines on psi_n for first time point...")
             psi_n_vals = rotation_xr.psi_n.values
 
             # Extract data for time point
@@ -115,6 +141,10 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
             v_pol_vals = rotation_xr.v_pol.isel(time=time_idx).values
             E_r_vals = rotation_xr.E_r.isel(time=time_idx).values
 
+            # Rotation uncertainties
+            E_r_err = rotation_xr.E_r_err.isel(time=time_idx).values
+            omega_tor_12C6_err = rotation_xr.omega_tor_12C6_err.isel(time=time_idx).values
+
             # Create cubic splines
             n_e_spline = Akima1DInterpolator(psi_n_vals, n_e_vals, extrapolate=False)
             T_e_spline = Akima1DInterpolator(psi_n_vals, T_e_vals, extrapolate=False)
@@ -123,20 +153,31 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
             omega_tor_spline = Akima1DInterpolator(psi_n_vals, omega_tor_12C6_vals, extrapolate=False)
             v_pol_spline = Akima1DInterpolator(psi_n_vals, v_pol_vals, extrapolate=False)
             Er_spline = Akima1DInterpolator(psi_n_vals, E_r_vals, extrapolate=False)
-            print("✓ Successfully created splines:")
-            print(f"  - n_e (electron density)")
-            print(f"  - T_e (electron temperature)")
-            print(f"  - omega_tor_12C6 (toroidal rotation)")
-            print(f"  - v_pol (poloidal velocity)")
-            print(f"  - E_r (radial electric field)")
-            # Test evaluation at a point
-            test_psi_n = 0.5
-            print(f"\nTest evaluation at psi_n = {test_psi_n}:")
-            print(f"  ne (m^-3) = {n_e_spline(test_psi_n):.3e}")
-            print(f"  te (keV) = {T_e_spline(test_psi_n):.3e}")
-            print(f"  omega_tor_12C6 (rad/s) = {omega_tor_spline(test_psi_n):.3e}")
-            print(f"  v_pol (m/s) = {v_pol_spline(test_psi_n):.3e}")
-            print(f"  E_r (V/m) = {Er_spline(test_psi_n):.3e}")
+
+            # extra_keys
+            for extra_key in extra_keys:
+                extra_key_vals.append(rotation_xr[extra_key].isel(time=time_idx).values)
+            # a simple area-averaged ion mass
+            rho_n = np.sqrt(psi_n_vals)
+            total_ion_mass_radial_integral_spline = Akima1DInterpolator(rho_n,rho_n*(2*n_i_vals+12*n_iC12_vals)) # assuming n_i is deuterium
+            total_ion_density_radial_integral_spline = Akima1DInterpolator(rho_n,rho_n*(n_i_vals+n_iC12_vals)) # assuming n_i is deuterium
+            average_ion_mass = total_ion_mass_radial_integral_spline.integrate(0,1.0)/total_ion_density_radial_integral_spline.integrate(0,1.0)
+
+            if verbose:
+                print("✓ Successfully created splines:")
+                print(f"  - n_e (electron density)")
+                print(f"  - T_e (electron temperature)")
+                print(f"  - omega_tor_12C6 (toroidal rotation)")
+                print(f"  - v_pol (poloidal velocity)")
+                print(f"  - E_r (radial electric field)")
+                # Test evaluation at a point
+                test_psi_n = 0.5
+                print(f"\nTest evaluation at psi_n = {test_psi_n}:")
+                print(f"  ne (m^-3) = {n_e_spline(test_psi_n):.3e}")
+                print(f"  te (keV) = {T_e_spline(test_psi_n):.3e}")
+                print(f"  omega_tor_12C6 (rad/s) = {omega_tor_spline(test_psi_n):.3e}")
+                print(f"  v_pol (m/s) = {v_pol_spline(test_psi_n):.3e}")
+                print(f"  E_r (V/m) = {Er_spline(test_psi_n):.3e}")
         except Exception as e:
             print(f"Error reading or processing IDA-lite output: {e}")
             raise e
@@ -155,15 +196,21 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None):
         'time_idx': time_idx,
         'omega_splines': {
             'omega_tor_12C6': omega_tor_spline
-        }
+        },
+        'E_r_err': E_r_err,
+        'omega_tor_12C6_err': omega_tor_12C6_err,
+        'average_ion_mass': average_ion_mass
     }
+
+    for i,extra_key in enumerate(extra_keys):
+        return_dict[extra_key] = extra_key_vals[i]
 
     if shot_id is not None:
         return_dict['shot_id'] = shot_id
 
     return return_dict
 
-def read_IDA_lite_all_times(filename, verbose=False):
+def read_IDA_lite_all_times(filename, verbose=False, **kwargs):
     """Read an IDA-lite .cdf file and return kinetic/rotation splines for every time slice.
 
     Parameters
@@ -193,7 +240,7 @@ def read_IDA_lite_all_times(filename, verbose=False):
                     print(f"\nProcessing time index {time_idx} (time={time_val})...")
 
                 assert time_idx is not None # Avoid infinite recursion
-                splines_by_time.append(read_IDA_lite(filename, verbose=verbose, time_idx=time_idx))
+                splines_by_time.append(read_IDA_lite(filename, verbose=verbose, time_idx=time_idx, **kwargs))
 
             return splines_by_time
         except Exception as e:
@@ -204,8 +251,168 @@ def read_IDA_lite_all_times(filename, verbose=False):
 
     return None
 
-def read_bouquet_output(filename, eqdsk_dir=None, sample_limit=None, selection="all", scan_value=None, 
-                            read_omega_ExB=False, Zeff_prof=False):
+def read_bouquet_working_dir(directory, rotation_method, verbose=True, quick_exit=None, **kwargs):
+    """ Enter a parallel bouquet run directory for a single shot, collate all individual samples
+    and generate inputs for tearing physics suite's multi_run function.
+
+    Parameters
+    ----------
+    directory : str
+        bouquet parallel run directory
+    rotation_method : function
+        takes map_object.pkl from the bouquet directory, and outputs rotation splines
+
+    Returns
+    -------
+    eq_filenames : list of str
+        Paths to equilibrium files, for input to multi_run_
+    profile_list
+        One dict per bouquet sample, for input to multi_run_
+    """
+
+    # check if directory exists
+    if not os.path.isdir(directory):
+        raise ValueError(f"Directory does not exist: {directory}")
+    
+    # check that 'map_object.pkl' lives in the directory, if not raise error
+    map_object_path = os.path.join(directory, 'map_object.pkl')
+    if not os.path.exists(map_object_path):
+        raise ValueError(f"'map_object.pkl' not found in {directory}")
+    
+    # look for subdirectories of type 'worker_<n>' where n is an integer
+    # inside those subdirectories make a subdirectory 'TPS_eqdsks'
+    worker_dirs = []
+    for item in os.listdir(directory):
+        item_path = os.path.join(directory, item)
+        if os.path.isdir(item_path) and item.startswith("worker_"):
+            try:
+                # Try to extract the integer part after 'worker_'
+                int(item.split("worker_")[1])
+                worker_dirs.append(item_path)
+                
+                # Create TPS_eqdsks subdirectory
+                tps_eqdsks_path = os.path.join(item_path, "TPS_eqdsks")
+                os.makedirs(tps_eqdsks_path, exist_ok=True)
+            except (ValueError, IndexError):
+                # Skip if the suffix is not an integer
+                pass
+    
+    if not worker_dirs:
+        raise ValueError(f"No worker_<n> subdirectories found in {directory}")
+    
+    
+    header_list = []
+    
+    # Inside each worker_dirs, search for all files that have the form str(header+f"_idx{j}.h5") where j is an integer.
+    import re
+    
+    for worker_dir in worker_dirs:
+        for filename in os.listdir(worker_dir):
+            # Match pattern: something_idxN.h5
+            match = re.match(r'(.+)_idx(\d+)\.h5$', filename)
+            if match:
+                header = match.group(1)
+                idx = int(match.group(2))
+                header_list.append((header, idx, worker_dir, filename))
+
+    # Check every header in header_list is the same, if not raise NotImplementedError("Can't have multiple bouquet runs in the same directory")
+    if len(header_list)>0:
+        unique_headers = set(h[0] for h in header_list)
+        if len(unique_headers) > 1:
+            raise NotImplementedError("Can't have multiple bouquet runs in the same directory")
+    else:
+        raise ValueError("No H5 files found matching pattern '*_idx*.h5'")
+    
+    # Verify there are no repeated idx values
+    indices = [h[1] for h in header_list]
+    if len(indices) != len(set(indices)):
+        from collections import Counter
+        duplicates = [idx for idx, count in Counter(indices).items() if count > 1]
+        raise ValueError(f"Duplicate indices found in bouquet output: {duplicates}")
+    
+    full_eq_filename_list = []
+    full_spline_list = []
+    print("Unpacking bouquet equilibria")
+    for h in header_list:
+        try:
+            eq_filenames, splines = read_single_bouquet_output(os.path.join(h[2],h[3]),eqdsk_out_dir=os.path.join(h[2],"TPS_eqdsks"))
+        except Exception as e:
+            if verbose: print("     idx ",h[1]," - skipped due to load fail ",e)
+        if len(eq_filenames)==len(splines)==0:
+            if verbose: print("     idx ",h[1]," - skipped due to empty file")
+            continue
+        else:
+            if verbose: print(" idx ",h[1],f": {len(splines)} eqdsks unpacked")
+        splines = rotation_method(h, map_object_path, splines, **kwargs)
+        full_eq_filename_list.extend(eq_filenames)
+        full_spline_list.extend(splines)
+        if quick_exit is not None:
+            if quick_exit == 0: 
+                break
+            quick_exit -= 1
+
+    
+    return full_eq_filename_list, full_spline_list
+
+def bouquet_ida_rotation(h, map_object_path, splines, resample=False, Er_ls=None, omega_tor_ls=None, extra_keys=['tau_e_basic','tau_th_basic']):
+    """Generic rotation_method that adds rotations splines to inout variable splines"""
+
+    (_, idx, worker_dir, _) = h
+
+    with open(map_object_path, 'rb') as f:
+        map_object = _IndexMapUnpickler(f).load()
+
+    ida_path, _, time_idx = map_object[idx]
+
+    ida_file = ida_path.split("/")[-1]
+    if os.path.isdir(os.path.join(worker_dir,ida_file)):
+        ida_path = os.path.join(worker_dir,ida_file) # local version preferrable
+
+    try:
+        return_dict = read_IDA_lite(ida_path, time_idx=idx, extra_keys=extra_keys)
+        assert time_idx==idx
+    except Exception as e:
+        print(e)
+        raise e
+
+    # Generating samples for Error propagation via resampling
+    if resample:
+        splnx=return_dict['Er_spline'].x
+        splny=return_dict['Er_spline'](return_dict['Er_spline'].x)
+        _Er_gpr = GPRProfilePerturber(kernel_func="rbf", length_scale=Er_ls)
+        _Er_gpr.precompute_factor(splnx, return_dict['E_r_err']/splny[0]) # This cannot be done in parallel (see parallel.py in bouquet)
+        Er_samples = _Er_gpr.draw_from_factor(splny/splny[0], len(splines), np.random.default_rng()) * splny[0]
+
+        splnx=return_dict['omega_tor_12C6_spline'].x
+        splny=return_dict['omega_tor_12C6_spline'](return_dict['omega_tor_12C6_spline'].x)
+        _omega_tor_gpr = GPRProfilePerturber(kernel_func="rbf", length_scale=omega_tor_ls)
+        _omega_tor_gpr.precompute_factor(splnx, return_dict['omega_tor_12C6_err']/splny[0]) # This cannot be done in parallel (see parallel.py in bouquet)
+        omega_tor_samples = _omega_tor_gpr.draw_from_factor(splny/splny[0], len(splines), np.random.default_rng()) * splny[0]
+
+        assert np.shape(Er_samples)==(len(splines), len(return_dict['E_r_err']))
+        assert np.shape(Er_samples)==(len(splines), len(return_dict['omega_tor_12C6_err']))
+
+    output_splines = []
+    for i,spline in enumerate(splines):
+        if resample and i>0:
+            spline['Er_spline'] = Akima1DInterpolator(return_dict['Er_spline'].x,Er_samples[i])
+            spline['omega_splines'] = {
+                'omega_tor_12C6': Akima1DInterpolator(return_dict['omega_tor_12C6_spline'].x,omega_tor_samples[i])
+            }
+        else:
+            spline['Er_spline'] = return_dict['Er_spline']
+            spline['omega_splines'] = return_dict['omega_splines']
+        
+        spline['average_ion_mass'] = return_dict['average_ion_mass'] # A scalar for now...
+        for extra_key in extra_keys: # no error propagation (yet)
+            spline[extra_key] = return_dict[extra_key]
+
+        output_splines.append(spline)
+
+    return splines
+
+def read_single_bouquet_output(filename, eqdsk_out_dir=None, sample_limit=None, selection="all", scan_value=None, 
+                            read_omega_ExB=False, debug=False):
     """ Read the .h5 output of a bouquet run, unpack its geqdsk files, and 
     return a list of geqdsk filenames and kinetic profile splines.
     
@@ -232,10 +439,7 @@ def read_bouquet_output(filename, eqdsk_dir=None, sample_limit=None, selection="
         h5path = os.path.abspath(filename)
 
     # ---- resolve which draws to show (filter selection) ------------------
-    sel_indices = None
-    if selection != "all":
-        sel_indices = bouquet_select_indices(h5path, scan_value=scan_value,
-                                      selection=selection)
+    sel_indices = bouquet_select_indices(h5path, debug=debug, selection='all')
 
     # ---- load data -------------------------------------------------------
     try:
@@ -246,16 +450,19 @@ def read_bouquet_output(filename, eqdsk_dir=None, sample_limit=None, selection="
             f"No data for scan_value={scan_value!r} in {h5path}.\n"
             f"Available scan values: {avail}"
         )
-        raise KeyError(msg) from None
+        return [], []
     psi_N = bl["psi_N"]
     perturbed_data_list = bouquet_load_all_perturbations(h5path, scan_value=scan_value,
                                         indices=sel_indices)
     
-    # Get the kinetic profile information:
-    k_keys = ["n_e [m^-3]", "n_i [m^-3]", "T_e [eV]", "T_i [eV]"]
+    profile_dict_list = []
+    geqdsk_filename_list = []
+    assert len(perturbed_data_list) == len(sel_indices)
     if perturbed_data_list:
-        n_equils = len(perturbed_data_list)
-        for i, data in enumerate(perturbed_data_list[0:min(n_equils,sample_limit)]): # Stub: check this line please 
+        if not sample_limit is None:
+            raise NotImplementedError("sample_limit not implemented yet")
+        for i, data in enumerate(perturbed_data_list): # Stub: check this line please 
+    # Get the kinetic profile information:
             _psi_pert = data.get("psi_N_kinetic", psi_N)
             ne_spline = Akima1DInterpolator(_psi_pert,data["n_e [m^-3]"])
             ni_spline = Akima1DInterpolator(_psi_pert,data["n_i [m^-3]"])
@@ -267,16 +474,141 @@ def read_bouquet_output(filename, eqdsk_dir=None, sample_limit=None, selection="
                 'te_keV_spline': Te_spline,
                 'ti_keV_spline': Ti_spline,
             }
+            # Check for Zeff or Zeff_profile in data, then proceed:
+            if "Zeff" in data:
+                zeff_key = "Zeff"
+            elif "Zeff_profile" in data:
+                zeff_key = "Zeff_profile"
+            else:
+                raise ValueError("Neither 'Zeff' nor 'Zeff_profile' found in data")
+            
+            if len(data[zeff_key]) == len(psi_N):
+                Zeff_x_vals = psi_N
+            elif len(data[zeff_key]) == len(_psi_pert):
+                Zeff_x_vals = _psi_pert
+            else:
+                raise ValueError(
+                    f"{zeff_key} length {len(data[zeff_key])} matches neither "
+                    f"psi_N ({len(psi_N)}) nor _psi_pert ({len(_psi_pert)})"
+                )
+            assert len(Zeff_x_vals)==len(data[zeff_key])
+            profile_dict['Zeff']={'x':Zeff_x_vals,'y':data[zeff_key]}
             if read_omega_ExB:
                 profile_dict['omega_splines'] = {'omega_ExB': Akima1DInterpolator(_psi_pert,data["w_ExB [rad/s]"])}
-            if Zeff_prof:
-                Zeff_spline = Akima1DInterpolator(# STUB _psi_pert if len(Zeff) is len(_psi_pert) else psi_N 
-                    ,data["Zeff"]
-                )
-            else:
-                Zeff_spline = np.mean(data["Zeff"])
-            ###
-            
+                raise NotImplementedError("read_omega_ExB unfinished")
+            profile_dict_list.append(profile_dict)
+    # Unpack geqdsk from samples:
+            if eqdsk_out_dir is None:
+                eqdsk_out_dir = os.getcwd()
+            result = bouquet_load_equilibrium(h5path.split('.h5')[0], sel_indices[i], eqdsk_out_dir=eqdsk_out_dir) #double check
+            geqdsk_filename_list.append(result['eqdsk_filepath'])
+            #print(result['eqdsk_filepath'])
+    return geqdsk_filename_list, profile_dict_list
+
+def _scan_val_key(scan_val):
+    """Convert a scan-value label (float, int, or str) to an HDF5-safe string.
+
+    Returns ``None`` when *scan_val* is ``None`` (flat layout).
+    """
+    if scan_val is None:
+        return None
+    return str(scan_val)
+
+def _group_path(scan_val, count):
+    """Return the internal HDF5 group path for a given entry."""
+    bkey = _scan_val_key(scan_val)
+    if bkey is not None:
+        return f"scan/{bkey}/{int(count)}"
+    return str(int(count))
+
+def _eqdsk_dataset_name(header, scan_val, count):
+    """Return the dataset name used for the raw eqdsk bytes."""
+    base = os.path.basename(header)
+    bkey = _scan_val_key(scan_val)
+    if bkey is not None:
+        safe_key = bkey.replace("/", "_").replace(" ", "_")
+        return f"{base}_{safe_key}_{int(count)}.eqdsk"
+    return f"{base}_{int(count)}.eqdsk"
+
+def bouquet_load_equilibrium(header, count, scan_val=None, eqdsk_out_dir=None):
+    """
+    Retrieve one equilibrium entry from the HDF5 database.
+    From bouquet - Daniel Burgess.
+
+    Parameters
+    ----------
+    header : str
+        Base name of the database.
+    count : int
+        Perturbation index.
+    scan_val : str, float, int, or None
+        Scan-point label (must match what was used at write time).
+    eqdsk_out_dir : str or None, optional
+        If given, the raw eqdsk is written to a file in this directory.
+
+    Returns
+    -------
+    result : dict
+        Keys: ``"eqdsk_filepath"``, ``"eqdsk_bytes"``,
+        the 1-D array names, ``"l_i(1)"``, ``"l_i(3)"``,
+        and optionally ``"pressure [Pa]"``, ``"Zeff"``,
+        ``"coil_currents"``, ``"pfile_bytes"``.
+    """
+    db_path  = os.path.abspath(f"{header}.h5")
+    grp_path = _group_path(scan_val, count)
+    ds_name  = _eqdsk_dataset_name(header, scan_val, count)
+
+    result = {}
+
+    with h5py.File(db_path, "r") as hf:
+        if grp_path not in hf:
+            raise KeyError(
+                f"Group '{grp_path}' not found in {db_path}"
+            )
+        grp = hf[grp_path]
+
+        # ---- eqdsk raw bytes -------------------------------------------
+        eqdsk_bytes = bytes(grp[ds_name][()])
+        result["eqdsk_bytes"] = eqdsk_bytes
+
+        if eqdsk_out_dir is not None:
+            os.makedirs(eqdsk_out_dir, exist_ok=True)
+            out_path = os.path.join(eqdsk_out_dir, ds_name)
+            with open(out_path, "wb") as fh:
+                fh.write(eqdsk_bytes)
+            result["eqdsk_filepath"] = os.path.abspath(out_path)
+        else:
+            result["eqdsk_filepath"] = None
+
+        # ---- 1-D arrays ------------------------------------------------
+        for key in _PROFILE_KEYS:
+            if key in grp:
+                result[key] = np.array(grp[key])
+
+        if "pressure [Pa]" in grp:
+            result["pressure [Pa]"] = np.array(grp["pressure [Pa]"])
+
+        # ---- scalars ----------------------------------------------------
+        result["l_i(1)"] = float(grp.attrs["l_i(1)"])
+        result["l_i(3)"] = float(grp.attrs["l_i(3)"])
+
+        # ---- optional: Zeff -----------------------------------------------
+        if "Zeff" in grp:
+            result["Zeff"] = np.array(grp["Zeff"])
+
+        # ---- optional: p-file bytes ----------------------------------------
+        pf_ds = ds_name.replace(".eqdsk", ".pfile")
+        if pf_ds in grp:
+            result["pfile_bytes"] = bytes(grp[pf_ds][()])
+
+        # ---- optional: coil currents ---------------------------------------
+        if "coil_currents [A]" in grp:
+            import json
+            values = np.array(grp["coil_currents [A]"])
+            names = json.loads(grp.attrs.get("coil_names", "[]"))
+            result["coil_currents"] = dict(zip(names, values))
+
+    return result
 
 def bouquet_load_baseline_profiles(h5path, scan_value=None):
     """
@@ -295,6 +627,14 @@ def bouquet_load_baseline_profiles(h5path, scan_value=None):
     result : dict
         All stored baseline arrays and scalar attributes.
     """
+    def _scan_val_key(scan_val):
+        """Convert a scan-value label (float, int, or str) to an HDF5-safe string.
+
+        Returns ``None`` when *scan_val* is ``None`` (flat layout).
+        """
+        if scan_val is None:
+            return None
+        return str(scan_val)
     bkey = _scan_val_key(scan_value)
     if bkey is not None:
         grp_path = f"scan/{bkey}/_baseline"
@@ -325,7 +665,14 @@ def bouquet_load_all_perturbations(h5path, scan_value=None, indices=None):
     draw indices), only those draws are loaded -- used to honour a
     filter selection.
     """
-    from .utils import _scan_val_key
+    def _scan_val_key(scan_val):
+        """Convert a scan-value label (float, int, or str) to an HDF5-safe string.
+
+        Returns ``None`` when *scan_val* is ``None`` (flat layout).
+        """
+        if scan_val is None:
+            return None
+        return str(scan_val)
     bkey = _scan_val_key(scan_value)
     with h5py.File(h5path, "r") as hf:
         if bkey is not None:
@@ -340,9 +687,32 @@ def bouquet_load_all_perturbations(h5path, scan_value=None, indices=None):
     if indices is not None:
         keep = set(indices)
         stored_counts = [i for i in stored_counts if i in keep]
-    return [
-        load_equilibrium_by_path(h5path, count=i, scan_value=scan_value)
+    output = [
+        bouquet_load_equilibrium_by_path(h5path, count=i, scan_value=scan_value)
         for i in stored_counts
+    ]
+    
+    # If output[0] has 'Zeff' but none of the other output[i]'s have Zeff, 
+    # propagate output[0]['Zeff'] to all output[i]'s
+    if output and 'Zeff' in output[0]:
+        other_have_zeff = any('Zeff' in output[i] for i in range(1, len(output)))
+        if not other_have_zeff:
+            for i in range(1, len(output)):
+                output[i]['Zeff'] = output[0]['Zeff']
+    
+    return output
+
+_PROFILE_KEYS = [
+        "psi_N",
+        "j_phi [A m^-2]",
+        "j_BS [A m^-2]",
+        "j_BS,edge [A m^-2]",
+        "j_inductive [A m^-2]",
+        "n_e [m^-3]",
+        "T_e [eV]",
+        "n_i [m^-3]",
+        "T_i [eV]",
+        "w_ExB [rad/s]",
     ]
 
 def bouquet_load_equilibrium_by_path(h5path, count, scan_value=None):
@@ -354,6 +724,16 @@ def bouquet_load_equilibrium_by_path(h5path, count, scan_value=None):
     **not** extract the raw eqdsk bytes (use :func:`load_equilibrium`
     if you need those).
     """
+
+    def _scan_val_key(scan_val):
+        """Convert a scan-value label (float, int, or str) to an HDF5-safe string.
+
+        Returns ``None`` when *scan_val* is ``None`` (flat layout).
+        """
+        if scan_val is None:
+            return None
+        return str(scan_val)
+
     bkey = _scan_val_key(scan_value)
     if bkey is not None:
         grp_path = f"scan/{bkey}/{int(count)}"
@@ -392,7 +772,7 @@ def bouquet_load_equilibrium_by_path(h5path, count, scan_value=None):
 
     return result
 
-def bouquet_select_indices(h5path_or_header, scan_value=None, selection="selected"):
+def bouquet_select_indices(h5path_or_header, scan_value=None, selection="selected", debug=False):
     """Stored draw indices filtered by ``selection``. From bouquet - Daniel Burgess.
 
     ``selection`` is one of:
@@ -406,11 +786,93 @@ def bouquet_select_indices(h5path_or_header, scan_value=None, selection="selecte
 
     Returns a flat sorted list when a single scan value is in play, or a
     ``{scan_val: [idx, ...]}`` dict when iterating multiple scan values.
+    
+    Parameters
+    ----------
+    debug : bool
+        If True, print the full HDF5 tree (groups, datasets, and attributes).
     """
+
+    def _print_h5_tree(h5path):
+        def _visit(name, obj):
+            indent = "  " * name.count("/")
+            kind = "GROUP" if isinstance(obj, h5py.Group) else "DATASET"
+            shape = obj.shape if hasattr(obj, "shape") else ""
+            attrs = dict(obj.attrs)
+            print(f"{indent}/{name}  [{kind}] {shape}  attrs={attrs}")
+        print(f"\n=== HDF5 tree: {h5path} ===")
+        with h5py.File(h5path, "r") as hf:
+            print(f"  (root)  attrs={dict(hf.attrs)}")
+            print(f"  top-level keys: {list(hf.keys())}")
+            hf.visititems(_visit)
+        print("=== end tree ===\n")
+
+    def _scan_val_key(scan_val):
+        """Convert a scan-value label (float, int, or str) to an HDF5-safe string.
+
+        Returns ``None`` when *scan_val* is ``None`` (flat layout).
+        """
+        if scan_val is None:
+            return None
+        return str(scan_val)
+    
+    def _group_path(scan_val, count):
+        """Return the internal HDF5 group path for a given entry."""
+        bkey = _scan_val_key(scan_val)
+        if bkey is not None:
+            return f"scan/{bkey}/{int(count)}"
+        return str(int(count))
+
+    def _resolve(h5path_or_header):
+        if not h5path_or_header.endswith(".h5"):
+            return os.path.abspath(f"{h5path_or_header}.h5")
+        return os.path.abspath(h5path_or_header)
+
+    def _iter_scan_vals(h5path, scan_value):
+        if scan_value is not None:
+            return [scan_value]
+        svs = bouquet_discover_scan_values(h5path)
+        return svs if svs else [None]
+    
+    def list_equilibrium_indices(h5path, scan_value=None):
+        """Return the sorted list of integer draw indices actually stored.
+
+        Band-rejected / failed draws leave GAPS in the index sequence (e.g.
+        ``[0, 1, 2, 3, 4, 5, 7, ...]`` with draw 6 missing), so callers must
+        iterate these indices rather than ``range(count_equilibria(...))`` --
+        the latter assumes a contiguous ``0..n-1`` and KeyErrors on the gap.
+
+        Parameters
+        ----------
+        h5path : str
+            Path to the ``.h5`` file.
+        scan_value : str, float, or None
+            Scan-value key.  ``None`` for the flat layout.
+
+        Returns
+        -------
+        list of int
+            Sorted stored draw indices.
+        """
+        bkey = _scan_val_key(scan_value)
+        with h5py.File(h5path, "r") as hf:
+            parent = hf[f"scan/{bkey}"] if bkey is not None else hf
+            found = sorted(
+                int(k) for k in parent.keys()
+                if k not in ("_baseline", "scan") and str(k).lstrip("-").isdigit()
+            )
+            if debug:
+                print(f"  [list_equilibrium_indices] scan_value={scan_value!r}, bkey={bkey!r}")
+                print(f"  parent keys: {list(parent.keys())}")
+                print(f"  integer-keyed indices found: {found}")
+            return found
+
     if selection not in ("all", "selected", "excluded"):
         raise ValueError(
             f"selection must be 'all'|'selected'|'excluded', got {selection!r}")
     h5path = _resolve(h5path_or_header)
+    if debug:
+        _print_h5_tree(h5path)
     svs = _iter_scan_vals(h5path, scan_value)
     result = {}
     with h5py.File(h5path, "r") as hf:

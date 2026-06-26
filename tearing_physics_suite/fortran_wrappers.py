@@ -30,6 +30,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         override_save=True, 
         pest_pull_mtheta=True, # Change at your own risk, see mtheta_scan scan results
         debug_GPEC_resistive_calculation=False, #Quick exit after GPEC resistive calculation
+        ascii_q_plot=True,
         **kwargs):
     """
     Run resistive toroidal calculation for a single toroidal mode number by calling
@@ -94,6 +95,17 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     if debug_GPEC_resistive_calculation:
         return rdcon_xr, stride_xr, rdcon_ran, stride_ran, rdcon_stride_input_dict
+
+    if ascii_q_plot:
+        #try:
+        #    print(rdcon_xr.q)
+        #except Exception as e:
+        #    print(rdcon_xr.data_vars)
+        #import sys
+        ascii_q_plotter(rdcon_xr)
+        print(rdcon_xr.coords)
+        #sys.exit()
+
 
     #########################################################################################################
     # Set up pest3 calculation:
@@ -258,6 +270,82 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     # Return all results:
     return rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict
+
+
+def ascii_q_plotter(rdcon_xr):
+    """ Takes rdcon_xr, prints an ascii plot of rdcon_xr.psi_n versus rdcon_xr.q.
+    rdcon_xr.psi_n ranges from 0 to 1 (60-500 pts), rdcon_xr.q lies roughly between
+    0.8 and 7, with extra vertical resolution given to the region q < 3.
+    Also overlays the rational-surface points (rdcon_xr.psi_n_rational,
+    rdcon_xr.q_rational). Plot is ~150 chars wide and < 20 rows high. """
+
+    # --- pull data out as plain numpy -------------------------------------
+    psi   = np.asarray(rdcon_xr.psi_n).ravel()
+    q     = np.asarray(rdcon_xr.q).ravel()
+    psi_r = np.asarray(rdcon_xr.psi_n_rational).ravel()
+    q_r   = np.asarray(rdcon_xr.q_rational).ravel()
+
+    # --- plot geometry -----------------------------------------------------
+    label_w = 5                 # chars reserved for the y-axis labels
+    plot_w  = 150 - label_w - 1 # leave room for label + "|"
+    plot_h  = 18                # rows (< 20)
+
+    split_q  = 3.0              # below this we want detail
+    frac_low = 0.70             # fraction of vertical space for [qmin, split_q]
+
+    qmin = min(0.8, float(np.nanmin(q)))
+    qmax = max(float(np.nanmax(q)), float(np.nanmax(q_r)) if q_r.size else 0.0)
+    qmax = max(qmax, split_q + 1e-9)   # guard
+
+    # --- nonlinear y mapping: q -> fractional height in [0, 1] -------------
+    def q_to_frac(val):
+        val = np.clip(val, qmin, qmax)
+        if val <= split_q:
+            return (val - qmin) / (split_q - qmin) * frac_low
+        return frac_low + (val - split_q) / (qmax - split_q) * (1.0 - frac_low)
+
+    def q_to_row(val):
+        f = q_to_frac(val)
+        return int(round((1.0 - f) * (plot_h - 1)))   # row 0 = top
+
+    def psi_to_col(val):
+        val = np.clip(val, 0.0, 1.0)
+        return int(round(val * (plot_w - 1)))
+
+    # --- build the grid ----------------------------------------------------
+    grid = [[' '] * plot_w for _ in range(plot_h)]
+
+    # main q profile
+    for p, qq in zip(psi, q):
+        if np.isfinite(p) and np.isfinite(qq):
+            grid[q_to_row(qq)][psi_to_col(p)] = '.'
+
+    # rational surfaces (overlay, take priority)
+    for p, qq in zip(psi_r, q_r):
+        if np.isfinite(p) and np.isfinite(qq):
+            grid[q_to_row(qq)][psi_to_col(p)] = 'x'
+
+    # --- y-axis labels at integer q values --------------------------------
+    row_label = {}
+    for qi in range(int(np.ceil(qmin)), int(np.floor(qmax)) + 1):
+        row_label[q_to_row(qi)] = f"{qi:>{label_w}.0f}"
+
+    # --- render ------------------------------------------------------------
+    print(f"q vs psi_n   (x = rational surface;  q<{split_q:.0f} region expanded)")
+    for r in range(plot_h):
+        lab = row_label.get(r, ' ' * label_w)
+        print(lab + '|' + ''.join(grid[r]))
+
+    # x-axis
+    print(' ' * label_w + '+' + '-' * plot_w)
+    axis = [' '] * plot_w
+    for xt in [0.0, 0.25, 0.5, 0.75, 1.0]:
+        s = f"{xt:.2f}"
+        c = psi_to_col(xt)
+        start = min(max(c - len(s) // 2, 0), plot_w - len(s))
+        for i, ch in enumerate(s):
+            axis[start + i] = ch
+    print(' ' * (label_w + 1) + ''.join(axis) + '   psi_n')
 
 def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False, 
         make_working_dir=True, 

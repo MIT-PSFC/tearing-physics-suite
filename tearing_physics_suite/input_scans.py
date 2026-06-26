@@ -4,6 +4,7 @@ import pandas as pd
 import xarray as xr
 import numpy as np
 import os
+from collections import Counter
 
 home_dir = os.environ['TPSHOME']
 import tearing_physics_suite.fortran_wrappers as tfw
@@ -296,27 +297,52 @@ def delta_prime_compiler(xarray_list, input_values, input_name, run_concatenatio
             same_coords = False
 
     #########################################################################################################
-    # Trim edge r, r_prime values if they are nans across all scan values, to allow concatenation. 
+    # Trim edge r values so that ALL arrays share identical 'r' coordinates, to allow concatenation.
     #########################################################################################################
+
+    def _intersection_multiset(arrays):
+        """Per-value minimum count of 'r' present across every non-None array."""
+        counters = []
+        for a in arrays:
+            if a is not None and "r" in a.coords:
+                vals = a.coords["r"].values
+                if np.issubdtype(vals.dtype, np.floating):
+                    vals = vals[~np.isnan(vals)]      # ignore nan edge padding
+                counters.append(Counter(vals.tolist()))
+        if not counters:
+            return None
+        common_vals = set.intersection(*[set(c) for c in counters])
+        return {v: min(c[v] for c in counters) for v in common_vals}
+
+    def _keep_mask(values, target):
+        """Boolean mask keeping exactly `target[value]` occurrences of each value, in order."""
+        remaining = dict(target)
+        mask = np.zeros(len(values), dtype=bool)
+        for idx, v in enumerate(values):
+            key = v if not (isinstance(v, float) and np.isnan(v)) else None
+            if remaining.get(key, 0) > 0:
+                mask[idx] = True
+                remaining[key] -= 1
+        return mask
+
     if not same_coords and run_concatenation:
-        print("Warning: Some xarrays have different coordinates. Trimming edge values.")
-        # Find minimum and maximum r values across all delta_prime_arrays, ignoring nans:
-        min_r = -np.inf
-        max_r = np.inf
-        for dp_array in delta_prime_arrays:
-            if dp_array is not None:
-                r_values = dp_array.coords['r'].values
-                min_r = max(min_r, np.nanmin(r_values))
-                max_r = min(max_r, np.nanmax(r_values))
-        # Trim each delta_prime_array and psi_n_array to the common r range:
-        for i, dp_array in enumerate(delta_prime_arrays):
-            if dp_array is not None:
-                dp_array = dp_array.sel(r=slice(min_r, max_r))
-                delta_prime_arrays[i] = dp_array
-        for i, psi_n in enumerate(psi_n_arrays):
-            if psi_n is not None:
-                psi_n = psi_n.sel(r=slice(min_r, max_r))
-                psi_n_arrays[i] = psi_n
+        print("Warning: Some xarrays have different coordinates. Trimming to common 'r' coordinates.")
+
+        target = _intersection_multiset(delta_prime_arrays)
+        if target is not None and len(target) > 0:
+            # Trim delta_prime_arrays
+            for i, dp in enumerate(delta_prime_arrays):
+                if dp is not None and "r" in dp.coords:
+                    mask = _keep_mask(dp.coords["r"].values, target)
+                    delta_prime_arrays[i] = dp.isel(r=mask)
+
+            # Trim psi_n_arrays
+            for i, pn in enumerate(psi_n_arrays):
+                if pn is not None and "r" in pn.coords:
+                    mask = _keep_mask(pn.coords["r"].values, target)
+                    psi_n_arrays[i] = pn.isel(r=mask)
+        elif target is not None:
+            print("Warning: no common 'r' values across arrays; trimming would empty 'r'. Skipping.")
 
     # Double check all delta_prime_arrays now have the same coordinates after trimming:
     reference_coords = delta_prime_arrays[0].drop_vars(input_name).coords

@@ -554,6 +554,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    sing_order_ceiling='+sing_order_ceiling +'\n') # Auto detect the minium order to be retained in power series
 
         f.write('    regrid_flag='+regrid_flag  +'\n') #Redo the grid generation for galerkin method
+        assert len(Zeff['x'])==len(Zeff['y'])
         f.write('    psi_N_Zeff='+','.join(str(v) for v in Zeff['x'])+'\n') #Plasma Z effective psi_n values
         f.write('    Zeff='+','.join(str(v) for v in Zeff['y'])+'\n') #Plasma Z effective values
         f.write('/'+'\n')

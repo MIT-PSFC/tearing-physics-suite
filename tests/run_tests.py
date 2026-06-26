@@ -265,8 +265,8 @@ def main():
     print("TEST SUMMARY")
     print("=" * 60)
     
-    passed = sum(1 for r in results if r['success'])
-    failed = sum(1 for r in results if not r['success'])
+    passed = sum(1 for res in results if res['success'])
+    failed = sum(1 for res in results if not res['success'])
     
     for result in results:
         status = "✓" if result['success'] else "✗"

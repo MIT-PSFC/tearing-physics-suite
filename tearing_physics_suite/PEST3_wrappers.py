@@ -452,7 +452,7 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
     if len(roots) > 1:
         print("WARNING: Multiple roots found for the pest3 q truncation point. Using the smallest one that is greater than 0.9")
         print("         Roots found = ", roots)
-        roots = [r for r in roots if r > 0.9]
+        roots = [root for root in roots if root > 0.9]
 
     psi_trunc_val = roots[0]
 

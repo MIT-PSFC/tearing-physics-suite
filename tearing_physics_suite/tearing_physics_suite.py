@@ -76,6 +76,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         except (TypeError, ValueError):
             raise ValueError("Zeff must be a scalar number or a dict with 'x' and 'y' keys.")
         Zeff = {'x':[0.0,1.0],'y': [Zeff,Zeff]}
+    elif len(Zeff['x'])>998:
+        raise ValueError("Zeff fortran read-in requires psi_n resolution < 999 pts.")
     if average_ion_mass is None:
         raise ValueError("average_ion_mass must be provided for nonlinear resistive calculation.")
 
@@ -135,6 +137,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     # Concatenate xarray_vec:
     try:
+        xarray_vec = [_uniquify_r(da) for da in xarray_vec]
         combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
         # Elevate variable nn to a coordinate:
         combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
@@ -326,6 +329,7 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
 
     # Concatenate xarray_vec:
     try:
+        xarray_vec = [_uniquify_r(da) for da in xarray_vec]
         combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
         # Elevate variable nn to a coordinate:
         combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
@@ -620,3 +624,95 @@ def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_
 
     return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
 
+def _uniquify_r(da, assert_match=True):
+    """
+    Make degenerate dims 'r'/'r_prime' concatenable by replacing each with a
+    UNIQUE INTEGER index, while preserving the real values and the
+    (from-the-right) occurrence pattern as plain coordinates.
+    """
+    def _occ_from_right(vals):
+        seen = {}
+        occ = np.empty(len(vals), dtype=int)
+        for i in range(len(vals) - 1, -1, -1):
+            v = vals[i]
+            occ[i] = seen.get(v, 0)
+            seen[v] = occ[i] + 1
+        return occ
+
+    has_r  = "r" in da.dims
+    has_rp = "r_prime" in da.dims
+
+    # r_prime is a copy of r -> compute the occurrence pattern once.
+    ref_vals = da["r"].values if has_r else da["r_prime"].values
+    occ = _occ_from_right(ref_vals)
+
+    if assert_match and has_r and has_rp:
+        if not np.array_equal(da["r"].values, da["r_prime"].values):
+            raise ValueError(
+                "r and r_prime differ in values; cannot share the occurrence "
+                "pattern. Set assert_match=False to handle them independently."
+            )
+
+    def _apply(da, dim, vals, occ):
+        da = da.assign_coords({
+            f"{dim}_value": (dim, vals),   # real (degenerate) values
+            f"{dim}_occ":   (dim, occ),    # occurrence-from-right
+        })
+        # Replace the dim's index with unique integers 0..N-1.
+        da = da.assign_coords({dim: np.arange(len(vals))})
+        return da
+
+    if has_r:
+        da = _apply(da, "r", ref_vals, occ)
+    if has_rp:
+        da = _apply(da, "r_prime", da["r_prime"].values, occ)
+    return da
+
+# Positional pick of one rational surface  combined_xr.isel(r=0)
+# Filter to primary occurrences (cheap)    keep = np.where(combined_xr.r_occ.values==0)[0]; combined_xr.isel(r=keep) ✅
+# Select by real value (all occurrences)   combined_xr.sel(r=(combined_xr.r_value==5.0)) ✅
+# Collapse to unique real-valued r         primary = collapse_to_primary(combined_xr); primary.sel(r=5.0) ✅
+
+# keep = np.where(xri.r_occ.values==0)[0]
+# xri2 = xri.isel(r=keep)
+# xri2.w_marg_surf.isel(Delta_prime_type=0).sel(code='stride').sel(nn=1).values
+# print(format_to_3sf(xri2.Delta_prime_surf.isel(Delta_prime_type=0).sel(code='stride').sel(nn=1).values))
+
+
+def collapse_to_primary(combined_xr, dims=("r", "r_prime"),
+                        expected=None, rtol=0.0, atol=0.0):
+    out = combined_xr
+    for dim in dims:
+        occ_name   = f"{dim}_occ"
+        value_name = f"{dim}_value"
+        if occ_name not in out.coords:
+            continue
+        # occ should be 1-D along `dim`; if it somehow carries extra dims, slice them off.
+        occ = out[occ_name]
+        if occ.ndim > 1:
+            occ = occ.isel({d: 0 for d in occ.dims if d != dim})
+        keep = np.where(occ.values == 0)[0]          # positions of primaries
+        out = out.isel({dim: keep})
+        # Restore the real values as the dim coordinate.
+        vals = out[value_name]
+        if vals.ndim > 1:
+            vals = vals.isel({d: 0 for d in vals.dims if d != dim})
+        out = out.drop_vars([occ_name, value_name])
+        out = out.assign_coords({dim: (dim, vals.values)})
+        # uniqueness guard
+        dvals = out[dim].values
+        if len(np.unique(dvals)) != len(dvals):
+            raise ValueError(f"After collapse, '{dim}' still has duplicates.")
+        # optional reference check
+        if expected is not None and dim in expected:
+            exp = np.asarray(expected[dim])
+            if len(dvals) != len(exp):
+                raise ValueError(
+                    f"Collapsed '{dim}' length {len(dvals)} != expected {len(exp)}."
+                )
+            ok = (np.allclose(dvals, exp, rtol=rtol, atol=atol, equal_nan=True)
+                  if np.issubdtype(dvals.dtype, np.floating)
+                  else np.array_equal(dvals, exp))
+            if not ok:
+                raise ValueError(f"Collapsed '{dim}' does not match expected.")
+    return out

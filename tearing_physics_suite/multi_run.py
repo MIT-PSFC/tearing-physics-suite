@@ -12,6 +12,7 @@ import multiprocessing
 import pickle as pkl
 import xarray as xr
 import numpy as np
+import traceback
 
 from tearing_physics_suite.tearing_physics_suite import nonlinear_resistive_calculation
 
@@ -117,28 +118,30 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False, cl
     combined_xr_list = [None] * n_runs
     input_dict_list = [None] * n_runs
     errors = {}
+    n_success = 0
 
     for worker_results in all_results:
         for idx, success, err_msg in worker_results:
-            if success and return_lists:
-                result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
-                with open(result_path, 'rb') as f:
-                    data = pkl.load(f)
-                combined_xr_list[idx] = data['combined_xr']
-                input_dict_list[idx] = data['input_dict_out']
+            if success:
+                n_success += 1
+                if return_lists:
+                    result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
+                    with open(result_path, 'rb') as f:
+                        data = pkl.load(f)
+                    combined_xr_list[idx] = data['combined_xr']
+                    input_dict_list[idx] = data['input_dict_out']
             else:
                 errors[idx] = err_msg
                 print(f"[multi_run] WARNING: Run {idx} ({eq_filenames[idx]}) failed: {err_msg}")
 
-    n_success = sum(1 for x in combined_xr_list if x is not None)
     print(f"[multi_run] Completed: {n_success}/{n_runs} runs succeeded.")
 
+    # Always write (or overwrite) the error log so stale results from previous runs don't persist
+    error_path = os.path.join(master_working_dir, 'errors.pkl')
+    with open(error_path, 'wb') as f:
+        pkl.dump(errors, f)
     if errors:
         print(f"[multi_run] Failed runs: {sorted(errors.keys())}")
-        # We save errors to a file for later inspection
-        error_path = os.path.join(master_working_dir, 'errors.pkl')
-        with open(error_path, 'wb') as f:
-            pkl.dump(errors, f)
         print(f"[multi_run] Saved error details to {error_path}")
 
     if return_lists:
@@ -211,8 +214,14 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
         return None, None
 
     # Concatenate xarrays along a new 'equilibrium' dimension
-    compiled_xr = xr.concat(combined_xr_list, dim='run_idx')
-    #compiled_xr = compiled_xr.assign_coords(run_idx=eq_labels)
+    print("Beginning concatenation...")
+    try:
+        compiled_xr = xr.concat(combined_xr_list, dim='run_idx')
+        broken_xr_list = None
+    except:
+        print("Regular concat failed, attempting intelligent_concat...")
+        compiled_xr, broken_xr_list = intelligent_concat(combined_xr_list)
+    print("Success")
 
     # Compile scalar input parameters into an xarray Dataset
     # Extract keys that have scalar (non-dict, non-list) values
@@ -243,11 +252,113 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
     #    }, f)
     #     print(f"[multi_compile] Compiled {len(combined_xr_list)} runs. Saved to {compiled_path}")
 
-
+    print("Attempting to save to ", os.path.join(master_working_dir, 'compiled_combined_xr.nc'), os.path.join(master_working_dir, 'compiled_inputs_xr.nc'), os.path.join(master_working_dir, 'broken_xr_list.pkl'))
     compiled_xr.to_netcdf(os.path.join(master_working_dir, 'compiled_combined_xr.nc'), engine="scipy")
     compiled_inputs_xr.to_netcdf(os.path.join(master_working_dir, 'compiled_inputs_xr.nc'), engine="scipy")
+    if broken_xr_list:
+        broken_xr_path = os.path.join(master_working_dir, 'broken_xr_list.pkl')
+        with open(broken_xr_path, 'wb') as f:
+            pkl.dump(broken_xr_list, f)
+        print(f"[multi_compile] Saved {len(broken_xr_list)} broken xarrays to {broken_xr_path}")
+    print("Save successful")
 
     return compiled_xr, compiled_inputs_xr
+
+def _signature(ds, dim='run_idx'):
+    """Cheap structural fingerprint that must match for a clean concat along `dim`.
+    Captures the things that typically break xr.concat: differing data variables,
+    differing non-concat dims/sizes, and differing coordinate sets."""
+    data_vars  = frozenset(ds.data_vars)
+    dims       = frozenset(d for d in ds.dims if d != dim)
+    dim_sizes  = frozenset((d, ds.sizes[d]) for d in ds.dims if d != dim)
+    coords     = frozenset(ds.coords)
+    return (data_vars, dims, dim_sizes, coords)
+
+def _divide_and_conquer(chunk, dim='run_idx'):
+    """Find value-level offenders (e.g. conflicting non-index coordinate values)
+    that survive metadata filtering. Returns (combined_or_None, broken_list).
+    Costs ~O(k log n) concat attempts for k bad arrays."""
+    broken = []
+
+    def attempt(sub):
+        if not sub:
+            return None
+        try:
+            return xr.concat(sub, dim=dim)
+        except Exception:
+            if len(sub) == 1:
+                broken.append(sub[0])
+                return None
+            mid = len(sub) // 2
+            left  = attempt(sub[:mid])
+            right = attempt(sub[mid:])
+            parts = [p for p in (left, right) if p is not None]
+            if not parts:
+                return None
+            try:
+                return xr.concat(parts, dim=dim)
+            except Exception:
+                # Two individually-clean halves are mutually incompatible.
+                # Keep the larger half; demote the smaller's members to broken.
+                left_n  = left.sizes.get(dim, 1)  if left  is not None else 0
+                right_n = right.sizes.get(dim, 1) if right is not None else 0
+                if left_n >= right_n:
+                    if right is not None:
+                        broken.extend(sub[mid:])
+                    return left
+                else:
+                    if left is not None:
+                        broken.extend(sub[:mid])
+                    return right
+
+    combined = attempt(list(chunk))
+    return combined, broken
+
+
+def intelligent_concat(combined_xr_list, dim='run_idx'):
+    """Weed out xarrays that prevent xr.concat(combined_xr_list, dim=dim).
+
+    Strategy:
+      1. Bucket arrays by a cheap structural signature -> O(n) scan.
+      2. Concatenate the largest (majority) bucket directly.
+      3. If that still fails due to value-level conflicts, fall back to a
+         divide-and-conquer search within the bucket to isolate offenders.
+      4. Normalize so the return contract is consistent.
+
+    Returns
+    -------
+    combined : xarray object or None
+        A SINGLE concatenated xarray that always has `dim` present,
+        or None if nothing could be concatenated.
+    broken : list
+        The arrays that were excluded.
+    """
+    if not combined_xr_list:
+        return None, []
+
+    # --- Step 1: bucket by signature -------------------------------------
+    buckets = {}
+    for x in combined_xr_list:
+        buckets.setdefault(_signature(x, dim), []).append(x)
+
+    # --- Step 2: pick the majority bucket; everything else is broken ------
+    best_sig   = max(buckets, key=lambda s: len(buckets[s]))
+    candidates = buckets[best_sig]
+    broken     = [x for s, grp in buckets.items() if s != best_sig for x in grp]
+
+    # --- Step 3: concat, with value-level fallback ------------------------
+    try:
+        combined = xr.concat(candidates, dim=dim)
+    except Exception:
+        combined, extra_broken = _divide_and_conquer(candidates, dim)
+        broken.extend(extra_broken)
+
+    # --- Step 4: normalize the contract ----------------------------------
+    # Guarantee a single xarray with `dim` present (or None).
+    if combined is not None and dim not in combined.dims:
+        combined = combined.expand_dims(dim)
+
+    return combined, broken
 
 def _get_num_cpus():
     """Get the number of available CPUs. Default is to use SLURM environment variables."""
@@ -289,6 +400,8 @@ def _worker_batch(args):
     os.environ['MKL_NUM_THREADS'] = '1'
     os.environ['OPENBLAS_NUM_THREADS'] = '1'
     os.environ['NUMEXPR_NUM_THREADS'] = '1'
+    # Disable HDF5 file locking (required for NFS filesystems)
+    # os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 
     os.makedirs(working_dir, exist_ok=True)
 
@@ -302,19 +415,22 @@ def _worker_batch(args):
     run_results = []
     for idx, eq_filename, profile_dict in batch:
         # Extract per-profile rotation splines if present, allowing kwargs to override
-        per_profile_kwargs = dict(kwargs)
-        if 'Er_spline' not in per_profile_kwargs and 'Er_spline' in profile_dict:
-            per_profile_kwargs['Er_spline'] = profile_dict['Er_spline']
-        if 'omega_splines' not in per_profile_kwargs and 'omega_splines' in profile_dict:
-            per_profile_kwargs['omega_splines'] = profile_dict['omega_splines']
-        if 'Zeff' not in per_profile_kwargs and 'Zeff' in profile_dict:
-            per_profile_kwargs['Zeff'] = profile_dict['Zeff']
-        if 'chi_perp_spline' not in per_profile_kwargs and 'chi_perp_spline' in profile_dict:
-            per_profile_kwargs['chi_perp_spline'] = profile_dict['chi_perp_spline']
-        if 'energy_confinement_time' not in per_profile_kwargs and 'energy_confinement_time' in profile_dict:
-            per_profile_kwargs['energy_confinement_time'] = profile_dict['energy_confinement_time']
-        if 'average_ion_mass' not in per_profile_kwargs and 'average_ion_mass' in profile_dict:
-            per_profile_kwargs['average_ion_mass'] = profile_dict['average_ion_mass']
+        all_profile_kwargs = dict(kwargs)
+        tau_e_label = all_profile_kwargs.pop('tau_e_label',None)
+        if 'Er_spline' not in all_profile_kwargs and 'Er_spline' in profile_dict:
+            all_profile_kwargs['Er_spline'] = profile_dict['Er_spline']
+        if 'omega_splines' not in all_profile_kwargs and 'omega_splines' in profile_dict:
+            all_profile_kwargs['omega_splines'] = profile_dict['omega_splines']
+        if 'Zeff' not in all_profile_kwargs and 'Zeff' in profile_dict:
+            all_profile_kwargs['Zeff'] = profile_dict['Zeff']
+        if 'chi_perp_spline' not in all_profile_kwargs and 'chi_perp_spline' in profile_dict:
+            all_profile_kwargs['chi_perp_spline'] = profile_dict['chi_perp_spline']
+        if 'energy_confinement_time' not in all_profile_kwargs and 'energy_confinement_time' in profile_dict:
+            all_profile_kwargs['energy_confinement_time'] = profile_dict['energy_confinement_time']
+        if 'average_ion_mass' not in all_profile_kwargs and 'average_ion_mass' in profile_dict:
+            all_profile_kwargs['average_ion_mass'] = profile_dict['average_ion_mass']
+        if 'energy_confinement_time' not in all_profile_kwargs and tau_e_label in profile_dict:
+            all_profile_kwargs['energy_confinement_time'] = profile_dict[tau_e_label]
         try:
             combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(
                 eq_filename,
@@ -323,7 +439,7 @@ def _worker_batch(args):
                 profile_dict['te_keV_spline'],
                 profile_dict['ti_keV_spline'],
                 working_dir=working_dir,
-                **per_profile_kwargs
+                **all_profile_kwargs
             )
             # Save result to master_working_dir so it persists after cleanup
             result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
@@ -354,9 +470,9 @@ def _worker_batch(args):
             import traceback
             tb_str = traceback.format_exc()
             print(f"[multi_run] Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) failed: {e}\n{tb_str}")
+            run_results.append((idx, False, f"{e}\n{tb_str}"))
             if fail_fast:
                 raise RuntimeError(f"Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) failed") from e
-            run_results.append((idx, False, f"{e}\n{tb_str}"))
 
         # Clean the working directory for the next equilibrium
         _clean_working_dir(working_dir)

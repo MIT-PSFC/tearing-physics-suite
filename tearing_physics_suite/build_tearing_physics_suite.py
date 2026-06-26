@@ -122,6 +122,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         "# ── NetCDF ────────────────────────────────────────────────────────────────",
         f"export NETCDFHOME={netcdf_prefix}",
         f"export NETCDFINC={netcdf_inc}",
+        f"export HDF5_USE_FILE_LOCKING=FALSE",
         "",
         "# ── Shared library search path ────────────────────────────────────────────",
         "export LD_LIBRARY_PATH=" + ":".join(ld_dirs) + ":${LD_LIBRARY_PATH:-}",

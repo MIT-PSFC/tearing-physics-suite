@@ -13,6 +13,7 @@ import pickle as pkl
 import xarray as xr
 import numpy as np
 import traceback
+from scipy.interpolate import Akima1DInterpolator, PPoly
 
 from tearing_physics_suite.tearing_physics_suite import nonlinear_resistive_calculation
 
@@ -215,6 +216,9 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
 
     # Concatenate xarrays along a new 'equilibrium' dimension
     print("Beginning concatenation...")
+    print(combined_xr_list[0].run_idx)
+    import sys
+    sys.exit()
     try:
         compiled_xr = xr.concat(combined_xr_list, dim='run_idx')
         broken_xr_list = None
@@ -314,7 +318,6 @@ def _divide_and_conquer(chunk, dim='run_idx'):
     combined = attempt(list(chunk))
     return combined, broken
 
-
 def intelligent_concat(combined_xr_list, dim='run_idx'):
     """Weed out xarrays that prevent xr.concat(combined_xr_list, dim=dim).
 
@@ -359,6 +362,323 @@ def intelligent_concat(combined_xr_list, dim='run_idx'):
         combined = combined.expand_dims(dim)
 
     return combined, broken
+
+import os
+import gc
+import shutil
+import pickle as pkl
+
+import numpy as np
+import xarray as xr
+import zarr
+
+# Reuse the streaming helpers from the attached module
+from tearing_physics_suite.dataset_utils import add_to_zarr_store, zarr_chunk
+
+def _zarr_signature(ds, dim="run_idx"):
+    """Relaxed structural fingerprint for streaming concat.
+
+    Unlike a size-sensitive signature, this allows arrays with the SAME
+    variables/dims/coords but DIFFERENT sizes along non-concat dims, because
+    `add_to_zarr_store` pads/extends ragged dims with NaN automatically.
+    """
+    data_vars = frozenset(ds.data_vars)
+    dims = frozenset(d for d in ds.dims if d != dim)
+    coords = frozenset(ds.coords)
+    return (data_vars, dims, coords)
+
+def multi_compile_zarr(
+    eq_filenames,
+    master_working_dir,
+    shot_time_list=None,
+    debug=True,
+    episode_dim="run_idx",
+    varying_dim=None,           # ragged dim for store_time_dim_size hint (auto-detected from first run)
+    mb_per_chunk=10,
+    report_errs=True,
+    meta_data_dicts=[],
+):
+    """Memory-bounded version of multi_compile.
+
+    Instead of loading every per-run xarray into RAM and calling xr.concat
+    (which needs the whole stack + the merged copy resident at once), this
+    streams each run into a Zarr store on disk, holding only ~one array in
+    memory at a time.
+
+    Returns
+    -------
+    compiled_xr : xr.Dataset
+        A LAZY (dask-backed) dataset opened from the Zarr store. It is never
+        fully materialized in memory; slice/compute the parts you need.
+    compiled_inputs_xr : xr.Dataset
+        Small scalar-input dataset (safe to keep in memory).
+    """
+    n_runs = len(eq_filenames)
+    if meta_data_dicts:
+        assert len(meta_data_dicts)==n_runs
+    zarr_path = os.path.join(master_working_dir, "compiled_combined_xr.zarr")
+
+    if os.path.exists(zarr_path):
+        shutil.rmtree(zarr_path)
+
+    # --- error log handling ----------------------------------------------
+    errors_path = os.path.join(master_working_dir, "errors.pkl")
+    if os.path.exists(errors_path) and report_errs:
+        with open(errors_path, "rb") as f:
+            errors = pkl.load(f)
+        num_errors = sum(1 for v in errors.values() if v is not None)
+        print(f"[multi_compile] Found error log with {num_errors} failed runs.")
+        if debug:
+            for idx, err_msg in sorted(errors.items()):
+                if err_msg is not None:
+                    print(f"[multi_compile] Run {idx} error: {err_msg}")
+    elif report_errs:
+        print(f"[multi_compile] No error log found. Assuming all {n_runs} runs succeeded.")
+
+    # --- stream each run into the Zarr store -----------------------------
+    eq_labels = []
+    input_dict_list = []
+    broken_runs = []
+    ref_signature = None
+    store_dim_sizes = {}   # tracks current max size of each non-episode dim
+    store_time_dim_size = None  # kept for add_to_zarr_store API compat
+    n_added = 0
+
+    print("Beginning streaming concatenation into Zarr...")
+    for i in range(3):
+        result_path = os.path.join(master_working_dir, f"result_{i}.pkl")
+        if not os.path.exists(result_path):
+            print(f"[multi_compile] WARNING: Result file not found for run {i}, skipping.")
+            continue
+
+        with open(result_path, "rb") as f:
+            data = pkl.load(f)
+
+        ds = data["combined_xr"]
+        if ds is None:
+            print(f"[multi_compile] WARNING: Run {i} has no combined_xr, skipping.")
+            del data
+            continue
+
+        # Structural compatibility gate (replaces intelligent_concat bucketing).
+        sig = _zarr_signature(ds, dim=episode_dim)
+        if ref_signature is None:
+            ref_signature = sig
+        elif sig != ref_signature:
+            print(f"[multi_compile] Run {i} has incompatible structure -> broken.")
+            broken_runs.append(i)
+            del ds, data
+            continue
+
+        eq_label = os.path.basename(eq_filenames[i])
+        
+        # Set Zeff's coordinate to be psi_N_Zeff
+        zeff_values = np.asarray(ds["Zeff"].values)
+        ds = ds.drop_vars("Zeff")
+        if "Zeff" in ds.dims:
+            if ds.sizes["Zeff"] != ds.sizes["psi_N_Zeff"]:
+                raise ValueError(
+                    f"Cannot merge: Zeff has length {ds.sizes['Zeff']} "
+                    f"but psi_N_Zeff has length {ds.sizes['psi_N_Zeff']}."
+                )
+            rebuilt = {}
+            for name, da in ds.data_vars.items():
+                if "Zeff" in da.dims:
+                    new_dims = tuple("psi_N_Zeff" if d == "Zeff" else d for d in da.dims)
+                    rebuilt[name] = (new_dims, da.values)
+            for name, val in rebuilt.items():
+                ds[name] = val
+        ds["Zeff"] = xr.DataArray(zeff_values, dims="psi_N_Zeff")
+        ds = ds.rename({"psi_N_Zeff": "psi_n_Zeff"})
+
+        # Cast r / r_prime index coords to float to allow nans
+        for _dim in ("r", "r_prime"):
+            if _dim in ds.coords and np.issubdtype(ds[_dim].dtype, np.integer):
+                ds = ds.assign_coords({_dim: ds[_dim].astype("float64")})
+
+        if meta_data_dicts:
+            meta_ds = meta_dict_to_dataset(meta_data_dicts[i], ds=ds,
+                                        episode_dim=episode_dim, verbose=debug)
+            meta_ds = meta_ds.drop_vars('geqdsk_path')
+            # Set the episode coordinate for everything inside meta_ds:
+            #meta_ds = meta_ds.assign_coords({episode_dim: np.array([i])})
+            """
+            ds_vars     = set(ds.data_vars)
+            meta_vars   = set(meta_ds.data_vars)
+            ds_dims     = set(ds.dims)
+            meta_dims   = set(meta_ds.dims)
+
+            # data var in one side whose name is a dimension in the other
+            c = ds_vars   & meta_dims     # data_var in ds, dimension in meta_ds
+            d = meta_vars & ds_dims       # data_var in meta_ds, dimension in ds
+
+            # also catch: data var in one side whose name is a dimension on its OWN side
+            # (dim-without-coordinate colliding with a data var of the same name)
+            e = ds_vars   & ds_dims
+            f = meta_vars & meta_dims
+
+            print("data_var in ds, dim in meta_ds:", c)
+            print("data_var in meta_ds, dim in ds:", d)
+            print("data_var collides with own dim (ds):", e)
+            print("data_var collides with own dim (meta_ds):", f)
+            print("REAL CULPRITS:", c | d | e | f)
+            print(ds.dims)
+            print(meta_ds.dims)
+            print(ds.psi_n_Zeff)
+            print(meta_ds.psi_n_IDA)
+            sys.exit()
+            """
+            ds = xr.merge([ds, meta_ds], compat="no_conflicts", combine_attrs="override")
+            #if "psi_n_IDA" in ds.dims:
+            #    ds = ds.assign_coords(psi_n_IDA=np.arange(ds.sizes["psi_n_IDA"]))
+
+        # --- ROBUST run_idx handling -------------------------------------
+        # add_to_zarr_store calls reset_coords(), which would demote/lose a
+        # run_idx coordinate (esp. with string labels). So we feed run_idx in
+        # as a BARE integer dimension (no coord) and carry the eq label as an
+        # ordinary data variable that survives reset_coords() and the append.
+        if episode_dim in ds.coords:
+            ds = ds.reset_coords(episode_dim, drop=True)
+        if episode_dim not in ds.dims:
+            ds = ds.expand_dims(episode_dim)
+        # ds["eq_label"] = (episode_dim, np.array([eq_label], dtype=object))
+        # -----------------------------------------------------------------
+
+        if debug:
+            print(f"[multi_compile] Run {i} dataset structure:")
+            dims_str = "\n    ".join(f"{k}: {v}" for k, v in ds.sizes.items())
+            print(f"  Dimensions:\n    {dims_str}")
+            print()
+            coords_str = "\n    ".join(ds.coords)
+            print(f"  Coordinates:\n    {coords_str}")
+            print()
+            vars_str = "\n    ".join(ds.data_vars)
+            print(f"  Variables:\n    {vars_str}")
+            #import sys
+            #sys.exit()
+
+        #try:
+        success = add_to_zarr_store(
+            ds,
+            zarr_path,
+            episode_dim=episode_dim,
+            store_time_dim_size=store_time_dim_size,
+        )
+        #except Exception as e:
+        #    print(f"[multi_compile] Run {i} failed to append ({e}) -> broken.")
+        #    broken_runs.append(i)
+        #    del ds, data
+        #    continue
+
+        if success:
+            # Update tracked max sizes for all non-episode dims
+            for _d in ds.dims:
+                if _d != episode_dim:
+                    store_dim_sizes[_d] = max(store_dim_sizes.get(_d, 0), ds.sizes[_d])
+            # Keep varying_dim / store_time_dim_size in sync for add_to_zarr_store API
+            if varying_dim is None:
+                varying_dim = next((d for d in ds.dims if d != episode_dim), episode_dim)
+            store_time_dim_size = store_dim_sizes.get(varying_dim)
+            eq_labels.append(eq_label)
+            input_dict_list.append(data["input_dict_out"])
+            n_added += 1
+
+        del ds, data
+        if i > 0 and i % 40 == 0:
+            gc.collect()
+
+    if n_added == 0:
+        print("[multi_compile] No successful runs to compile.")
+        return None, None
+
+    # --- chunk + consolidate (so the store reads back efficiently) -------
+    ds_store = xr.open_zarr(zarr_path, consolidated=True)
+    bytes_per_episode = ds_store.isel({episode_dim: 0}).nbytes
+    mean_mb = bytes_per_episode / (1024 * 1024)
+    episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n_added)
+
+    chunk_spec = {episode_dim: episodes_per_chunk} | {
+        k: ds_store.sizes[k] for k in ds_store.dims if k != episode_dim
+    }
+    ds_store = zarr_chunk(ds_store, chunk_spec=chunk_spec)
+
+    tmp_path = zarr_path + ".tmp"
+    ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
+    shutil.rmtree(zarr_path)
+    os.rename(tmp_path, zarr_path)
+    zarr.consolidate_metadata(zarr_path)
+
+    # --- reopen lazily and attach run_idx labels from the in-memory list ---
+    compiled_xr = xr.open_zarr(zarr_path, consolidated=True)  # lazy, not in RAM
+
+    # eq_labels was appended only on successful store, in the same order as
+    # the run_idx dimension -> safe to assign positionally as the coordinate.
+    assert len(eq_labels) == compiled_xr.sizes[episode_dim], (
+        f"label/run_idx length mismatch: {len(eq_labels)} vs "
+        f"{compiled_xr.sizes[episode_dim]}"
+    )
+    compiled_xr = compiled_xr.assign_coords({episode_dim: eq_labels})
+
+    # --- scalar inputs (small, fine in memory) ---------------------------
+    scalar_keys = [
+        key
+        for key in input_dict_list[0]
+        if isinstance(
+            input_dict_list[0][key],
+            (int, float, bool, str, np.integer, np.floating),
+        )
+    ]
+    input_data_vars = {}
+    for key in scalar_keys:
+        vals = [d.get(key, np.nan) for d in input_dict_list]
+        input_data_vars[key] = (episode_dim, vals)
+
+    compiled_inputs_xr = xr.Dataset(
+        input_data_vars, coords={episode_dim: eq_labels}
+    )
+    inputs_path = os.path.join(master_working_dir, "compiled_inputs_xr.nc")
+    compiled_inputs_xr.to_netcdf(inputs_path, engine="scipy")
+
+    if broken_runs:
+        with open(os.path.join(master_working_dir, "broken_runs.pkl"), "wb") as f:
+            pkl.dump(broken_runs, f)
+        print(f"[multi_compile] {len(broken_runs)} runs excluded: {broken_runs}")
+
+    print(f"[multi_compile] Compiled {n_added} runs into {zarr_path}")
+    return compiled_xr, compiled_inputs_xr
+
+def intelligent_concat_check(combined_xr_list, dim='run_idx'):
+    """Weed out xarrays that prevent xr.concat(combined_xr_list, dim=dim).
+
+    Strategy:
+      1. Bucket arrays by a cheap structural signature -> O(n) scan.
+      2. Concatenate the largest (majority) bucket directly.
+      3. If that still fails due to value-level conflicts, fall back to a
+         divide-and-conquer search within the bucket to isolate offenders.
+      4. Normalize so the return contract is consistent.
+
+    Returns
+    -------
+    combined : xarray object or None
+        A SINGLE concatenated xarray that always has `dim` present,
+        or None if nothing could be concatenated.
+    broken : list
+        The arrays that were excluded.
+    """
+    if not combined_xr_list:
+        return None, []
+
+    # --- Step 1: bucket by signature -------------------------------------
+    buckets = {}
+    for x in combined_xr_list:
+        buckets.setdefault(_signature(x, dim), []).append(x)
+
+    # --- Step 2: pick the majority bucket; everything else is broken ------
+    best_sig   = max(buckets, key=lambda s: len(buckets[s]))
+    candidates = buckets[best_sig]
+    broken     = [x for s, grp in buckets.items() if s != best_sig for x in grp]
+
+    return candidates, broken
 
 def _get_num_cpus():
     """Get the number of available CPUs. Default is to use SLURM environment variables."""
@@ -479,3 +799,166 @@ def _worker_batch(args):
 
     return run_results
 
+def meta_dict_to_dataset(meta, ds=None, episode_dim="run_idx",
+                         rtol=1e-9, atol=1e-12, verbose=False) -> xr.Dataset:
+    reg = _GridRegistry(ds=ds, episode_dim=episode_dim)
+
+    scalars_done, vec_scalars, xy_entries = {}, [], []
+    for item in _flatten_meta(meta):
+        if item[0] == "scalar":
+            kind, payload = _scalar_spec(item[2])
+            if kind == "done":
+                scalars_done[item[1]] = payload
+            elif kind == "vector":
+                vec_scalars.append((item[1], payload))     # (name, array)
+        else:
+            xy_entries.append(item[1:])                     # (name, x, y)
+
+    dv = dict(scalars_done)
+
+    # --- Phase 1: ds-coord match, or new cluster (unchanged) -----------------
+    assigned, clusters = {}, []
+    for idx, (name, x, y) in enumerate(xy_entries):
+        dim = reg.match(x, rtol, atol)
+        if dim is not None:
+            assigned[idx] = dim
+            if verbose:
+                tag = "ds-coord" if dim in reg.from_ds else "shared"
+                print(f"[meta] '{name}' reuses {tag} grid '{dim}'")
+            continue
+        for cl in clusters:
+            if _grids_close(x, cl["x"], rtol, atol):
+                cl["members"].append((idx, name)); break
+        else:
+            clusters.append({"x": np.asarray(x, float), "members": [(idx, name)]})
+
+    # --- Phase 2: name new clusters (IDA rule) -------------------------------
+    new_grid_x = {}
+    for cl in clusters:
+        names = [nm for _, nm in cl["members"]]
+        base = "psi_n_IDA" if any(nm.startswith("IDA") for nm in names) else f"{names[0]}_knot"
+        dim = reg.register(cl["x"], base)
+        new_grid_x[dim] = cl["x"]
+        for idx, _ in cl["members"]:
+            assigned[idx] = dim
+        if verbose:
+            print(f"[meta] new grid '{dim}' <- {names} (len {len(cl['x'])})")
+
+    # --- Phase 3: emit xy y-vars + each new grid's x -------------------------
+    for idx, (name, x, y) in enumerate(xy_entries):
+        dv[f"{name}"] = (assigned[idx], np.asarray(y, float))
+    for dim, x in new_grid_x.items():
+        dv[f"{dim}_x"] = (dim, np.asarray(x, float))
+
+    # --- Phase 4: place deferred vectors (IDA_* -> psi_n_IDA if length fits) --
+    ida_x = reg.grids.get("psi_n_IDA")          # now populated if a cluster made it
+    ida_len = len(ida_x) if ida_x is not None else None
+    for name, arr in vec_scalars:
+        if name.startswith("IDA") and ida_len is not None and arr.shape[0] == ida_len:
+            dv[name] = ("psi_n_IDA", arr)        # <-- ride the shared IDA grid
+            if verbose:
+                print(f"[meta] vector '{name}' (len {arr.shape[0]}) -> 'psi_n_IDA'")
+        else:
+            dv[name] = (f"{name}_dim", arr)      # own dim (fallback)
+
+    ds_out = xr.Dataset(dv)
+
+    # Elevate the IDA grid's x-variable to a 1-D coordinate on its own dim.
+    # (Do this BEFORE expand_dims so it stays shared, not per-run.)
+    ida_dim = "psi_n_IDA"                      # the registered IDA dim name
+    xname = f"{ida_dim}_x"                     # -> "psi_n_IDA_x"
+    if xname in ds_out.data_vars and ida_dim in ds_out.dims:
+            ds_out = ds_out.rename({xname: ida_dim}).set_coords(ida_dim)
+            # set_coords() does NOT build an index -> add one explicitly
+            if ida_dim not in ds_out.xindexes:
+                ds_out = ds_out.set_xindex(ida_dim)
+            if verbose:
+                print(f"[meta] elevated '{xname}' -> indexed coord '{ida_dim}' on dim '{ida_dim}'")
+    
+    return ds_out.expand_dims(episode_dim)
+
+def _flatten_meta(meta, prefix=""):
+    """Yield ('scalar', name, val) or ('xy', name, x, y)."""
+    for key, val in meta.items():
+        if key in DROP_KEYS:                       # <-- requirement 1
+            continue
+        name = _sanitize(prefix + key)
+        if isinstance(val, (Akima1DInterpolator, PPoly)):
+            x, y = _spline_xy(val)
+            yield ("xy", name, x, y)
+        elif isinstance(val, dict):
+            if {"x", "y"} <= set(val) and not isinstance(val.get("x"), dict):
+                yield ("xy", name,
+                       np.asarray(val["x"], float), np.asarray(val["y"], float))
+            else:
+                yield from _flatten_meta(val, prefix=name + "_")
+        else:
+            yield ("scalar", name, val)
+
+def _scalar_spec(val):
+    """Classify a non-xy meta value.
+    Returns ('done', (dims, data)) for true scalars/strings/0-d,
+            ('vector', np.ndarray)  for length>1 numeric arrays (defer),
+            ('skip', None)          for unsupported.
+    """
+    if isinstance(val, (int, float, bool, np.integer, np.floating)):
+        return ("done", ((), np.asarray(val)))
+    if isinstance(val, str):
+        return ("done", ((), np.array(val, dtype=object)))
+    if isinstance(val, np.ndarray):
+        if val.ndim == 0:
+            data = np.array(val.item(), dtype=object) if val.dtype == object else val
+            return ("done", ((), data))
+        if val.size == 1 and (val.dtype == object or np.issubdtype(val.dtype, np.str_)):
+            return ("done", ((), np.array(val.reshape(()).item(), dtype=object)))
+        return ("vector", np.asarray(val))      # <-- defer: dim decided later
+    return ("skip", None)
+
+class _GridRegistry:
+    """Maps an x-grid to a dimension name, reusing ds coords where possible."""
+    def __init__(self, ds=None, episode_dim="run_idx"):
+        self.grids = {}        # dim_name -> x array
+        self.from_ds = set()   # dims that already live in ds (don't re-store x)
+        if ds is not None:
+            for c in ds.coords:
+                arr = ds[c]
+                if (arr.ndim == 1 and np.issubdtype(arr.dtype, np.number)
+                        and arr.dims[0] != episode_dim):
+                    dim = arr.dims[0]
+                    self.grids[dim] = np.asarray(arr.values, float)
+                    self.from_ds.add(dim)
+
+    def match(self, x, rtol=1e-9, atol=1e-12):
+        for dim, gx in self.grids.items():
+            if _grids_close(x, gx, rtol, atol):
+                return dim
+        return None
+
+    def register(self, x, preferred):
+        dim, base, i = preferred, preferred, 1
+        while dim in self.grids:
+            dim, i = f"{base}_{i}", i + 1
+        self.grids[dim] = np.asarray(x, float)
+        return dim
+
+# 1) Keys to discard entirely (already in the main dataset)
+DROP_KEYS = {
+    "ne_spline", "ni_spline", "te_keV_spline", "ti_keV_spline",
+    "Er_spline", "omega_splines", "Zeff"
+}
+
+def _sanitize(name: str) -> str:
+    for a, b in [("(", "_"), (")", ""), (" ", "_"), ("[", ""), ("]", ""),
+                 ("^", ""), ("-", "m"), ("/", "_"), (",", "_")]:
+        name = name.replace(a, b)
+    return name.strip("_")
+
+def _spline_xy(spl):
+    x = np.asarray(spl.x, dtype="float64")
+    return x, np.asarray(spl(x), dtype="float64")     # exact for Akima
+
+def _grids_close(a, b, rtol=1e-9, atol=1e-12):
+    a = np.asarray(a, float); b = np.asarray(b, float)
+    if a.shape != b.shape:
+        return False
+    return np.allclose(a, b, rtol=rtol, atol=atol, equal_nan=True)

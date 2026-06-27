@@ -627,8 +627,11 @@ def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_
 def _uniquify_r(da, assert_match=True):
     """
     Make degenerate dims 'r'/'r_prime' concatenable by replacing each with a
-    UNIQUE INTEGER index, while preserving the real values and the
+    UNIQUE INTEGER-VALUED FLOAT index, while preserving the real values and the
     (from-the-right) occurrence pattern as plain coordinates.
+
+    Using float indices (0.0, 1.0, ...) instead of ints leaves room to insert
+    NaN sentinels into the 'r'/'r_prime' coordinates in later steps.
     """
     def _occ_from_right(vals):
         seen = {}
@@ -658,8 +661,8 @@ def _uniquify_r(da, assert_match=True):
             f"{dim}_value": (dim, vals),   # real (degenerate) values
             f"{dim}_occ":   (dim, occ),    # occurrence-from-right
         })
-        # Replace the dim's index with unique integers 0..N-1.
-        da = da.assign_coords({dim: np.arange(len(vals))})
+        # Replace the dim's index with unique integer-VALUED FLOATS 0.0..N-1.0
+        da = da.assign_coords({dim: np.arange(len(vals), dtype=float)})
         return da
 
     if has_r:

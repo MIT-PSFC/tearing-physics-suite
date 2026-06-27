@@ -203,7 +203,10 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
     }
 
     for i,extra_key in enumerate(extra_keys):
-        return_dict[extra_key] = extra_key_vals[i]
+        if np.ndim(extra_key_vals[i]) > 0 and len(extra_key_vals[i])==len(psi_n_vals) and np.all(np.isfinite(extra_key_vals[i])): # Covers splined values 
+            return_dict[extra_key] = Akima1DInterpolator(psi_n_vals, extra_key_vals[i], extrapolate=False)
+        else:
+            return_dict[extra_key] = extra_key_vals[i]
 
     if shot_id is not None:
         return_dict['shot_id'] = shot_id
@@ -251,7 +254,7 @@ def read_IDA_lite_all_times(filename, verbose=False, **kwargs):
 
     return None
 
-def read_bouquet_working_dir(directory, rotation_method, verbose=True, quick_exit=None, **kwargs):
+def read_bouquet_working_dir(directory, rotation_method, verbose=True, quick_exit=None, meta_data=False, **kwargs):
     """ Enter a parallel bouquet run directory for a single shot, collate all individual samples
     and generate inputs for tearing physics suite's multi_run function.
 
@@ -335,7 +338,7 @@ def read_bouquet_working_dir(directory, rotation_method, verbose=True, quick_exi
     print("Unpacking bouquet equilibria")
     for h in header_list:
         try:
-            eq_filenames, splines = read_single_bouquet_output(os.path.join(h[2],h[3]),eqdsk_out_dir=os.path.join(h[2],"TPS_eqdsks"))
+            eq_filenames, splines = read_single_bouquet_output(os.path.join(h[2],h[3]),eqdsk_out_dir=os.path.join(h[2],"TPS_eqdsks"),meta_data=meta_data)
         except Exception as e:
             if verbose: print("     idx ",h[1]," - skipped due to load fail ",e)
         if len(eq_filenames)==len(splines)==0:
@@ -343,7 +346,7 @@ def read_bouquet_working_dir(directory, rotation_method, verbose=True, quick_exi
             continue
         else:
             if verbose: print(" idx ",h[1],f": {len(splines)} eqdsks unpacked")
-        splines = rotation_method(h, map_object_path, splines, **kwargs)
+        splines = rotation_method(h, map_object_path, splines, meta_data=meta_data, **kwargs)
         full_eq_filename_list.extend(eq_filenames)
         full_spline_list.extend(splines)
         if quick_exit is not None:
@@ -354,7 +357,7 @@ def read_bouquet_working_dir(directory, rotation_method, verbose=True, quick_exi
     
     return full_eq_filename_list, full_spline_list
 
-def bouquet_ida_rotation(h, map_object_path, splines, resample=False, Er_ls=None, omega_tor_ls=None, extra_keys=['tau_e_basic','tau_th_basic']):
+def bouquet_ida_rotation(h, map_object_path, splines, resample=False, Er_ls=None, omega_tor_ls=None, extra_keys=['tau_e_basic','tau_th_basic'], meta_data=False):
     """Generic rotation_method that adds rotations splines to inout variable splines"""
 
     (_, idx, worker_dir, _) = h
@@ -368,6 +371,23 @@ def bouquet_ida_rotation(h, map_object_path, splines, resample=False, Er_ls=None
     if os.path.isdir(os.path.join(worker_dir,ida_file)):
         ida_path = os.path.join(worker_dir,ida_file) # local version preferrable
 
+    if meta_data:
+        # Custom
+        extra_keys.append("geqdsk_path")
+        extra_keys.append("closest_cake_times")
+        extra_keys.append("normalised_cake_time_offsets")
+        extra_keys.append("geqdsk_time_ok")
+        extra_keys.append("is_sawtoothing")
+        extra_keys.append("before_n1_NTM_plus_10ms")
+        extra_keys.append("is_sawtoothing_geqdsk")
+        extra_keys.append("is_sawtoothing_buff")
+        extra_keys.append("is_sawtoothing_geqdsk_buff")
+        # General
+        extra_keys.append("nu_star_e")
+        #extra_keys.append("Rmaj_midplane")
+        #extra_keys.append("amin_midplane")
+        extra_keys.append("jparB_boot_Bt")
+        extra_keys.append("jparB_ohmic_Bt")
     try:
         return_dict = read_IDA_lite(ida_path, time_idx=idx, extra_keys=extra_keys)
         assert time_idx==idx
@@ -405,14 +425,28 @@ def bouquet_ida_rotation(h, map_object_path, splines, resample=False, Er_ls=None
         
         spline['average_ion_mass'] = return_dict['average_ion_mass'] # A scalar for now...
         for extra_key in extra_keys: # no error propagation (yet)
-            spline[extra_key] = return_dict[extra_key]
+            try:
+                has_many_elements = len(return_dict[extra_key]) > 10
+            except TypeError:
+                has_many_elements = False
+            
+            if not (extra_key in ['tau_e_basic','tau_th_basic']) and has_many_elements:
+                spline[str('IDA_'+extra_key)] = return_dict[extra_key]
+            else:
+                spline[extra_key] = return_dict[extra_key]
+
+        if meta_data:
+            # Put everything in return_dict thats not already in spline into spline, except omega_tor_12C6_spline
+            for key in return_dict:
+                if key not in spline and key != 'omega_tor_12C6_spline':
+                    spline[str('IDA_'+key)] = return_dict[key]
 
         output_splines.append(spline)
 
     return splines
 
 def read_single_bouquet_output(filename, eqdsk_out_dir=None, sample_limit=None, selection="all", scan_value=None, 
-                            read_omega_ExB=False, debug=False):
+                            read_omega_ExB=False, debug=False, meta_data=False):
     """ Read the .h5 output of a bouquet run, unpack its geqdsk files, and 
     return a list of geqdsk filenames and kinetic profile splines.
     
@@ -496,6 +530,18 @@ def read_single_bouquet_output(filename, eqdsk_out_dir=None, sample_limit=None, 
             if read_omega_ExB:
                 profile_dict['omega_splines'] = {'omega_ExB': Akima1DInterpolator(_psi_pert,data["w_ExB [rad/s]"])}
                 raise NotImplementedError("read_omega_ExB unfinished")
+            if meta_data:
+                # Jphi meta data
+                _psi_n_jphi = data.get("psi_N_kinetic", psi_N)
+                if not np.allclose(_psi_n_jphi,psi_N) and len(_psi_n_jphi) == len(psi_N):
+                    raise ValueError("Psi grid ambiguity, check bouquet source code for which one is being printed")
+                profile_dict["bq_Jphi_Aper_msq]"] = Akima1DInterpolator(_psi_n_jphi,data["j_phi [A m^-2]"])
+                profile_dict["bq_Jbs_Aper_msq]"] = Akima1DInterpolator(_psi_n_jphi,data["j_BS [A m^-2]"])
+                profile_dict["bq_Jind_Aper_msq]"] = Akima1DInterpolator(_psi_n_jphi,data["j_inductive [A m^-2]"])
+                # Other bouquet data
+                profile_dict["bq_l_i1"]=data["l_i(1)"]
+                profile_dict["bq_l_i3"]=data["l_i(3)"]
+                profile_dict["bq_count"]=data["bq_count"]
             profile_dict_list.append(profile_dict)
     # Unpack geqdsk from samples:
             if eqdsk_out_dir is None:
@@ -715,7 +761,7 @@ _PROFILE_KEYS = [
         "w_ExB [rad/s]",
     ]
 
-def bouquet_load_equilibrium_by_path(h5path, count, scan_value=None):
+def bouquet_load_equilibrium_by_path(h5path, count, scan_value=None, dump_data_structure=False):
     """
     Load one perturbed equilibrium from an HDF5 file by path. From bouquet - Daniel Burgess.
 
@@ -751,6 +797,25 @@ def bouquet_load_equilibrium_by_path(h5path, count, scan_value=None):
         for key in _PROFILE_KEYS:
             if key in grp:
                 result[key] = np.array(grp[key])
+
+        if dump_data_structure:
+            print("In each bouquet run:")
+            print(f"  Group: {grp} ({len(grp)} datasets/subgroups, {len(grp.attrs)} group attrs)")
+            print("  Group-level attrs:")
+            for key in grp.attrs:
+                print(f"    {key}: {grp.attrs[key]}")
+            print("  Datasets/subgroups:")
+            for key in grp:
+                item = grp[key]
+                shape = item.shape if hasattr(item, 'shape') else '(subgroup)'
+                dtype = item.dtype if hasattr(item, 'dtype') else '-'
+                item_attrs = dict(item.attrs) if hasattr(item, 'attrs') else {}
+                print(f"    {key}  shape={shape}  dtype={dtype}  attrs={item_attrs}")
+            import sys
+            sys.exit()
+
+        if "count" in grp.attrs:
+            result["bq_count"] = grp.attrs["count"]
 
         if "pressure [Pa]" in grp:
             result["pressure [Pa]"] = np.array(grp["pressure [Pa]"])

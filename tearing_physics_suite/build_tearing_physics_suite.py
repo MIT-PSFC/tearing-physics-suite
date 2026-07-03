@@ -1,6 +1,6 @@
 # Master build script for tearing-physics-suite.
 """
-Master build script for tearing-physics-suite.
+Master build script for tearing-physics-suite. See main() for argument control.
 
 Orchestrates the full build by calling:
   1. build_netcdf_lapack.build_libraries()  – downloads & builds LAPACK, BLAS,

@@ -61,11 +61,19 @@ def multi_run(eq_filenames, profile_filenames, read_profile_function, master_wor
 
     return multi_run_(eq_filenames, profile_list, master_working_dir, verbose=verbose, cluster_manager=cluster_manager, return_lists=return_lists, fail_fast=fail_fast, **kwargs)
 
-def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False, cluster_manager='slurm', return_lists=False, fail_fast=False, **kwargs):
+# Module-level state populated by _init_multi_run_worker in each spawned worker.
+_MULTI_RUN_STATE: dict = {}
+
+def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
+               cluster_manager='slurm', return_lists=False, fail_fast=False,
+               warm_start=True, chunksize='automatic', **kwargs):
     """Inner parallelisation driver: distributes equilibria across CPU workers.
 
-    Each worker gets a private working directory and processes its batch sequentially.
-    Results are pickled to master_working_dir/result_{idx}.pkl.
+    Uses ``imap_unordered`` for dynamic scheduling with automatic batching.
+    Each worker owns a private, persistent working directory (assigned once via
+    an initializer) and processes tasks as the scheduler hands them out.
+    Results are pickled to master_working_dir/result_{idx}.pkl and a
+    done_{idx}.marker is written as the final action of each completed run.
 
     Parameters
     ----------
@@ -78,7 +86,12 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False, cl
     return_lists : bool
         If True, load and return result datasets. If False, results stay on disk.
     fail_fast : bool
-        If True, abort remaining work after first failure.
+        If True, abort remaining dispatch after first failure (best-effort:
+        in-flight tasks still finish).
+    warm_start : bool
+        If True, skip complete cases (checked by _validate_case).
+    chunksize : int or 'automatic'
+        imap_unordered chunk size.
     **kwargs
         Forwarded to nonlinear_resistive_calculation.
 
@@ -91,7 +104,6 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False, cl
 
     assert len(eq_filenames) == len(profile_list), "Length of eq_filenames and profile_list must be the same."
 
-    # Parallel loop starts here:
     os.makedirs(master_working_dir, exist_ok=True)
 
     n_cpus = _get_num_cpus()
@@ -99,45 +111,74 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False, cl
     n_workers = min(n_cpus, n_runs)
     print(f"[multi_run] Distributing {n_runs} runs across {n_workers} workers ({n_cpus} CPUs available via SLURM).")
 
-    # Distribute runs across workers in round-robin fashion
-    worker_batches = [[] for _ in range(n_workers)]
-    for i in range(n_runs):
-        worker_batches[i % n_workers].append((i, eq_filenames[i], profile_list[i]))
+    if chunksize == 'automatic':
+        if warm_start:
+            n_done = sum(
+                1 for f in os.listdir(master_working_dir)
+                if f.startswith('combined_xr_') and f.endswith('.nc')
+            )
+            n_remaining = max(1, n_runs - n_done)
+            n_eff_workers = min(n_workers, n_remaining)
+            chunksize = max(1, min(1000, n_remaining // (10 * n_eff_workers)))
+            print(f"[multi_run] warm_start: {n_done} .nc file(s) present, "
+                  f"~{n_remaining} run(s) remaining — using chunksize={chunksize}.")
+        else:
+            chunksize = max(1, min(1000, n_runs // (10 * n_workers)))
+            print(f"[multi_run] Using chunksize={chunksize} for dynamic scheduling.")
+    else:
+        print(f"[multi_run] Using user-specified chunksize={chunksize}.")
 
-    # Build argument tuples — one working directory per worker
-    worker_args = []
-    for w in range(n_workers):
-        worker_working_dir = os.path.join(master_working_dir, f'worker_{w}')
-        worker_args.append((w, worker_batches[w], worker_working_dir, master_working_dir, kwargs, fail_fast))
-
-    # Use 'spawn' to avoid fork-safety issues with Fortran subprocesses
+    # Hand each spawned worker a unique ID (so it can claim worker_{id}/).
     ctx = multiprocessing.get_context('spawn')
-    with ctx.Pool(processes=n_workers) as pool:
-        all_results = pool.map(_worker_batch, worker_args)
+    worker_id_queue = ctx.Queue()
+    for w in range(n_workers):
+        worker_id_queue.put(w)
 
-    # Flatten results and collect from disk in original order
+    # One task per equilibrium; the scheduler batches them via chunksize.
+    per_run_args = [
+        (i, eq_filenames[i], profile_list[i], kwargs, fail_fast, warm_start)
+        for i in range(n_runs)
+    ]
+
     combined_xr_list = [None] * n_runs
     input_dict_list = [None] * n_runs
     errors = {}
     n_success = 0
 
-    for worker_results in all_results:
-        for idx, success, err_msg in worker_results:
-            if success:
-                n_success += 1
-                if return_lists:
-                    result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
-                    with open(result_path, 'rb') as f:
-                        data = pkl.load(f)
-                    combined_xr_list[idx] = data['combined_xr']
-                    input_dict_list[idx] = data['input_dict_out']
-            else:
-                errors[idx] = err_msg
-                print(f"[multi_run] WARNING: Run {idx} ({eq_filenames[idx]}) failed: {err_msg}")
+    pool = ctx.Pool(
+        processes=n_workers,
+        initializer=_init_multi_run_worker,
+        initargs=(worker_id_queue, master_working_dir),
+    )
+    try:
+        with pool:
+            for idx, success, err_msg in pool.imap_unordered(
+                    _run_one_eq, per_run_args, chunksize=chunksize):
+                if success:
+                    n_success += 1
+                    if return_lists:
+                        result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
+                        try:
+                            with open(result_path, 'rb') as f:
+                                data = pkl.load(f)
+                            combined_xr_list[idx] = data['combined_xr']
+                            input_dict_list[idx] = data['input_dict_out']
+                        except Exception as e:
+                            print(f"[multi_run] WARNING: Run {idx} succeeded but "
+                                  f"result pickle could not be loaded: {e}")
+                else:
+                    errors[idx] = err_msg
+                    print(f"[multi_run] WARNING: Run {idx} ({eq_filenames[idx]}) failed: {err_msg}")
+                    if fail_fast:
+                        print("[multi_run] fail_fast set — terminating remaining work.")
+                        pool.terminate()   # stop in-flight workers immediately
+                        break
+    finally:
+        pool.join()
 
     print(f"[multi_run] Completed: {n_success}/{n_runs} runs succeeded.")
 
-    # Always write (or overwrite) the error log so stale results from previous runs don't persist
+    # Always (over)write the error log so stale results don't persist.
     error_path = os.path.join(master_working_dir, 'errors.pkl')
     with open(error_path, 'wb') as f:
         pkl.dump(errors, f)
@@ -253,6 +294,142 @@ def _worker_batch(args):
 
     return run_results
 
+def _init_multi_run_worker(worker_id_queue, master_working_dir):
+    """Pool initialiser: claim a unique worker ID and set up its private dir.
+
+    Runs once per spawned worker before any tasks are dispatched. 
+    Restricts the process to a single thread, creates worker_{id}/, and redirects stdout/stderr
+    to a per-worker log file. Shared state is stashed in _MULTI_RUN_STATE for
+    _run_one_eq to read (since imap_unordered has no fixed worker->task binding).
+    """
+    global _MULTI_RUN_STATE
+
+    # Restrict this process to a single thread
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ['NUMEXPR_NUM_THREADS'] = '1'
+    # Disable HDF5 file locking (required for NFS filesystems)
+    # os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
+
+    worker_id = worker_id_queue.get()
+    working_dir = os.path.join(master_working_dir, f'worker_{worker_id}')
+
+    if os.path.isdir(working_dir):
+        shutil.rmtree(working_dir)
+    os.makedirs(working_dir, exist_ok=True)
+
+    log_path = os.path.join(master_working_dir, f"worker_{worker_id}.log")
+    _log_fh = open(log_path, "w", buffering=1)  # line-buffered
+    os.dup2(_log_fh.fileno(), 1)
+    os.dup2(_log_fh.fileno(), 2)
+    sys.stdout = _log_fh
+    sys.stderr = _log_fh
+
+    _MULTI_RUN_STATE.update({
+        'worker_id': worker_id,
+        'working_dir': working_dir,
+        'master_working_dir': master_working_dir,
+    })
+
+def _run_one_eq(args):
+    """Worker task: process a single equilibrium (idx).
+
+    Reads its private working directory from _MULTI_RUN_STATE (set by the
+    initializer). On warm_start, defers to _validate_case first: a case that is
+    already complete is skipped. 
+    Runs nonlinear_resistive_calculation, pickles the
+    result, exports the augmented netCDF, and writes done_{idx}.marker last.
+    """
+    idx, eq_filename, profile_dict, kwargs, fail_fast, warm_start = args
+    worker_id = _MULTI_RUN_STATE['worker_id']
+    working_dir = _MULTI_RUN_STATE['working_dir']
+    master_working_dir = _MULTI_RUN_STATE['master_working_dir']
+    marker_path = os.path.join(master_working_dir, f'done_{idx}.marker')
+
+    # --- Warm-start skip: validate (and repair) pre-existing output ---
+    if warm_start:
+        try:
+            if _validate_case(idx, master_working_dir, profile_dict):
+                print(f"[multi_run] Worker {worker_id}: Run {idx} "
+                      f"({os.path.basename(eq_filename)}) already complete — skipping.")
+                return (idx, True, None)
+        except Exception as e:
+            print(f"[multi_run] Worker {worker_id}: Run {idx} validation raised "
+                  f"({e}) — recomputing.")
+
+    # --- Extract per-profile splines, allowing kwargs to override ---
+    all_profile_kwargs = dict(kwargs)
+    tau_e_label = all_profile_kwargs.pop('tau_e_label', None)
+    if 'Er_spline' not in all_profile_kwargs and 'Er_spline' in profile_dict:
+        all_profile_kwargs['Er_spline'] = profile_dict['Er_spline']
+    if 'omega_splines' not in all_profile_kwargs and 'omega_splines' in profile_dict:
+        all_profile_kwargs['omega_splines'] = profile_dict['omega_splines']
+    if 'Zeff' not in all_profile_kwargs and 'Zeff' in profile_dict:
+        all_profile_kwargs['Zeff'] = profile_dict['Zeff']
+    if 'chi_perp_spline' not in all_profile_kwargs and 'chi_perp_spline' in profile_dict:
+        all_profile_kwargs['chi_perp_spline'] = profile_dict['chi_perp_spline']
+    if 'energy_confinement_time' not in all_profile_kwargs and 'energy_confinement_time' in profile_dict:
+        all_profile_kwargs['energy_confinement_time'] = profile_dict['energy_confinement_time']
+    if 'average_ion_mass' not in all_profile_kwargs and 'average_ion_mass' in profile_dict:
+        all_profile_kwargs['average_ion_mass'] = profile_dict['average_ion_mass']
+    if 'energy_confinement_time' not in all_profile_kwargs and tau_e_label in profile_dict:
+        all_profile_kwargs['energy_confinement_time'] = profile_dict[tau_e_label]
+
+    try:
+        combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(
+            eq_filename,
+            profile_dict['ni_spline'],
+            profile_dict['ne_spline'],
+            profile_dict['te_keV_spline'],
+            profile_dict['ti_keV_spline'],
+            working_dir=working_dir,
+            **all_profile_kwargs
+        )
+        # Save result to master_working_dir so it persists after cleanup
+        result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
+        with open(result_path, 'wb') as f:
+            pkl.dump({
+                'idx': idx,
+                'combined_xr': combined_xr,
+                'input_dict_out': input_dict_out,
+                'pest3_xr_vec': pest3_xr_vec,
+                'xarray_vec': xarray_vec,
+                'eq_filename': eq_filename,
+            }, f)
+
+        # Also save combined_xr directly as netCDF
+        if combined_xr is not None:
+            xr_path = os.path.join(master_working_dir, f'combined_xr_{idx}.nc')
+            combined_xr = combined_xr.assign_coords(run_idx=idx)
+            if 'time' in profile_dict:
+                combined_xr = combined_xr.assign(time=profile_dict['time'])
+            if 'time_idx' in profile_dict:
+                combined_xr = combined_xr.assign(time_idx=profile_dict['time_idx'])
+            if 'shot_id' in profile_dict:
+                combined_xr = combined_xr.assign(shot_id=profile_dict['shot_id'])
+            tmp_path = xr_path + '.tmp'
+            combined_xr.to_netcdf(tmp_path, engine="scipy")
+            os.replace(tmp_path, xr_path)
+
+        # Completion marker written LAST — unambiguous "this idx is done" signal.
+        open(marker_path, 'w').close()
+
+        print(f"[multi_run] Worker {worker_id}: Run {idx} "
+              f"({os.path.basename(eq_filename)}) completed successfully.")
+        return (idx, True, None)
+
+    except Exception as e:
+        import traceback
+        tb_str = traceback.format_exc()
+        print(f"[multi_run] Worker {worker_id}: Run {idx} "
+              f"({os.path.basename(eq_filename)}) failed: {e}\n{tb_str}")
+        return (idx, False, f"{e}\n{tb_str}")
+
+    finally:
+        # Clean the working directory for the next task on this worker.
+        _clean_working_dir(working_dir)
+
 def _clean_working_dir(working_dir):
     """Remove all files from working_dir except executables (rdcon, stride, pest3x).
 
@@ -266,6 +443,107 @@ def _clean_working_dir(working_dir):
         path = os.path.join(working_dir, entry)
         if os.path.isfile(path):
             os.remove(path)
+
+def _remake_nc_from_pickle(idx, master_working_dir, profile_dict=None, nc_path=None):
+    """Rebuild combined_xr_{idx}.nc from result_{idx}.pkl.
+
+    Returns the path written.  Raises if the pickle is missing/corrupt or holds
+    combined_xr=None (nothing to export).
+    """
+    pkl_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
+    if nc_path is None:
+        nc_path = os.path.join(master_working_dir, f'combined_xr_{idx}.nc')
+
+    if not os.path.exists(pkl_path):
+        raise FileNotFoundError(
+            f"Cannot remake .nc for run {idx}: {pkl_path} does not exist."
+        )
+    with open(pkl_path, 'rb') as f:          # truncated dump -> raises here
+        data = pkl.load(f)
+
+    combined_xr = data.get('combined_xr')
+    if combined_xr is None:
+        raise ValueError(
+            f"Cannot remake .nc for run {idx}: pickled combined_xr is None."
+        )
+
+    # Prefer augmentation metadata carried in the pickle itself; fall back to
+    # the live profile_dict if provided.
+    src = {}
+    if isinstance(profile_dict, dict):
+        src.update(profile_dict)
+
+    combined_xr = combined_xr.assign_coords(run_idx=idx)
+    if 'time' in src:
+        combined_xr = combined_xr.assign(time=src['time'])
+    if 'time_idx' in src:
+        combined_xr = combined_xr.assign(time_idx=src['time_idx'])
+    if 'shot_id' in src:
+        combined_xr = combined_xr.assign(shot_id=src['shot_id'])
+
+    # Write to a temp file then atomically replace, so an interrupted remake
+    # can never leave a half-written .nc in place of the (now-being-fixed) one.
+    tmp_path = nc_path + '.tmp'
+    combined_xr.to_netcdf(tmp_path, engine="scipy")
+    os.replace(tmp_path, nc_path)
+    return nc_path
+
+def _validate_case(idx, master_working_dir, profile_dict=None, psi_n_name='psi_n'):
+    """Confirm run *idx* is complete, repairing its .nc from pickle if needed.
+    """
+    marker   = os.path.join(master_working_dir, f'done_{idx}.marker')
+    nc_path  = os.path.join(master_working_dir, f'combined_xr_{idx}.nc')
+
+    # 1) fast path
+    if os.path.exists(marker):
+        return True
+
+    # 2) no netCDF at all -> nothing to validate, run must (re)compute
+    if not os.path.exists(nc_path):
+        return False
+
+    # 3) try to validate the existing .nc
+    if _nc_psi_n_ok(nc_path, psi_n_name):
+        open(marker, 'w').close()
+        print(f"[validate] Run {idx}: .nc validated — marker written.")
+        return True
+
+    # .nc present but unreadable / psi_n non-monotonic -> repair from pickle
+    print(f"[validate] Run {idx}: .nc invalid — remaking from pickle.")
+    try:
+        _remake_nc_from_pickle(idx, master_working_dir, profile_dict, nc_path)
+    except Exception as e:
+        print(f"[validate] Run {idx}: remake FAILED ({e}) — will recompute.")
+        return False
+
+    # re-validate the freshly remade file before blessing it
+    if _nc_psi_n_ok(nc_path, psi_n_name):
+        open(marker, 'w').close()
+        print(f"[validate] Run {idx}: remade .nc validated — marker written.")
+        return True
+
+    print(f"[validate] Run {idx}: remade .nc still invalid — will recompute.")
+    return False
+
+def _nc_psi_n_ok(nc_path, psi_n_name='psi_n'):
+    """Load a scipy-netCDF dataset and confirm psi_n is monotonically increasing.
+    """
+    import numpy as np
+    import xarray as xr
+    try:
+        with xr.open_dataset(nc_path, engine="scipy") as ds:
+            ds.load()                                  # force full read
+            if psi_n_name not in ds.variables:
+                print(f"[validate] '{psi_n_name}' not in {os.path.basename(nc_path)}.")
+                return False
+            psi = np.asarray(ds[psi_n_name].values).ravel()
+        if psi.size == 0 or not np.all(np.isfinite(psi)):
+            return False
+        # strictly increasing; use np.diff > 0 (switch to >= to allow plateaus)
+        return bool(np.all(np.diff(psi) > 0))
+    except Exception as e:
+        print(f"[validate] load/check failed for {os.path.basename(nc_path)}: {e}")
+        return False
 
 # multi_compile
 

@@ -150,6 +150,124 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False, cl
     else:
         return None, None, errors
 
+def _get_num_cpus():
+    """Get the number of available CPUs. Default is to use SLURM environment variables."""
+    for var in ['SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_JOB_CPUS_PER_NODE']:
+        val = os.environ.get(var)
+        if val is not None:
+            return int(val)
+    # Fallback to OS-reported CPU count
+    return len(os.sched_getaffinity(0))
+
+def _worker_batch(args):
+    """Worker function that sequentially processes a batch of equilibria.
+
+    Each worker restricts itself to a single CPU thread and reuses a single
+    persistent working directory.  Results for each equilibrium are pickled
+    into master_working_dir/result_{idx}.pkl.
+    """
+    worker_id, batch, working_dir, master_working_dir, kwargs, fail_fast = args
+    # batch is a list of (idx, eq_filename, profile_dict) tuples
+
+    # Restrict this process to a single thread
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ['NUMEXPR_NUM_THREADS'] = '1'
+    # Disable HDF5 file locking (required for NFS filesystems)
+    # os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
+
+    os.makedirs(working_dir, exist_ok=True)
+
+    log_path = os.path.join(master_working_dir, f"worker_{worker_id}.log")
+    _log_fh = open(log_path, "w", buffering=1)  # line-buffered
+    os.dup2(_log_fh.fileno(), 1)
+    os.dup2(_log_fh.fileno(), 2)
+    sys.stdout = _log_fh
+    sys.stderr = _log_fh
+
+    run_results = []
+    for idx, eq_filename, profile_dict in batch:
+        # Extract per-profile rotation splines if present, allowing kwargs to override
+        all_profile_kwargs = dict(kwargs)
+        tau_e_label = all_profile_kwargs.pop('tau_e_label',None)
+        if 'Er_spline' not in all_profile_kwargs and 'Er_spline' in profile_dict:
+            all_profile_kwargs['Er_spline'] = profile_dict['Er_spline']
+        if 'omega_splines' not in all_profile_kwargs and 'omega_splines' in profile_dict:
+            all_profile_kwargs['omega_splines'] = profile_dict['omega_splines']
+        if 'Zeff' not in all_profile_kwargs and 'Zeff' in profile_dict:
+            all_profile_kwargs['Zeff'] = profile_dict['Zeff']
+        if 'chi_perp_spline' not in all_profile_kwargs and 'chi_perp_spline' in profile_dict:
+            all_profile_kwargs['chi_perp_spline'] = profile_dict['chi_perp_spline']
+        if 'energy_confinement_time' not in all_profile_kwargs and 'energy_confinement_time' in profile_dict:
+            all_profile_kwargs['energy_confinement_time'] = profile_dict['energy_confinement_time']
+        if 'average_ion_mass' not in all_profile_kwargs and 'average_ion_mass' in profile_dict:
+            all_profile_kwargs['average_ion_mass'] = profile_dict['average_ion_mass']
+        if 'energy_confinement_time' not in all_profile_kwargs and tau_e_label in profile_dict:
+            all_profile_kwargs['energy_confinement_time'] = profile_dict[tau_e_label]
+        try:
+            combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(
+                eq_filename,
+                profile_dict['ni_spline'],
+                profile_dict['ne_spline'],
+                profile_dict['te_keV_spline'],
+                profile_dict['ti_keV_spline'],
+                working_dir=working_dir,
+                **all_profile_kwargs
+            )
+            # Save result to master_working_dir so it persists after cleanup
+            result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
+            with open(result_path, 'wb') as f:
+                pkl.dump({
+                    'idx': idx,
+                    'combined_xr': combined_xr,
+                    'input_dict_out': input_dict_out,
+                    'pest3_xr_vec': pest3_xr_vec,
+                    'xarray_vec': xarray_vec,
+                    'eq_filename': eq_filename,
+                }, f)
+            # Also save combined_xr directly as netCDF
+            if combined_xr is not None:
+                xr_path = os.path.join(master_working_dir, f'combined_xr_{idx}.nc')
+                #check if 'time' is in profile_dict:
+                combined_xr = combined_xr.assign_coords(run_idx=idx)
+                if 'time' in profile_dict:
+                    combined_xr = combined_xr.assign(time=profile_dict['time'])
+                if 'time_idx' in profile_dict:  
+                    combined_xr = combined_xr.assign(time_idx=profile_dict['time_idx'])
+                if 'shot_id' in profile_dict:
+                    combined_xr = combined_xr.assign(shot_id=profile_dict['shot_id'])
+                combined_xr.to_netcdf(xr_path, engine="scipy")
+            print(f"[multi_run] Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) completed successfully.")
+            run_results.append((idx, True, None))
+        except Exception as e:
+            import traceback
+            tb_str = traceback.format_exc()
+            print(f"[multi_run] Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) failed: {e}\n{tb_str}")
+            run_results.append((idx, False, f"{e}\n{tb_str}"))
+            if fail_fast:
+                raise RuntimeError(f"Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) failed") from e
+
+        # Clean the working directory for the next equilibrium
+        _clean_working_dir(working_dir)
+
+    return run_results
+
+def _clean_working_dir(working_dir):
+    """Remove all files from working_dir except executables (rdcon, stride, pest3x).
+
+    This keeps the working directory reusable across successive equilibria
+    without needing to re-copy the Fortran executables each time.
+    """
+    keep = {'rdcon', 'stride', 'pest3x'}
+    for entry in os.listdir(working_dir):
+        if entry in keep:
+            continue
+        path = os.path.join(working_dir, entry)
+        if os.path.isfile(path):
+            os.remove(path)
+
+# multi_compile
 
 def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=False):
     """Compile per-equilibrium results from multi_run into a single xarray dataset.
@@ -267,17 +385,6 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
     print("Save successful")
 
     return compiled_xr, compiled_inputs_xr
-
-def _signature(ds, dim='run_idx'):
-    """Cheap structural fingerprint that must match for a clean concat along `dim`.
-    Captures the things that typically break xr.concat: differing data variables,
-    differing non-concat dims/sizes, and differing coordinate sets."""
-    data_vars  = frozenset(ds.data_vars)
-    dims       = frozenset(d for d in ds.dims if d != dim)
-    dim_sizes  = frozenset((d, ds.sizes[d]) for d in ds.dims if d != dim)
-    coords     = frozenset(ds.coords)
-    return (data_vars, dims, dim_sizes, coords)
-
 def _divide_and_conquer(chunk, dim='run_idx'):
     """Find value-level offenders (e.g. conflicting non-index coordinate values)
     that survive metadata filtering. Returns (combined_or_None, broken_list).
@@ -317,6 +424,16 @@ def _divide_and_conquer(chunk, dim='run_idx'):
 
     combined = attempt(list(chunk))
     return combined, broken
+
+def _signature(ds, dim='run_idx'):
+    """Cheap structural fingerprint that must match for a clean concat along `dim`.
+    Captures the things that typically break xr.concat: differing data variables,
+    differing non-concat dims/sizes, and differing coordinate sets."""
+    data_vars  = frozenset(ds.data_vars)
+    dims       = frozenset(d for d in ds.dims if d != dim)
+    dim_sizes  = frozenset((d, ds.sizes[d]) for d in ds.dims if d != dim)
+    coords     = frozenset(ds.coords)
+    return (data_vars, dims, dim_sizes, coords)
 
 def intelligent_concat(combined_xr_list, dim='run_idx'):
     """Weed out xarrays that prevent xr.concat(combined_xr_list, dim=dim).
@@ -362,6 +479,41 @@ def intelligent_concat(combined_xr_list, dim='run_idx'):
         combined = combined.expand_dims(dim)
 
     return combined, broken
+
+def intelligent_concat_check(combined_xr_list, dim='run_idx'):
+    """Weed out xarrays that prevent xr.concat(combined_xr_list, dim=dim).
+
+    Strategy:
+      1. Bucket arrays by a cheap structural signature -> O(n) scan.
+      2. Concatenate the largest (majority) bucket directly.
+      3. If that still fails due to value-level conflicts, fall back to a
+         divide-and-conquer search within the bucket to isolate offenders.
+      4. Normalize so the return contract is consistent.
+
+    Returns
+    -------
+    combined : xarray object or None
+        A SINGLE concatenated xarray that always has `dim` present,
+        or None if nothing could be concatenated.
+    broken : list
+        The arrays that were excluded.
+    """
+    if not combined_xr_list:
+        return None, []
+
+    # --- Step 1: bucket by signature -------------------------------------
+    buckets = {}
+    for x in combined_xr_list:
+        buckets.setdefault(_signature(x, dim), []).append(x)
+
+    # --- Step 2: pick the majority bucket; everything else is broken ------
+    best_sig   = max(buckets, key=lambda s: len(buckets[s]))
+    candidates = buckets[best_sig]
+    broken     = [x for s, grp in buckets.items() if s != best_sig for x in grp]
+
+    return candidates, broken
+
+# multi_compile_zarr
 
 import os
 import gc
@@ -445,7 +597,7 @@ def multi_compile_zarr(
     n_added = 0
 
     print("Beginning streaming concatenation into Zarr...")
-    for i in range(3):
+    for i in range(n_runs):
         result_path = os.path.join(master_working_dir, f"result_{i}.pkl")
         if not os.path.exists(result_path):
             print(f"[multi_compile] WARNING: Result file not found for run {i}, skipping.")
@@ -500,37 +652,7 @@ def multi_compile_zarr(
             meta_ds = meta_dict_to_dataset(meta_data_dicts[i], ds=ds,
                                         episode_dim=episode_dim, verbose=debug)
             meta_ds = meta_ds.drop_vars('geqdsk_path')
-            # Set the episode coordinate for everything inside meta_ds:
-            #meta_ds = meta_ds.assign_coords({episode_dim: np.array([i])})
-            """
-            ds_vars     = set(ds.data_vars)
-            meta_vars   = set(meta_ds.data_vars)
-            ds_dims     = set(ds.dims)
-            meta_dims   = set(meta_ds.dims)
-
-            # data var in one side whose name is a dimension in the other
-            c = ds_vars   & meta_dims     # data_var in ds, dimension in meta_ds
-            d = meta_vars & ds_dims       # data_var in meta_ds, dimension in ds
-
-            # also catch: data var in one side whose name is a dimension on its OWN side
-            # (dim-without-coordinate colliding with a data var of the same name)
-            e = ds_vars   & ds_dims
-            f = meta_vars & meta_dims
-
-            print("data_var in ds, dim in meta_ds:", c)
-            print("data_var in meta_ds, dim in ds:", d)
-            print("data_var collides with own dim (ds):", e)
-            print("data_var collides with own dim (meta_ds):", f)
-            print("REAL CULPRITS:", c | d | e | f)
-            print(ds.dims)
-            print(meta_ds.dims)
-            print(ds.psi_n_Zeff)
-            print(meta_ds.psi_n_IDA)
-            sys.exit()
-            """
             ds = xr.merge([ds, meta_ds], compat="no_conflicts", combine_attrs="override")
-            #if "psi_n_IDA" in ds.dims:
-            #    ds = ds.assign_coords(psi_n_IDA=np.arange(ds.sizes["psi_n_IDA"]))
 
         # --- ROBUST run_idx handling -------------------------------------
         # add_to_zarr_store calls reset_coords(), which would demote/lose a
@@ -646,158 +768,6 @@ def multi_compile_zarr(
 
     print(f"[multi_compile] Compiled {n_added} runs into {zarr_path}")
     return compiled_xr, compiled_inputs_xr
-
-def intelligent_concat_check(combined_xr_list, dim='run_idx'):
-    """Weed out xarrays that prevent xr.concat(combined_xr_list, dim=dim).
-
-    Strategy:
-      1. Bucket arrays by a cheap structural signature -> O(n) scan.
-      2. Concatenate the largest (majority) bucket directly.
-      3. If that still fails due to value-level conflicts, fall back to a
-         divide-and-conquer search within the bucket to isolate offenders.
-      4. Normalize so the return contract is consistent.
-
-    Returns
-    -------
-    combined : xarray object or None
-        A SINGLE concatenated xarray that always has `dim` present,
-        or None if nothing could be concatenated.
-    broken : list
-        The arrays that were excluded.
-    """
-    if not combined_xr_list:
-        return None, []
-
-    # --- Step 1: bucket by signature -------------------------------------
-    buckets = {}
-    for x in combined_xr_list:
-        buckets.setdefault(_signature(x, dim), []).append(x)
-
-    # --- Step 2: pick the majority bucket; everything else is broken ------
-    best_sig   = max(buckets, key=lambda s: len(buckets[s]))
-    candidates = buckets[best_sig]
-    broken     = [x for s, grp in buckets.items() if s != best_sig for x in grp]
-
-    return candidates, broken
-
-def _get_num_cpus():
-    """Get the number of available CPUs. Default is to use SLURM environment variables."""
-    for var in ['SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_JOB_CPUS_PER_NODE']:
-        val = os.environ.get(var)
-        if val is not None:
-            return int(val)
-    # Fallback to OS-reported CPU count
-    return len(os.sched_getaffinity(0))
-
-
-def _clean_working_dir(working_dir):
-    """Remove all files from working_dir except executables (rdcon, stride, pest3x).
-
-    This keeps the working directory reusable across successive equilibria
-    without needing to re-copy the Fortran executables each time.
-    """
-    keep = {'rdcon', 'stride', 'pest3x'}
-    for entry in os.listdir(working_dir):
-        if entry in keep:
-            continue
-        path = os.path.join(working_dir, entry)
-        if os.path.isfile(path):
-            os.remove(path)
-
-
-def _worker_batch(args):
-    """Worker function that sequentially processes a batch of equilibria.
-
-    Each worker restricts itself to a single CPU thread and reuses a single
-    persistent working directory.  Results for each equilibrium are pickled
-    into master_working_dir/result_{idx}.pkl.
-    """
-    worker_id, batch, working_dir, master_working_dir, kwargs, fail_fast = args
-    # batch is a list of (idx, eq_filename, profile_dict) tuples
-
-    # Restrict this process to a single thread
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
-    os.environ['OPENBLAS_NUM_THREADS'] = '1'
-    os.environ['NUMEXPR_NUM_THREADS'] = '1'
-    # Disable HDF5 file locking (required for NFS filesystems)
-    # os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
-
-    os.makedirs(working_dir, exist_ok=True)
-
-    log_path = os.path.join(master_working_dir, f"worker_{worker_id}.log")
-    _log_fh = open(log_path, "w", buffering=1)  # line-buffered
-    os.dup2(_log_fh.fileno(), 1)
-    os.dup2(_log_fh.fileno(), 2)
-    sys.stdout = _log_fh
-    sys.stderr = _log_fh
-
-    run_results = []
-    for idx, eq_filename, profile_dict in batch:
-        # Extract per-profile rotation splines if present, allowing kwargs to override
-        all_profile_kwargs = dict(kwargs)
-        tau_e_label = all_profile_kwargs.pop('tau_e_label',None)
-        if 'Er_spline' not in all_profile_kwargs and 'Er_spline' in profile_dict:
-            all_profile_kwargs['Er_spline'] = profile_dict['Er_spline']
-        if 'omega_splines' not in all_profile_kwargs and 'omega_splines' in profile_dict:
-            all_profile_kwargs['omega_splines'] = profile_dict['omega_splines']
-        if 'Zeff' not in all_profile_kwargs and 'Zeff' in profile_dict:
-            all_profile_kwargs['Zeff'] = profile_dict['Zeff']
-        if 'chi_perp_spline' not in all_profile_kwargs and 'chi_perp_spline' in profile_dict:
-            all_profile_kwargs['chi_perp_spline'] = profile_dict['chi_perp_spline']
-        if 'energy_confinement_time' not in all_profile_kwargs and 'energy_confinement_time' in profile_dict:
-            all_profile_kwargs['energy_confinement_time'] = profile_dict['energy_confinement_time']
-        if 'average_ion_mass' not in all_profile_kwargs and 'average_ion_mass' in profile_dict:
-            all_profile_kwargs['average_ion_mass'] = profile_dict['average_ion_mass']
-        if 'energy_confinement_time' not in all_profile_kwargs and tau_e_label in profile_dict:
-            all_profile_kwargs['energy_confinement_time'] = profile_dict[tau_e_label]
-        try:
-            combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(
-                eq_filename,
-                profile_dict['ni_spline'],
-                profile_dict['ne_spline'],
-                profile_dict['te_keV_spline'],
-                profile_dict['ti_keV_spline'],
-                working_dir=working_dir,
-                **all_profile_kwargs
-            )
-            # Save result to master_working_dir so it persists after cleanup
-            result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
-            with open(result_path, 'wb') as f:
-                pkl.dump({
-                    'idx': idx,
-                    'combined_xr': combined_xr,
-                    'input_dict_out': input_dict_out,
-                    'pest3_xr_vec': pest3_xr_vec,
-                    'xarray_vec': xarray_vec,
-                    'eq_filename': eq_filename,
-                }, f)
-            # Also save combined_xr directly as netCDF
-            if combined_xr is not None:
-                xr_path = os.path.join(master_working_dir, f'combined_xr_{idx}.nc')
-                #check if 'time' is in profile_dict:
-                combined_xr = combined_xr.assign_coords(run_idx=idx)
-                if 'time' in profile_dict:
-                    combined_xr = combined_xr.assign(time=profile_dict['time'])
-                if 'time_idx' in profile_dict:  
-                    combined_xr = combined_xr.assign(time_idx=profile_dict['time_idx'])
-                if 'shot_id' in profile_dict:
-                    combined_xr = combined_xr.assign(shot_id=profile_dict['shot_id'])
-                combined_xr.to_netcdf(xr_path, engine="scipy")
-            print(f"[multi_run] Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) completed successfully.")
-            run_results.append((idx, True, None))
-        except Exception as e:
-            import traceback
-            tb_str = traceback.format_exc()
-            print(f"[multi_run] Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) failed: {e}\n{tb_str}")
-            run_results.append((idx, False, f"{e}\n{tb_str}"))
-            if fail_fast:
-                raise RuntimeError(f"Worker {worker_id}: Run {idx} ({os.path.basename(eq_filename)}) failed") from e
-
-        # Clean the working directory for the next equilibrium
-        _clean_working_dir(working_dir)
-
-    return run_results
 
 def meta_dict_to_dataset(meta, ds=None, episode_dim="run_idx",
                          rtol=1e-9, atol=1e-12, verbose=False) -> xr.Dataset:

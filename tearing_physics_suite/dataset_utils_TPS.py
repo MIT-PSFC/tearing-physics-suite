@@ -50,6 +50,161 @@ def _zarr_signature(ds, dim="run_idx"):
     coords = frozenset(ds.coords)
     return (data_vars, dims, coords)
 
+def _n_cpus():
+    for var in ("SLURM_CPUS_PER_TASK", "SLURM_CPUS_ON_NODE", "SLURM_JOB_CPUS_PER_NODE"):
+        v = os.environ.get(var)
+        if v:
+            return int(v)
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
+def _transform_run(i, master_working_dir, eq_filename, episode_dim,
+                   meta_dict=None, debug=False):
+    """Load result_{i}.pkl and apply the same per-run transform used by
+    multi_compile_zarr. Returns (ds, input_dict, eq_label) or (None, None, None).
+    NOTE: eq_filename is a SINGLE path (not the whole list) to keep task
+    payloads tiny when this is dispatched across 10k parallel tasks."""
+    result_path = os.path.join(master_working_dir, f"result_{i}.pkl")
+    if not os.path.exists(result_path):
+        return None, None, None
+    with open(result_path, "rb") as f:
+        data = pkl.load(f)
+    ds = data.get("combined_xr")
+    if ds is None:
+        return None, None, None
+
+    eq_label = os.path.basename(eq_filename)
+
+    # --- Zeff -> psi_n_Zeff ---
+    zeff_values = np.asarray(ds["Zeff"].values)
+    ds = ds.drop_vars("Zeff")
+    if "Zeff" in ds.dims:
+        if ds.sizes["Zeff"] != ds.sizes["psi_N_Zeff"]:
+            raise ValueError(
+                f"Cannot merge: Zeff has length {ds.sizes['Zeff']} "
+                f"but psi_N_Zeff has length {ds.sizes['psi_N_Zeff']}.")
+        rebuilt = {}
+        for name, da in ds.data_vars.items():
+            if "Zeff" in da.dims:
+                new_dims = tuple("psi_N_Zeff" if d == "Zeff" else d for d in da.dims)
+                rebuilt[name] = (new_dims, da.values)
+        for name, val in rebuilt.items():
+            ds[name] = val
+    ds["Zeff"] = xr.DataArray(zeff_values, dims="psi_N_Zeff")
+    ds = ds.rename({"psi_N_Zeff": "psi_n_Zeff"})
+
+    # --- float-cast integer index coords so NaN padding works ---
+    for _dim in ("r", "r_prime"):
+        if _dim in ds.coords and np.issubdtype(ds[_dim].dtype, np.integer):
+            ds = ds.assign_coords({_dim: ds[_dim].astype("float64")})
+
+    if meta_dict is not None:
+        meta_ds = meta_dict_to_dataset(meta_dict, ds=ds,
+                                       episode_dim=episode_dim, verbose=debug)
+        meta_ds = meta_ds.drop_vars("geqdsk_path")
+        ds = xr.merge([ds, meta_ds], compat="no_conflicts", combine_attrs="override")
+
+    if episode_dim in ds.coords:
+        ds = ds.reset_coords(episode_dim, drop=True)
+    if episode_dim not in ds.dims:
+        ds = ds.expand_dims(episode_dim)
+
+    return ds, data.get("input_dict_out"), eq_label
+
+
+def _normalize_for_store(ds, episode_dim):
+    """Reproduce add_to_zarr_store's normalization: non-index coords become
+    per-episode data vars; every data var carries the episode dim."""
+    ds = ds.reset_coords()  # non-dimension coords -> data vars (vary per episode)
+    if episode_dim not in ds.dims:
+        ds = ds.expand_dims(episode_dim)
+    for v in list(ds.data_vars):
+        if episode_dim not in ds[v].dims:
+            ds[v] = ds[v].expand_dims(episode_dim)
+    return ds
+
+
+def _promote_and_pad(ds, max_sizes, ragged_dims):
+    """Cast numeric vars living on ragged dims to float64 (so NaN pad is legal
+    and dtypes match the skeleton), then NaN-pad ragged dims up to max_sizes."""
+    for v in list(ds.data_vars):
+        vdims = ds[v].dims
+        if any(d in ragged_dims for d in vdims) and np.issubdtype(ds[v].dtype, np.number) \
+           and not np.issubdtype(ds[v].dtype, np.floating):
+            ds[v] = ds[v].astype("float64")
+    pad = {}
+    for d in ragged_dims:
+        if d in ds.dims and ds.sizes[d] < max_sizes[d]:
+            pad[d] = (0, max_sizes[d] - ds.sizes[d])
+    if pad:
+        ds = ds.pad(pad, constant_values=np.nan)
+    return ds
+
+
+def _scan_run_worker(args):
+    """PASS 1 task: transform + normalize a run, return its dim sizes,
+    structural signature, label and input_dict. Discards the array (low mem).
+
+    Also records, for each ragged-candidate INDEX coord, its first value and
+    stride so the driver can verify all runs are left-aligned/contiguous
+    before we NaN-pad them onto a shared coordinate."""
+    (i, master_working_dir, eq_filename, episode_dim, meta_dict, debug) = args
+    try:
+        ds, input_dict, eq_label = _transform_run(
+            i, master_working_dir, eq_filename, episode_dim, meta_dict, debug)
+        if ds is None:
+            return (i, False, "missing/none", None, None, None, None)
+        ds = _normalize_for_store(ds, episode_dim)
+
+        sizes = {d: int(ds.sizes[d]) for d in ds.dims if d != episode_dim}
+
+        # Alignment fingerprint for any dim that is ALSO an index coordinate.
+        # Keyed under synthetic "__align__" so the driver can pull it out and
+        # strip it before building max_sizes.
+        align = {}
+        for d in list(ds.dims):
+            if d == episode_dim:
+                continue
+            if d in ds.coords:
+                c = np.asarray(ds[d].values)
+                if c.size and np.issubdtype(c.dtype, np.number):
+                    first = float(c[0])
+                    step = float(c[1] - c[0]) if c.size > 1 else 0.0
+                    is_int = bool(np.issubdtype(c.dtype, np.integer))
+                    align[d] = (first, step, is_int)
+        sizes["__align__"] = align
+
+        sig = _zarr_signature(ds, dim=episode_dim)
+        return (i, True, None, sizes, sig, eq_label, input_dict)
+    except Exception:
+        import traceback
+        return (i, False, traceback.format_exc(), None, None, None, None)
+
+
+def _write_run_worker(args):
+    """PASS 2 task: transform, normalize, pad, drop coords, region-write one run
+    into its own episode slice. Safe in parallel because episode chunk == 1."""
+    (pos, i, master_working_dir, eq_filename, episode_dim, meta_dict,
+     zarr_path, max_sizes, ragged_dims) = args
+    try:
+        ds, _, _ = _transform_run(
+            i, master_working_dir, eq_filename, episode_dim, meta_dict, debug=False)
+        if ds is None:
+            return (i, False, "missing/none at write")
+        ds = _normalize_for_store(ds, episode_dim)
+        ds = _promote_and_pad(ds, max_sizes, ragged_dims)
+        # region writes only touch data vars; shared coords already live in skeleton
+        ds = ds.drop_vars(list(ds.coords))
+        ds = ds.load()  # one episode -> tiny, force numpy
+        ds.to_zarr(zarr_path, region={episode_dim: slice(pos, pos + 1)}, mode="r+")
+        return (i, True, None)
+    except Exception:
+        import traceback
+        return (i, False, traceback.format_exc())
+
 def multi_compile_zarr(
     eq_filenames,
     master_working_dir,
@@ -101,188 +256,181 @@ def multi_compile_zarr(
         print(f"[multi_compile] No error log found. Assuming all {n_runs} runs succeeded.")
 
     # --- stream each run into the Zarr store -----------------------------
-    eq_labels = []
-    input_dict_list = []
-    broken_runs = []
-    ref_signature = None
-    store_dim_sizes = {}   # tracks current max size of each non-episode dim
-    store_time_dim_size = None  # kept for add_to_zarr_store API compat
-    n_added = 0
+    # ================= PASS 1: parallel scan for exact ragged sizes =========
     n_effective = min(debug_len, n_runs) if debug_len else n_runs
+    ctx = multiprocessing.get_context("spawn")
+    n_workers = min(_n_cpus(), max(1, n_effective))
 
-    print("Beginning streaming concatenation into Zarr...")
-    for i in range(n_effective):
-        result_path = os.path.join(master_working_dir, f"result_{i}.pkl")
-        if not os.path.exists(result_path):
-            print(f"[multi_compile] WARNING: Result file not found for run {i}, skipping.")
-            continue
+    scan_tasks = [
+        (i, master_working_dir, eq_filenames[i], episode_dim,
+         meta_data_dicts[i] if meta_data_dicts else None, debug)
+        for i in range(n_effective)
+    ]
 
-        with open(result_path, "rb") as f:
-            data = pkl.load(f)
+    print(f"[multi_compile] PASS 1: scanning {n_effective} runs on {n_workers} workers...")
+    scan_results = []
+    with ctx.Pool(n_workers) as pool:
+        for r in tqdm(pool.imap_unordered(_scan_run_worker, scan_tasks),
+                      total=len(scan_tasks), desc="Scanning runs"):
+            scan_results.append(r)
+    scan_results.sort(key=lambda x: x[0])
 
-        ds = data["combined_xr"]
-        if ds is None:
-            print(f"[multi_compile] WARNING: Run {i} has no combined_xr, skipping.")
-            del data
-            continue
-
-        # Structural compatibility gate (replaces intelligent_concat bucketing).
-        sig = _zarr_signature(ds, dim=episode_dim)
-        if ref_signature is None:
-            ref_signature = sig
-        elif sig != ref_signature:
-            print(f"[multi_compile] Run {i} has incompatible structure -> broken.")
-            broken_runs.append(i)
-            del ds, data
-            continue
-
-        eq_label = os.path.basename(eq_filenames[i])
-        
-        # Set Zeff's coordinate to be psi_N_Zeff
-        zeff_values = np.asarray(ds["Zeff"].values)
-        ds = ds.drop_vars("Zeff")
-        if "Zeff" in ds.dims:
-            if ds.sizes["Zeff"] != ds.sizes["psi_N_Zeff"]:
-                raise ValueError(
-                    f"Cannot merge: Zeff has length {ds.sizes['Zeff']} "
-                    f"but psi_N_Zeff has length {ds.sizes['psi_N_Zeff']}."
-                )
-            rebuilt = {}
-            for name, da in ds.data_vars.items():
-                if "Zeff" in da.dims:
-                    new_dims = tuple("psi_N_Zeff" if d == "Zeff" else d for d in da.dims)
-                    rebuilt[name] = (new_dims, da.values)
-            for name, val in rebuilt.items():
-                ds[name] = val
-        ds["Zeff"] = xr.DataArray(zeff_values, dims="psi_N_Zeff")
-        ds = ds.rename({"psi_N_Zeff": "psi_n_Zeff"})
-
-        # Cast r / r_prime index coords to float to allow nans
-        for _dim in ("r", "r_prime"):
-            if _dim in ds.coords and np.issubdtype(ds[_dim].dtype, np.integer):
-                ds = ds.assign_coords({_dim: ds[_dim].astype("float64")})
-
-        if meta_data_dicts:
-            meta_ds = meta_dict_to_dataset(meta_data_dicts[i], ds=ds,
-                                        episode_dim=episode_dim, verbose=debug)
-            meta_ds = meta_ds.drop_vars('geqdsk_path')
-            ds = xr.merge([ds, meta_ds], compat="no_conflicts", combine_attrs="override")
-
-        # --- ROBUST run_idx handling -------------------------------------
-        # add_to_zarr_store calls reset_coords(), which would demote/lose a
-        # run_idx coordinate (esp. with string labels). So we feed run_idx in
-        # as a BARE integer dimension (no coord) and carry the eq label as an
-        # ordinary data variable that survives reset_coords() and the append.
-        if episode_dim in ds.coords:
-            ds = ds.reset_coords(episode_dim, drop=True)
-        if episode_dim not in ds.dims:
-            ds = ds.expand_dims(episode_dim)
-        # ds["eq_label"] = (episode_dim, np.array([eq_label], dtype=object))
-        # -----------------------------------------------------------------
-
-        if debug:
-            print(f"[multi_compile] Run {i} dataset structure:")
-            dims_str = "\n    ".join(f"{k}: {v}" for k, v in ds.sizes.items())
-            print(f"  Dimensions:\n    {dims_str}")
-            print()
-            coords_str = "\n    ".join(ds.coords)
-            print(f"  Coordinates:\n    {coords_str}")
-            print()
-            vars_str = "\n    ".join(ds.data_vars)
-            print(f"  Variables:\n    {vars_str}")
-            #import sys
-            #sys.exit()
-
-        #try:
-        success = add_to_zarr_store(
-            ds,
-            zarr_path,
-            episode_dim=episode_dim,
-            store_time_dim_size=store_time_dim_size,
-        )
-        #except Exception as e:
-        #    print(f"[multi_compile] Run {i} failed to append ({e}) -> broken.")
-        #    broken_runs.append(i)
-        #    del ds, data
-        #    continue
-
-        if success:
-            # Update tracked max sizes for all non-episode dims
-            for _d in ds.dims:
-                if _d != episode_dim:
-                    store_dim_sizes[_d] = max(store_dim_sizes.get(_d, 0), ds.sizes[_d])
-            # Keep varying_dim / store_time_dim_size in sync for add_to_zarr_store API
-            if varying_dim is None:
-                varying_dim = next((d for d in ds.dims if d != episode_dim), episode_dim)
-            store_time_dim_size = store_dim_sizes.get(varying_dim)
-            eq_labels.append(eq_label)
-            input_dict_list.append(data["input_dict_out"])
-            n_added += 1
-
-        del ds, data
-        if i > 0 and i % 40 == 0:
-            gc.collect()
-
-    if n_added == 0:
+    ok = [r for r in scan_results if r[1]]
+    if not ok:
         print("[multi_compile] No successful runs to compile.")
         return None, None
 
-    # --- chunk + consolidate (so the store reads back efficiently) -------
-    ds_store = xr.open_zarr(zarr_path, consolidated=True)
-    bytes_per_episode = ds_store.isel({episode_dim: 0}).nbytes
-    mean_mb = bytes_per_episode / (1024 * 1024)
-    episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n_added)
+    ref_sig = ok[0][4]
+    kept, broken_runs = [], []
+    eq_labels, input_dict_list = [], []
+    dim_min, dim_max = {}, {}
+    align_ref = {}   # dim -> (first, step, is_int) from the first kept run
+    align_bad = {}   # dim -> list of run indices that disagree
+    for (i, s, err, sizes, sig, eq_label, input_dict) in scan_results:
+        if not s:
+            if err and err != "missing/none":
+                print(f"[multi_compile] Run {i} scan failed -> broken.\n{err}")
+                broken_runs.append(i)
+            continue
+        if sig != ref_sig:
+            print(f"[multi_compile] Run {i} incompatible structure -> broken.")
+            broken_runs.append(i)
+            continue
 
-    chunk_spec = {episode_dim: episodes_per_chunk} | {
-        k: ds_store.sizes[k] for k in ds_store.dims if k != episode_dim
-    }
-    ds_store = zarr_chunk(ds_store, chunk_spec=chunk_spec)
+        align = sizes.pop("__align__", {})   # strip synthetic key
 
-    tmp_path = zarr_path + ".tmp"
-    ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
-    shutil.rmtree(zarr_path)
-    os.rename(tmp_path, zarr_path)
+        for d, sz in sizes.items():
+            dim_min[d] = min(dim_min.get(d, sz), sz)
+            dim_max[d] = max(dim_max.get(d, 0), sz)
+
+        # --- alignment consistency check (first value + stride) -------------
+        for d, (first, step, is_int) in align.items():
+            if d not in align_ref:
+                align_ref[d] = (first, step, is_int)
+            else:
+                rfirst, rstep, _ = align_ref[d]
+                if not (np.isclose(first, rfirst, rtol=0, atol=1e-9)
+                        and np.isclose(step, rstep, rtol=0, atol=1e-9)):
+                    align_bad.setdefault(d, []).append(i)
+
+        kept.append(i)
+        eq_labels.append(eq_label)
+        input_dict_list.append(input_dict)
+
+    n_added = len(kept)
+    if n_added == 0:
+        print("[multi_compile] No compatible runs to compile.")
+        return None, None
+
+    max_sizes = dim_max
+    ragged_dims = {d for d in dim_max if dim_min[d] < dim_max[d]}
+
+    # Fail loudly if any RAGGED index coord is not left-aligned/contiguous:
+    ragged_align_bad = {d: runs for d, runs in align_bad.items() if d in ragged_dims}
+    if ragged_align_bad:
+        msg = "\n".join(
+            f"  dim '{d}': ref start/step={align_ref[d][:2]}, "
+            f"{len(runs)} run(s) differ (e.g. {runs[:5]})"
+            for d, runs in ragged_align_bad.items()
+        )
+        raise ValueError(
+            "[multi_compile] Ragged index coords are NOT left-aligned across "
+            "runs; NaN-padding onto a shared coordinate would MISREGISTER data:\n"
+            f"{msg}\n"
+            "See notes: either store these as per-episode data vars, or realign."
+        )
+
+    print(f"[multi_compile] kept={n_added}, ragged dims={sorted(ragged_dims)}, "
+          f"max_sizes={max_sizes}")
+
+    # ================= build the pre-sized skeleton once ====================
+    ref_i = kept[0]
+    template, _, _ = _transform_run(
+        ref_i, master_working_dir, eq_filenames[ref_i], episode_dim,
+        meta_data_dicts[ref_i] if meta_data_dicts else None, debug)
+    template = _normalize_for_store(template, episode_dim)
+    template = _promote_and_pad(template, max_sizes, ragged_dims)
+
+    one = template.isel({episode_dim: 0}, drop=True)          # drop episode axis
+    skeleton = one.expand_dims({episode_dim: n_added})        # broadcast (view)
+    # episode chunk == 1 so parallel region writes never share a chunk:
+    skeleton = zarr_chunk(skeleton, {episode_dim: 1})
+    # ensure shared coords are eager numpy (so compute=False writes them now):
+    for c in list(skeleton.coords):
+        skeleton = skeleton.assign_coords({c: skeleton[c].compute()})
+
+    if os.path.exists(zarr_path):
+        shutil.rmtree(zarr_path)
+    # compute=False -> writes metadata + coords, defers (dask) data vars:
+    skeleton.to_zarr(zarr_path, mode="w", compute=False, consolidated=False)
+    del template, one, skeleton
+    gc.collect()
+
+    # ================= PASS 2: parallel region-writes =======================
+    write_tasks = [
+        (pos, i, master_working_dir, eq_filenames[i], episode_dim,
+         meta_data_dicts[i] if meta_data_dicts else None,
+         zarr_path, max_sizes, ragged_dims)
+        for pos, i in enumerate(kept)
+    ]
+
+    print(f"[multi_compile] PASS 2: writing {n_added} regions on {n_workers} workers...")
+    with ctx.Pool(n_workers) as pool:
+        for (i, okflag, err) in tqdm(pool.imap_unordered(_write_run_worker, write_tasks),
+                                     total=len(write_tasks), desc="Writing regions"):
+            if not okflag:
+                # NOTE: this episode's slice keeps fill values (garbage) --
+                # inspect/rerun if this fires. Its label still occupies a slot.
+                print(f"[multi_compile] region write FAILED run {i}:\n{err}")
+                broken_runs.append(i)
+
+    # ================= consolidate (+ optional single rechunk) ==============
+    ds_store = xr.open_zarr(zarr_path, consolidated=False)
+    if mb_per_chunk is not None:
+        bytes_per_episode = ds_store.isel({episode_dim: 0}).nbytes
+        mean_mb = bytes_per_episode / (1024 * 1024)
+        episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n_added)
+        if episodes_per_chunk > 1:
+            chunk_spec = {episode_dim: episodes_per_chunk} | {
+                k: ds_store.sizes[k] for k in ds_store.dims if k != episode_dim}
+            ds_store = zarr_chunk(ds_store, chunk_spec)
+            tmp_path = zarr_path + ".tmp"
+            ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
+            shutil.rmtree(zarr_path)
+            os.rename(tmp_path, zarr_path)
     zarr.consolidate_metadata(zarr_path)
 
-    # --- reopen lazily and attach run_idx labels from the in-memory list ---
-    compiled_xr = xr.open_zarr(zarr_path, consolidated=True)  # lazy, not in RAM
-
-    # eq_labels was appended only on successful store, in the same order as
-    # the run_idx dimension -> safe to assign positionally as the coordinate.
+    # ================= reopen lazily + attach labels ========================
+    compiled_xr = xr.open_zarr(zarr_path, consolidated=True)  # whole dataset, lazy
     assert len(eq_labels) == compiled_xr.sizes[episode_dim], (
         f"label/run_idx length mismatch: {len(eq_labels)} vs "
-        f"{compiled_xr.sizes[episode_dim]}"
-    )
+        f"{compiled_xr.sizes[episode_dim]}")
     compiled_xr = compiled_xr.assign_coords({episode_dim: eq_labels})
 
-    # --- scalar inputs (small, fine in memory) ---------------------------
+    # --- scalar inputs (small, fine in memory) ------------------------------
     scalar_keys = [
-        key
-        for key in input_dict_list[0]
-        if isinstance(
-            input_dict_list[0][key],
-            (int, float, bool, str, np.integer, np.floating),
-        )
+        key for key in input_dict_list[0]
+        if isinstance(input_dict_list[0][key],
+                      (int, float, bool, str, np.integer, np.floating))
     ]
     input_data_vars = {}
     for key in scalar_keys:
         vals = [d.get(key, np.nan) for d in input_dict_list]
         input_data_vars[key] = (episode_dim, vals)
-
-    compiled_inputs_xr = xr.Dataset(
-        input_data_vars, coords={episode_dim: eq_labels}
-    )
+    compiled_inputs_xr = xr.Dataset(input_data_vars, coords={episode_dim: eq_labels})
     inputs_path = os.path.join(master_working_dir, "compiled_inputs_xr.nc")
-    if debug_len==0:
+    if debug_len == 0:
         compiled_inputs_xr.to_netcdf(inputs_path, engine="scipy")
 
     if broken_runs:
+        broken_runs = sorted(set(broken_runs))
         print(f"[multi_compile] {len(broken_runs)} runs excluded: {broken_runs}")
-        if debug_len==0:
+        if debug_len == 0:
             with open(os.path.join(master_working_dir, "broken_runs.pkl"), "wb") as f:
                 pkl.dump(broken_runs, f)
 
-    debug_suffix = f" (debug_len={debug_len}, processed {n_effective}/{n_runs})" if debug_len else ""
+    debug_suffix = (f" (debug_len={debug_len}, processed {n_effective}/{n_runs})"
+                    if debug_len else "")
     print(f"[multi_compile] Compiled {n_added} runs into {zarr_path}{debug_suffix}")
     return compiled_xr, compiled_inputs_xr
 

@@ -624,7 +624,7 @@ def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_
 
     return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
 
-def _uniquify_r(da, assert_match=True):
+def _uniquify_r(ds):
     """
     Make degenerate dims 'r'/'r_prime' concatenable by replacing each with a
     UNIQUE INTEGER-VALUED FLOAT index, while preserving the real values and the
@@ -641,48 +641,168 @@ def _uniquify_r(da, assert_match=True):
             occ[i] = seen.get(v, 0)
             seen[v] = occ[i] + 1
         return occ
+    
+    def _unique_flag(vals):
+        # True where this value occurs exactly once in `vals`; False if it is
+        # part of a degenerate group (i.e. will be collapsed later).
+        _, inverse, counts = np.unique(
+            vals, return_inverse=True, return_counts=True)
+        return counts[inverse] == 1
 
-    has_r  = "r" in da.dims
-    has_rp = "r_prime" in da.dims
+    has_r  = "r" in ds.dims
+    has_rp = "r_prime" in ds.dims
 
     # r_prime is a copy of r -> compute the occurrence pattern once.
-    ref_vals = da["r"].values if has_r else da["r_prime"].values
+    ref_vals = ds["r"].values if has_r else ds["r_prime"].values
     occ = _occ_from_right(ref_vals)
+    unique = _unique_flag(ref_vals)
 
-    if assert_match and has_r and has_rp:
-        if not np.array_equal(da["r"].values, da["r_prime"].values):
+    if has_r and has_rp:
+        if not np.array_equal(ds["r"].values, ds["r_prime"].values):
             raise ValueError(
                 "r and r_prime differ in values; cannot share the occurrence "
                 "pattern. Set assert_match=False to handle them independently."
             )
 
-    def _apply(da, dim, vals, occ):
-        da = da.assign_coords({
-            f"{dim}_value": (dim, vals),   # real (degenerate) values
-            f"{dim}_occ":   (dim, occ),    # occurrence-from-right
+    def _apply(ds, dim, vals, occ, unique):
+        ds = ds.assign({
+            f"{dim}_value":  (dim, vals),    # real (degenerate) values
+            f"{dim}_occ":    (dim, occ),     # occurrence-from-right
+            f"{dim}_unique": (dim, unique),  # True if value occurs exactly once
         })
         # Replace the dim's index with unique integer-VALUED FLOATS 0.0..N-1.0
-        da = da.assign_coords({dim: np.arange(len(vals), dtype=float)})
-        return da
+        ds = ds.assign_coords({dim: np.arange(len(vals), dtype=float)})
+        return ds
 
     if has_r:
-        da = _apply(da, "r", ref_vals, occ)
+        ds = _apply(ds, "r", ref_vals, occ, unique)
     if has_rp:
-        da = _apply(da, "r_prime", da["r_prime"].values, occ)
-    return da
+        ds = _apply(ds, "r_prime", ds["r_prime"].values, occ,
+                    _unique_flag(ds["r_prime"].values))
+    return ds
+
+def add_unique_label(combined_xr, dims=("r", "r_prime")):
+    """Assumed {dim}_value, {dim}_occ present but {dim}_unique isn't."""
+
+    out = combined_xr
+    for dim in dims:
+        occ_name    = f"{dim}_occ"
+        value_name  = f"{dim}_value"
+        unique_name = f"{dim}_unique"
+        if occ_name not in out.data_vars:
+            raise ValueError(f"Cannot collapse, '{occ_name}' not found in dataset data_vars")
+        if value_name not in out.data_vars:
+            raise ValueError(f"Cannot collapse, '{value_name}' not found in dataset data_vars")
+
+        # Per-slice occurrence counts along `dim` -> per-slice uniqueness flag.
+        # counts comes back in (dim, *val_other) order.
+        counts, val_other = _counts_along_dim(out[value_name], dim)
+        unique = counts == 1                        # shape (dim, *val_other)
+
+        # {dim}_unique lives on the SAME domain as {dim}_value, and should
+        # share its dimension ORDER too.
+        out = out.assign({unique_name: ((dim, *val_other), unique)})
+        out[unique_name] = out[unique_name].transpose(*out[value_name].dims)
+
+        """
+        print(out[value_name])
+        print(out.r)
+        print(out.r_value)
+        print(out.r_occ)
+        print(out.r_unique)
+        print(out.q_rational)
+        print(out.psi_n_rational)
+        import sys
+        sys.exit()"""
+    return out
+
+def _counts_along_dim(da, dim):
+    """
+    Occurrence count of each value along `dim`, computed INDEPENDENTLY for
+    every combination of the other dimensions `da` lives on.
+    Returns (counts_ndarray shaped (dim, *other), other_dim_names).
+    np.unique groups exactly (no tolerance), matching the degenerate-surface
+    model where duplicates are the identical value repeated.
+    """
+    other = [d for d in da.dims if d != dim]
+    da = da.transpose(dim, *other)
+    arr = da.values
+    n = arr.shape[0]
+    flat = arr.reshape(n, -1)                       # (n, M) — M = prod(other)
+    counts = np.empty_like(flat, dtype=int)
+    for j in range(flat.shape[1]):
+        _, inv, c = np.unique(flat[:, j], return_inverse=True,
+                              return_counts=True)
+        counts[:, j] = c[inv]
+    return counts.reshape(arr.shape), other
 
 # Positional pick of one rational surface  combined_xr.isel(r=0)
 # Filter to primary occurrences (cheap)    keep = np.where(combined_xr.r_occ.values==0)[0]; combined_xr.isel(r=keep) ✅
 # Select by real value (all occurrences)   combined_xr.sel(r=(combined_xr.r_value==5.0)) ✅
 # Collapse to unique real-valued r         primary = collapse_to_primary(combined_xr); primary.sel(r=5.0) ✅
-
-# keep = np.where(xri.r_occ.values==0)[0]
-# xri2 = xri.isel(r=keep)
-# xri2.w_marg_surf.isel(Delta_prime_type=0).sel(code='stride').sel(nn=1).values
-# print(format_to_3sf(xri2.Delta_prime_surf.isel(Delta_prime_type=0).sel(code='stride').sel(nn=1).values))
-
-
 def collapse_to_primary(combined_xr, dims=("r", "r_prime"),
+                        expected=None, rtol=0.0, atol=0.0):
+    raise NotImplementedError("Incomplete")
+    out = combined_xr
+
+    for dim in dims:
+        occ_name   = f"{dim}_occ"
+        value_name = f"{dim}_value"
+        if occ_name not in out.data_vars:
+            raise ValueError(f"Cannot collapse, '{occ_name}' not found in dataset data_vars")
+        if value_name not in out.data_vars:
+            raise ValueError(f"Cannot collapse, '{value_name}' not found in dataset data_vars")
+        
+        # --- occ: defines which positions survive the collapse ---
+        # The primary pattern (occ==0) along `dim` must be the SAME for every
+        # other-dim slice, otherwise a single collapse index set is ill-defined.
+        occ = out[occ_name]
+        occ_other = [d for d in occ.dims if d != dim]
+        occ_arr = occ.transpose(dim, *occ_other).values.reshape(occ.sizes[dim], -1)
+        if not np.all((occ_arr == 0) == (occ_arr[:, :1] == 0)):
+            raise ValueError(
+                f"'{occ_name}': the primary pattern (occ==0) varies along "
+                f"{occ_other}; cannot pick a single set of positions to collapse."
+            )
+        keep = np.where(occ_arr[:, 0] == 0)[0]      # positions of primaries
+
+        # --- value: per-slice occurrence counts -> per-slice unique_surf ---
+        counts, val_other = _counts_along_dim(out[value_name], dim)
+        unique_surf = counts == 1                   # shape (dim, *val_other)
+
+        out = out.isel({dim: keep})
+        unique_surf = unique_surf[keep]             # fancy-index axis 0 (dim)
+
+        # Restore the real values as the dim coordinate.
+        vals = out[value_name]
+        if vals.ndim > 1:
+            vals = vals.isel({d: 0 for d in vals.dims if d != dim})
+        out = out.drop_vars([occ_name, value_name])
+        out = out.assign_coords({dim: (dim, vals.values)})
+
+        # unique_surf now lives on (dim, *val_other), not just dim.
+        out = out.assign_coords({
+            f"{dim}_unique_surf": ((dim, *val_other), unique_surf)
+        })
+        # uniqueness guard
+        dvals = out[dim].values
+        if len(np.unique(dvals)) != len(dvals):
+            raise ValueError(f"After collapse, '{dim}' still has duplicates.")
+        # optional reference check
+        if expected is not None and dim in expected:
+            exp = np.asarray(expected[dim])
+            if len(dvals) != len(exp):
+                raise ValueError(
+                    f"Collapsed '{dim}' length {len(dvals)} != expected {len(exp)}."
+                )
+            ok = (np.allclose(dvals, exp, rtol=rtol, atol=atol, equal_nan=True)
+                  if np.issubdtype(dvals.dtype, np.floating)
+                  else np.array_equal(dvals, exp))
+            if not ok:
+                raise ValueError(f"Collapsed '{dim}' does not match expected.")
+    return out
+
+def collapse_to_primary_old(combined_xr, dims=("r", "r_prime"),
                         expected=None, rtol=0.0, atol=0.0):
     out = combined_xr
     for dim in dims:

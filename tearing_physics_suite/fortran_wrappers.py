@@ -194,6 +194,8 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     if 'a_wall_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['a_wall_pest'] = rdcon_stride_input_dict['a_wall']
+        if rdcon_stride_input_dict['ishape']!=6 and rdcon_stride_input_dict['vac_flag']=='t':
+            print("WARNING: PEST3 cannot replicate GPEC's wall shape - calculation will differ.")
 
     if ('mtheta_pest' not in pest3_kwargs_dict) and pest_pull_mtheta:
         pest3_kwargs_dict['mtheta_pest'] = rdcon_stride_input_dict['mtheta']

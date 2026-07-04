@@ -32,7 +32,8 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         bin_2d='f',         #Binary output of processed 2D data
         dump_flag='f',      #Binary dump of basic equilibrium data and 2D rzphi spline
         out_ahg2msc='f',    #Output deprecated ahg2msc.out files (used to communicate with vacuum, now done through memory)
-        a_wall=21           #Controls ideal conformal shell distance. See vac.in description below.
+        a_wall=21,          #Controls ideal conformal shell distance if ishape=6. See vac.in description below.
+        ishape=6,           #ishape==6 -> conformal shell, ishape==8 -> DIII-D wall, ishape==42 -> wall shape read from wall_geo.in
         ):
     """Write the equil.in input file for GPEC equilibrium processing.
 
@@ -108,7 +109,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('   verbose_timer_output = f\n')
     f.write('/\n')
     f.write('&VACDAT\n')
-    f.write('   ishape = 6\n')
+    f.write('   ishape = '+str(ishape)+'\n')# ishape==8 -> DIII-D wall, ishape==42 -> wall read straight from wall_geo.in 
     f.write('   aw = 0.05\n')
     f.write('   bw = 1.5\n')
     f.write('   cw = 0\n')
@@ -214,7 +215,8 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         'out_2d': out_2d,
         'bin_2d': bin_2d,
         'dump_flag': dump_flag,
-        'a_wall': a_wall
+        'a_wall': a_wall,
+        'ishape': ishape
     }
 
     return return_dict
@@ -334,7 +336,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             sing_start_str=0,                    # Start integration at the sing_start'th rational from the axis (psilow). Different from rdcon sing_start since stride finds q_low searching from outside in
 
             #Extra 
-            a_wall=21,                           #Controls ideal conformal shell distance. See vac.in description below.
+            a_wall=21,                           # Controls ideal conformal shell distance. See vac.in description below.
+            ishape=6,                            # Set to 8 for DIII-D wall, 6 for a conformal shell (see vacuum_vac.f for more information)
             verbose = False,                     # Print verbose output to terminal
 
             #Scan logic: Default values will not affect above inputs.
@@ -370,7 +373,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         if os.path.exists(working_dir+'/vac.in'):
             os.remove(working_dir+'/vac.in')
 
-    if a_wall==0:
+    if a_wall==0 and ishape==6:
         vac_flag='f' 
     if vac_flag=='f':
         calc_dp_with_vac = 'f' # If vac_flag is false, then calc_dp_with_vac must be false
@@ -484,7 +487,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'verbose': verbose
     }
     
-    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,out_ahg2msc=out_ahg2msc,**kwargs)
+    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,ishape=ishape,out_ahg2msc=out_ahg2msc,**kwargs)
     #combine the dictionaries
     return_dict.update(equil_dict)
     

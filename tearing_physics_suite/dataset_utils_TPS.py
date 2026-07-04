@@ -1,3 +1,4 @@
+# "dataset_utils_TPS.py"
 import gc
 import os
 import shutil
@@ -127,31 +128,147 @@ def _normalize_for_store(ds, episode_dim):
     return ds
 
 
-def _promote_and_pad(ds, max_sizes, ragged_dims):
-    """Cast numeric vars living on ragged dims to float64 (so NaN pad is legal
-    and dtypes match the skeleton), then NaN-pad ragged dims up to max_sizes."""
+def _promote_and_pad(ds, max_sizes, ragged_dims, union_coords=None):
+    """Cast numeric ragged-dim vars to float64, reindex union dims onto the
+    shared lattice, then NaN-pad the remaining ragged dims (left-aligned).
+
+    - UNION dims (Option B): reindexed onto a common coordinate lattice so a
+      given physical value (e.g. mode number m=5) lands in the SAME slot in
+      every episode. Missing values become NaN in the correct positions.
+    - Other ragged dims: left-aligned NaN pad up to max_sizes (assumes the
+      coord is a simple left-aligned/contiguous extension, verified in Pass 1).
+    """
+    union_coords = union_coords or {}
+
+    # 1) float-cast numeric data vars on any ragged dim (so NaN is legal
+    #    and dtypes match the skeleton)
     for v in list(ds.data_vars):
         vdims = ds[v].dims
-        if any(d in ragged_dims for d in vdims) and np.issubdtype(ds[v].dtype, np.number) \
+        if any(d in ragged_dims for d in vdims) \
+           and np.issubdtype(ds[v].dtype, np.number) \
            and not np.issubdtype(ds[v].dtype, np.floating):
             ds[v] = ds[v].astype("float64")
+
+    # 2) UNION dims: reindex onto the shared lattice (physical registration)
+    for d, target in union_coords.items():
+        if d in ds.dims:
+            ds = ds.reindex({d: target})   # missing values -> NaN, correct slots
+
+    # 3) remaining ragged dims: left-aligned NaN pad (old behavior)
     pad = {}
     for d in ragged_dims:
+        if d in union_coords:
+            continue                       # already handled by reindex
         if d in ds.dims and ds.sizes[d] < max_sizes[d]:
             pad[d] = (0, max_sizes[d] - ds.sizes[d])
     if pad:
         ds = ds.pad(pad, constant_values=np.nan)
     return ds
 
+def _compute_union_grids(scan_results, union_dims, ref_sig, episode_dim):
+    """Option B: build a common (union) coordinate lattice for each dim in
+    `union_dims`, across all structurally-compatible runs.
+
+    Each run may cover a different *range* of the same underlying lattice
+    (e.g. poloidal mode number m = -12..40 vs -11..39). We take the sorted
+    union of all coord values so that, after reindex, a given physical value
+    (m=5) always lands in the SAME slot in every episode.
+
+    ONLY-IF-NECESSARY: a dim is unionized only when its coordinate actually
+    VARIES across runs. If every run shares an identical coord for a dim, we
+    skip it -> it remains a plain shared coord (no reindex, no store growth).
+    Consequently `union_coords` may be a subset of `union_dims`, or empty.
+
+    If anything needed unioning, a PICKLEABLE report (plain dict of built-in
+    types / lists) is printed summarizing what was merged.
+
+    Returns
+    -------
+    union_coords : dict[str, np.ndarray]
+        dim -> sorted unique coord values (target lattice), for dims that vary.
+    """
+    # Collect each run's coord (and its run index) per union dim.
+    accum = {d: [] for d in union_dims}       # d -> list of (run_idx, np.ndarray)
+    for (i, ok, err, sizes, sig, eq_label, input_dict) in scan_results:
+        if not ok or sig != ref_sig or sizes is None:
+            continue
+        coords = sizes.get("__coords__", {})
+        for d in union_dims:
+            arr = coords.get(d)
+            if arr is not None:
+                accum[d].append((i, np.asarray(arr)))
+
+    union_coords = {}
+    report = {}   # pickleable summary, only populated for dims that were unioned
+
+    for d, entries in accum.items():
+        if not entries:
+            continue
+        arrs = [a for _, a in entries]
+
+        # --- necessity check: are all runs' coords identical? --------------
+        ref = arrs[0]
+        varies = False
+        for a in arrs[1:]:
+            if a.shape != ref.shape or not np.array_equal(a, ref):
+                varies = True
+                break
+        if not varies:
+            # identical everywhere -> no union needed; stays a shared coord
+            continue
+
+        # --- build the shared lattice --------------------------------------
+        u = np.unique(np.concatenate(arrs))   # sorted + de-duplicated
+        if all(np.issubdtype(a.dtype, np.integer) for a in arrs):
+            u = u.astype(ref.dtype)
+        elif np.allclose(u, np.round(u)):
+            pass  # all-float but integral-valued lattice -> keep as-is
+        union_coords[d] = u
+
+        # --- pickleable report entry ---------------------------------------
+        sizes_seen = sorted({int(a.size) for a in arrs})
+        # Which runs are "short" (missing at least one union value) -> get NaNs.
+        uset = set(u.tolist())
+        short_runs = [int(ri) for ri, a in entries
+                      if not uset.issubset(set(a.tolist()))]
+        report[d] = {
+            "union_len": int(u.size),
+            "union_dtype": str(u.dtype),
+            "per_run_sizes": sizes_seen,        # e.g. [52, 53]
+            "min_size": int(min(sizes_seen)),
+            "max_size": int(max(sizes_seen)),
+            "union_min": (int(u.min()) if np.issubdtype(u.dtype, np.integer)
+                          else float(u.min())),
+            "union_max": (int(u.max()) if np.issubdtype(u.dtype, np.integer)
+                          else float(u.max())),
+            "n_runs_padded": len(short_runs),   # runs that gain NaN slots
+            "example_padded_runs": short_runs[:10],
+        }
+
+    # --- print the pickleable findings, only if anything was unioned -------
+    if report:
+        # report is a plain dict of str -> dict of {int,float,str,list} -> pickle-safe
+        print("[multi_compile] Option B union report (pickleable):")
+        for d, info in report.items():
+            print(f"    {d!r}: {info}")
+        # sanity: prove it round-trips through pickle (cheap, sizes are tiny)
+        try:
+            pkl.loads(pkl.dumps(report))
+        except Exception as e:  # pragma: no cover - should never happen
+            print(f"[multi_compile] WARNING: union report not pickleable: {e}")
+
+    return union_coords, report
 
 def _scan_run_worker(args):
     """PASS 1 task: transform + normalize a run, return its dim sizes,
     structural signature, label and input_dict. Discards the array (low mem).
 
     Also records, for each ragged-candidate INDEX coord, its first value and
-    stride so the driver can verify all runs are left-aligned/contiguous
-    before we NaN-pad them onto a shared coordinate."""
-    (i, master_working_dir, eq_filename, episode_dim, meta_dict, debug) = args
+    stride (under sizes['__align__']) so the driver can verify left-aligned
+    runs, and the full unique coord values for union dims (under
+    sizes['__coords__']) so the driver can build a shared lattice (Option B)."""
+    (i, master_working_dir, eq_filename, episode_dim, meta_dict, debug,
+     union_dims) = args
     try:
         ds, input_dict, eq_label = _transform_run(
             i, master_working_dir, eq_filename, episode_dim, meta_dict, debug)
@@ -177,6 +294,14 @@ def _scan_run_worker(args):
                     align[d] = (first, step, is_int)
         sizes["__align__"] = align
 
+        # Option B: ship unique coord values for union dims so the driver can
+        # build a shared lattice. Only these dims are serialized -> small.
+        coords = {}
+        for d in union_dims:
+            if d in ds.coords:
+                coords[d] = np.asarray(ds[d].values)
+        sizes["__coords__"] = coords
+
         sig = _zarr_signature(ds, dim=episode_dim)
         return (i, True, None, sizes, sig, eq_label, input_dict)
     except Exception:
@@ -185,17 +310,18 @@ def _scan_run_worker(args):
 
 
 def _write_run_worker(args):
-    """PASS 2 task: transform, normalize, pad, drop coords, region-write one run
-    into its own episode slice. Safe in parallel because episode chunk == 1."""
+    """PASS 2 task: transform, normalize, pad/reindex, drop coords, region-write
+    one run into its own episode slice. Safe in parallel because episode chunk
+    == 1."""
     (pos, i, master_working_dir, eq_filename, episode_dim, meta_dict,
-     zarr_path, max_sizes, ragged_dims) = args
+     zarr_path, max_sizes, ragged_dims, union_coords) = args
     try:
         ds, _, _ = _transform_run(
             i, master_working_dir, eq_filename, episode_dim, meta_dict, debug=False)
         if ds is None:
             return (i, False, "missing/none at write")
         ds = _normalize_for_store(ds, episode_dim)
-        ds = _promote_and_pad(ds, max_sizes, ragged_dims)
+        ds = _promote_and_pad(ds, max_sizes, ragged_dims, union_coords)
         # region writes only touch data vars; shared coords already live in skeleton
         ds = ds.drop_vars(list(ds.coords))
         ds = ds.load()  # one episode -> tiny, force numpy
@@ -212,6 +338,7 @@ def multi_compile_zarr(
     debug=True,
     episode_dim="run_idx",
     varying_dim=None,           # ragged dim for store_time_dim_size hint (auto-detected from first run)
+    union_dims=("m", "mode", "lr_index", "lr_prime"),  # Option B: unionize these
     mb_per_chunk=10,
     report_errs=True,
     meta_data_dicts=[],
@@ -225,6 +352,11 @@ def multi_compile_zarr(
     streams each run into a Zarr store on disk, holding only ~one array in
     memory at a time.
 
+    Ragged (varying-size) dimensions are handled in two ways:
+      - `union_dims` are reindexed onto a shared coordinate lattice (Option B),
+        so a given physical value lands in the SAME slot in every episode.
+      - all other ragged dims are left-aligned NaN-padded up to their max size.
+
     Returns
     -------
     compiled_xr : xr.Dataset
@@ -236,6 +368,7 @@ def multi_compile_zarr(
     n_runs = len(eq_filenames)
     if meta_data_dicts:
         assert len(meta_data_dicts)==n_runs
+    union_dims = set(union_dims or ())
     zarr_path = os.path.join(master_working_dir, "compiled_combined_xr.zarr")
 
     if os.path.exists(zarr_path) and remove_dir:
@@ -260,10 +393,11 @@ def multi_compile_zarr(
     n_effective = min(debug_len, n_runs) if debug_len else n_runs
     ctx = multiprocessing.get_context("spawn")
     n_workers = min(_n_cpus(), max(1, n_effective))
+    print(" N WORKERS::::" ,n_workers)
 
     scan_tasks = [
         (i, master_working_dir, eq_filenames[i], episode_dim,
-         meta_data_dicts[i] if meta_data_dicts else None, debug)
+         meta_data_dicts[i] if meta_data_dicts else None, debug, union_dims)
         for i in range(n_effective)
     ]
 
@@ -281,6 +415,13 @@ def multi_compile_zarr(
         return None, None
 
     ref_sig = ok[0][4]
+
+    # Option B: build union lattices BEFORE we pop __coords__ in the loop below
+    union_coords, union_report = _compute_union_grids(scan_results, union_dims, ref_sig, episode_dim)
+    if union_report:
+        with open(os.path.join(master_working_dir, "union_report.pkl"), "wb") as f:
+            pkl.dump(union_report, f)
+
     kept, broken_runs = [], []
     eq_labels, input_dict_list = [], []
     dim_min, dim_max = {}, {}
@@ -297,7 +438,8 @@ def multi_compile_zarr(
             broken_runs.append(i)
             continue
 
-        align = sizes.pop("__align__", {})   # strip synthetic key
+        align = sizes.pop("__align__", {})    # strip synthetic key
+        sizes.pop("__coords__", None)         # discard now; union already computed
 
         for d, sz in sizes.items():
             dim_min[d] = min(dim_min.get(d, sz), sz)
@@ -325,8 +467,18 @@ def multi_compile_zarr(
     max_sizes = dim_max
     ragged_dims = {d for d in dim_max if dim_min[d] < dim_max[d]}
 
-    # Fail loudly if any RAGGED index coord is not left-aligned/contiguous:
-    ragged_align_bad = {d: runs for d, runs in align_bad.items() if d in ragged_dims}
+    # Option B: union dims are sized by the lattice, and are correctly
+    # registered by reindex -> treat as ragged, max size = union length.
+    for d, u in union_coords.items():
+        max_sizes[d] = len(u)
+        ragged_dims.add(d)
+
+    # Fail loudly if any RAGGED index coord is not left-aligned/contiguous.
+    # Union dims are EXEMPT: reindex handles registration regardless of range.
+    ragged_align_bad = {
+        d: runs for d, runs in align_bad.items()
+        if d in ragged_dims and d not in union_coords
+    }
     if ragged_align_bad:
         msg = "\n".join(
             f"  dim '{d}': ref start/step={align_ref[d][:2]}, "
@@ -337,7 +489,8 @@ def multi_compile_zarr(
             "[multi_compile] Ragged index coords are NOT left-aligned across "
             "runs; NaN-padding onto a shared coordinate would MISREGISTER data:\n"
             f"{msg}\n"
-            "See notes: either store these as per-episode data vars, or realign."
+            "See notes: add these dims to `union_dims` (reindex onto a shared "
+            "lattice), store them as per-episode data vars, or realign."
         )
 
     print(f"[multi_compile] kept={n_added}, ragged dims={sorted(ragged_dims)}, "
@@ -349,7 +502,7 @@ def multi_compile_zarr(
         ref_i, master_working_dir, eq_filenames[ref_i], episode_dim,
         meta_data_dicts[ref_i] if meta_data_dicts else None, debug)
     template = _normalize_for_store(template, episode_dim)
-    template = _promote_and_pad(template, max_sizes, ragged_dims)
+    template = _promote_and_pad(template, max_sizes, ragged_dims, union_coords)
 
     one = template.isel({episode_dim: 0}, drop=True)          # drop episode axis
     skeleton = one.expand_dims({episode_dim: n_added})        # broadcast (view)
@@ -370,7 +523,7 @@ def multi_compile_zarr(
     write_tasks = [
         (pos, i, master_working_dir, eq_filenames[i], episode_dim,
          meta_data_dicts[i] if meta_data_dicts else None,
-         zarr_path, max_sizes, ragged_dims)
+         zarr_path, max_sizes, ragged_dims, union_coords)
         for pos, i in enumerate(kept)
     ]
 

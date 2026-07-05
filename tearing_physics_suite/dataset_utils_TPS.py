@@ -558,7 +558,24 @@ def multi_compile_zarr(
     assert len(eq_labels) == compiled_xr.sizes[episode_dim], (
         f"label/run_idx length mismatch: {len(eq_labels)} vs "
         f"{compiled_xr.sizes[episode_dim]}")
-    compiled_xr = compiled_xr.assign_coords({episode_dim: eq_labels})
+
+    # --- store eq_labels as their OWN variable in the Zarr store ------------
+    # We do NOT touch the existing (integer) run_idx index array. Instead we add
+    # a separate string variable 'eq_label' along the run_idx dimension so the
+    # labels persist on disk and can be recovered on reload without a pickle.
+    eq_labels_arr = np.asarray(eq_labels, dtype="U")
+    xr.Dataset({"eq_label": (episode_dim, eq_labels_arr)}).to_zarr(
+        zarr_path, mode="a", consolidated=True
+    )
+    print(f"[multi_compile] Wrote 'eq_label' variable "
+          f"({eq_labels_arr.size} labels) to {zarr_path}")
+
+    # reopen so the returned object carries the new variable, then attach
+    # eq_label as a non-dimension coordinate (run_idx stays integer everywhere)
+    compiled_xr = xr.open_zarr(zarr_path, consolidated=True)
+    compiled_xr = compiled_xr.assign_coords(
+        eq_label=(episode_dim, eq_labels_arr)
+    )
 
     # --- scalar inputs (small, fine in memory) ------------------------------
     scalar_keys = [
@@ -570,10 +587,15 @@ def multi_compile_zarr(
     for key in scalar_keys:
         vals = [d.get(key, np.nan) for d in input_dict_list]
         input_data_vars[key] = (episode_dim, vals)
-    compiled_inputs_xr = xr.Dataset(input_data_vars, coords={episode_dim: eq_labels})
-    inputs_path = os.path.join(master_working_dir, "compiled_inputs_xr.nc")
+    # keep run_idx integer; carry the labels alongside as 'eq_label'
+    compiled_inputs_xr = xr.Dataset(input_data_vars)
+    compiled_inputs_xr = compiled_inputs_xr.assign_coords(
+        eq_label=(episode_dim, eq_labels_arr)
+    )
+    inputs_zarr_path = os.path.join(master_working_dir, "compiled_inputs_xr.zarr")
     if debug_len == 0:
-        compiled_inputs_xr.to_netcdf(inputs_path, engine="scipy")
+        compiled_inputs_xr.to_zarr(inputs_zarr_path, mode="w", consolidated=True)
+        print(f"[multi_compile] Wrote compiled_inputs_xr to {inputs_zarr_path}")
 
     if broken_runs:
         broken_runs = sorted(set(broken_runs))
@@ -581,6 +603,12 @@ def multi_compile_zarr(
         if debug_len == 0:
             with open(os.path.join(master_working_dir, "broken_runs.pkl"), "wb") as f:
                 pkl.dump(broken_runs, f)
+
+    # Persist eq_labels as a pickle fallback too (belt-and-braces: the Zarr now
+    # carries them via 'eq_label', but eq_labels.pkl remains a cheap,
+    # engine-independent backup).
+    with open(os.path.join(master_working_dir, "eq_labels.pkl"), "wb") as f:
+        pkl.dump(eq_labels, f)
 
     debug_suffix = (f" (debug_len={debug_len}, processed {n_effective}/{n_runs})"
                     if debug_len else "")

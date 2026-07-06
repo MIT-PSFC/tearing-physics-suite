@@ -43,16 +43,85 @@ def dist_extractor(output_dir, xri, var_name,
                    where_option_dict=None,
                    one_surf=True,
                    unique_surf_filter=True,
-                   debug=False):
+                   debug=False,
+                   debug_n_per_time=None,   # randomly sample this many points per time slice
+                   sample_dim='run_idx',    # dimension to subsample / split along
+                   random_seed=None,        # reproducibility for the random sampling
+                   timing=True):            # print timing diagnostics
+    from time import perf_counter
     os.makedirs(output_dir, exist_ok=True)
-    time_idxs = sorted(set(xri.IDA_time_idx.values.tolist()))
+    rng = np.random.default_rng(random_seed)
+
+    # cumulative timers across all slices
+    t_totals = {
+        'split_isel': 0.0, 'ida_time_compute': 0.0, 'sel': 0.0, 'isel': 0.0,
+        'add_unique': 0.0, 'where': 0.0, 'sample': 0.0, 'extract_values': 0.0,
+    }
+    def _tic():
+        return perf_counter()
+    def _toc(key, t0, label=None, indent=1):
+        dt = perf_counter() - t0
+        t_totals[key] += dt
+        if timing:
+            print(f"[timing]{'  '*indent}{label or key}: {dt:.3f}s", flush=True)
+        return dt
+
+    t_start = _tic()
+
+    # -----------------------------------------------------------------
+    # BUILD A MINIMAL VARIABLE SUBSET (big speed win)
+    # -----------------------------------------------------------------
+    t0 = _tic()
+    needed = {var_name, 'IDA_time_idx', 'IDA_time'}
+    if where_option_dict:
+        needed.update(where_option_dict.keys())
+    for dim in ("r", "r_prime"):
+        needed.update([f"{dim}_value", f"{dim}_occ"])
+        if f"{dim}_unique" in xri.data_vars:
+            needed.add(f"{dim}_unique")
+    present = [v for v in needed if v in xri.data_vars]
+    xri_small = xri[present]
+    if sample_dim in xri_small.dims:
+        xri_small = xri_small.chunk({sample_dim: -1})
+    if timing:
+        print(f"[timing] build subset ({len(present)} vars) + rechunk: "
+              f"{perf_counter()-t0:.3f}s", flush=True)
+
+    # -----------------------------------------------------------------
+    # Precompute the split index ONCE
+    # -----------------------------------------------------------------
+    t0 = _tic()
+    tidx_da = xri_small.IDA_time_idx
+    tidx_dim = tidx_da.dims[0]
+    tidx_arr = tidx_da.compute().values.ravel()
+    if timing:
+        print(f"[timing] IDA_time_idx compute (split index): "
+              f"{perf_counter()-t0:.3f}s  (len={tidx_arr.size})", flush=True)
+
+    time_idxs = sorted(set(tidx_arr.tolist()))
     times = []
     value_matrix = []
     xri_list = []
     n_skipped = 0
-    for time_idx in time_idxs:
-        xri_idx = xri.where((xri.IDA_time_idx == time_idx).compute(), drop=True)
+
+    if timing:
+        print(f"[timing] beginning loop over {len(time_idxs)} time indices",
+              flush=True)
+
+    for i_ti, time_idx in enumerate(time_idxs):
+        t_slice = _tic()
+        if timing:
+            print(f"[timing] --- slice {i_ti+1}/{len(time_idxs)} "
+                  f"(time_idx={time_idx}) ---", flush=True)
+
+        t0 = _tic()
+        pos = np.where(tidx_arr == time_idx)[0]
+        xri_idx = xri_small.isel({tidx_dim: pos})
+        _toc('split_isel', t0, 'split_isel')
+
+        t0 = _tic()
         ida_times = xri_idx.IDA_time.compute().values.ravel()
+        _toc('ida_time_compute', t0, 'ida_time_compute')
         unique_times = np.unique(ida_times[np.isfinite(ida_times)])
         if len(unique_times) != 1:
             print(f"IDA_time not unique for time_idx={time_idx}: {unique_times}")
@@ -60,24 +129,31 @@ def dist_extractor(output_dir, xri, var_name,
         time_val = float(unique_times[0])
         try:
             # --- .sel downselect ---
+            t0 = _tic()
             xri_idx_sel=xri_idx
             if debug: print(xri_idx_sel.coords)
             if sel_option_dict:
                 for key, val in sel_option_dict.items():
                     xri_idx_sel = xri_idx_sel.sel({key: val})
+            _toc('sel', t0, 'sel')
             # --- .isel downselect ---
+            t0 = _tic()
             xri_idx_isel = xri_idx_sel
             if debug: print(xri_idx_isel.coords)
             if isel_option_dict:
                 for key, val in isel_option_dict.items():
                     xri_idx_isel = xri_idx_isel.isel({key: val})
             if debug: print(xri_idx_isel.coords)
+            _toc('isel', t0, 'isel')
+            t0 = _tic()
             try:
                 if 'r_unique' not in xri_idx_isel.data_vars:
                     xri_idx_isel = add_unique_label(xri_idx_isel)
             except:
                 raise NotImplementedError("BRUH")
+            _toc('add_unique', t0, 'add_unique')
             # --- .where downselect ---
+            t0 = _tic()
             xri_idx_where = xri_idx_isel
             if where_option_dict:
                 if debug: print(f"[where] starting size: {xri_idx_where.sizes}")
@@ -94,6 +170,7 @@ def dist_extractor(output_dir, xri, var_name,
                         if debug: print(f"[where]   mask sum={int(mask.sum())}, size before drop={xri_idx_where.sizes}")
                         xri_idx_where = xri_idx_where.where(mask, drop=True)
                         if debug: print(f"[where]   size after drop={xri_idx_where.sizes}")
+            _toc('where', t0, 'where')
             if debug:
                 import sys
                 sys.exit()
@@ -101,10 +178,30 @@ def dist_extractor(output_dir, xri, var_name,
             print(f"[skip] time_idx={time_idx}: label/index not found -> {e}")
             n_skipped += 1
             continue
+        # --- extract the variable, subsampling BEFORE compute if debugging ---
+        t0 = _tic()
+        da_out = xri_idx_where[var_name]
+        if debug_n_per_time is not None and sample_dim in da_out.dims:
+            n = da_out.sizes[sample_dim]
+            if n > debug_n_per_time:
+                idx = np.sort(rng.choice(n, size=int(debug_n_per_time), replace=False))
+                da_out = da_out.isel({sample_dim: idx})
+                xri_idx_where = xri_idx_where.isel({sample_dim: idx})
+        _toc('sample', t0, 'sample')
+
+        t0 = _tic()
+        vals = da_out.values.tolist()
+        _toc('extract_values', t0, 'extract_values')
+
         # Only append time + values if selection succeeded
         times.append(time_val)
-        value_matrix.append(xri_idx_where[var_name].values.tolist())
+        value_matrix.append(vals)
         xri_list.append(xri_idx_where)
+
+        if timing:
+            print(f"[timing]   slice total: {perf_counter()-t_slice:.3f}s",
+                  flush=True)
+
     # --- all-skipped safeguard ---
     if time_idxs and n_skipped == len(time_idxs):
         print()
@@ -118,6 +215,15 @@ def dist_extractor(output_dir, xri, var_name,
         )
     if n_skipped:
         print(f"[info] Completed with {n_skipped}/{len(time_idxs)} time indices skipped.")
+
+    if timing:
+        print(f"[timing] ===== cumulative totals across all slices =====",
+              flush=True)
+        for k, v in sorted(t_totals.items(), key=lambda kv: -kv[1]):
+            print(f"[timing]   {k:<18s}: {v:.3f}s", flush=True)
+        print(f"[timing]   {'TOTAL wall':<18s}: {perf_counter()-t_start:.3f}s",
+              flush=True)
+
     return dict(
         output_dir=output_dir,
         var_name=var_name,
@@ -129,7 +235,6 @@ def dist_extractor(output_dir, xri, var_name,
         where_option_dict=where_option_dict,
     )
 
-
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -139,6 +244,7 @@ def dist_plotter(output_dir=None, var_name=None,
                  n_bins=40,
                  hist_frac=0.65,   # max histogram width as fraction of time spacing
                  hist_offset=0.2,
+                 angle_deg=0.0,   # shear angle for the 'angled' histogram
                  point_size=8,
                  save_name=None,
                  percent_bounds=[0, 100],
@@ -146,13 +252,23 @@ def dist_plotter(output_dir=None, var_name=None,
                  sel_option_dict=None,
                  isel_option_dict=None,
                  where_option_dict=None,
-                 ylog=False,):
+                 ylog=False,
+                 sample_size=1000,
+                 debug_n_per_time=None,   # randomly sample this many points per time slice
+                 random_seed=None):       # reproducibility for the random sampling
+    rng = np.random.default_rng(random_seed)
     times = np.asarray(times, dtype=float)
     # --- collapse each time's values into a clean 1D array of y-values ---
     y_per_time = []
     for vals in value_matrix:
         arr = np.atleast_1d(np.asarray(vals, dtype=float)).ravel()
         arr = arr[np.isfinite(arr)]
+        # debug: randomly subsample points from this time slice
+        if debug_n_per_time is not None and arr.size > debug_n_per_time:
+            idx = rng.choice(arr.size, size=int(debug_n_per_time), replace=False)
+            arr = arr[idx]
+        if len(arr) > sample_size:
+            arr = arr.flatten()[:sample_size]
         y_per_time.append(arr)
     nonempty = [a for a in y_per_time if a.size]
     all_vals = np.concatenate(nonempty) if nonempty else np.array([])
@@ -184,12 +300,8 @@ def dist_plotter(output_dir=None, var_name=None,
         bin_edges = np.logspace(np.log10(max(y_lo, 1e-300)), np.log10(y_hi), n_bins + 1)
     else:
         bin_edges = np.linspace(y_lo, y_hi, n_bins + 1)
-    # lower edge + full edge-to-edge span so bars tile correctly on any scale
-    bin_lo = bin_edges[:-1]
-    bin_span = (bin_edges[1:] - bin_edges[:-1])
-    bin_h = bin_span * 0.9
-    # small offset to keep the 0.9 shrink centered within each bin
-    bin_lo = bin_lo + 0.05 * bin_span
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    bin_h = (bin_edges[1:] - bin_edges[:-1]) * 0.9
     # horizontal scale for the histograms, based on time spacing
     if times.size > 1:
         dt = np.min(np.diff(np.sort(times)))
@@ -209,34 +321,30 @@ def dist_plotter(output_dir=None, var_name=None,
         if counts.max() == 0:
             continue
         widths = counts / counts.max() * hist_width
-        for yb, w, h in zip(bin_lo, widths, bin_h):
-            if w <= 0:
-                continue
-            ax.barh(yb, w, left=t + hist_offset*dt, height=h,
-                    align='edge',
-                    color='C0', alpha=0.55, zorder=2,
-                    edgecolor='none')
+        # no angled: shear each bar in x by its height above y_lo
+        ax.barh(bin_centers, widths, left=t + hist_offset*dt, height=bin_h,
+                color='C0', alpha=0.55, zorder=2,
+                edgecolor='none')
     ax.set_ylim(y_lo, y_hi)
     if ylog:
         ax.set_yscale('log')
     ax.set_xlabel('IDA_time')
     ax.set_ylabel(var_name)
-    ax.set_title(f"Distribution of {var_name} vs time")
+    ax.set_title(f'Distribution of {var_name} vs time')
     fig.tight_layout()
     if save_name is None:
         full_name=gen_name(var_name,
                 sel_option_dict,
                 isel_option_dict,
                 where_option_dict)
-        save_name = f"{full_name}_{int(_time.time())}.svg"
+        save_name = f'{full_name}_{int(_time.time())}.png'
     else:
-        save_name = f"{save_name}_{int(_time.time())}.svg"
+        save_name = f'{save_name}_{int(_time.time())}.png'
     if save_name is not None:
         out_path = os.path.join(output_dir, save_name)
-        fig.savefig(out_path, format="svg")
-        print(f"[saved] {out_path}")
+        fig.savefig(out_path, format='png')
+        print(f'[saved] {out_path}')
     return fig, ax, (times, value_matrix, xri_list)
-
 
 def gen_name(var_name,
                 sel_option_dict,
@@ -286,7 +394,6 @@ def gen_name(var_name,
                 parts.append(f"{key}{c}")
     return '_'.join(str(p) for p in parts)
 
-
 def prof_plotter(output_dir, var_name, times, xri_list,
                  alpha=0.4, lw=0.8, save_fmt="svg",):
     prof_dir = os.path.join(output_dir, f"{var_name}_profile_figs")
@@ -315,7 +422,6 @@ def prof_plotter(output_dir, var_name, times, xri_list,
         plt.close(fig)
         print(f"[saved] {out_path}")
 
-
 import numpy as np
 import sys
 
@@ -341,21 +447,21 @@ SHARED_PLOT_KW = dict(
 
 # ---- per-case parameters: (nn, r_value, y_range) -------------------------
 VAR_NAME = 'Delta_prime_surf'
-DP_cases = [
+cases = [
     {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
     {'nn': 2, 'r_value': 3.0, 'y_range': [-50, 60]},
     {'nn': 3, 'r_value': 4.0, 'y_range': [-100, 10]},
     {'nn': 4, 'r_value': 5.0, 'y_range': [-100, 10]},
 ]
-VAR_NAME = 'w_marg_surf'
-cases = [
+OVAR_NAME = 'w_marg_surf'
+Ocases = [
     {'nn': 1, 'r_value': 2.0, 'y_range': None , 'ylog':True},
     {'nn': 2, 'r_value': 3.0, 'y_range': None , 'ylog':True},
     {'nn': 3, 'r_value': 4.0, 'y_range': None , 'ylog':True},
     {'nn': 4, 'r_value': 5.0, 'y_range': None , 'ylog':True},
 ]
-VAR_NAME = 'dwdtau_max_surf'
-cases = [
+OVAR_NAME = 'dwdtau_max_surf'
+Ocases = [
     {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
     {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
     {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},

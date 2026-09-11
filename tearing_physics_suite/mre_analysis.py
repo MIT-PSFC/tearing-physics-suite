@@ -465,7 +465,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         X0_surf = rdcon_xarray['S_surf']**(-1/3)) # dimless
     #  Characteristic timescale of linear resistive mode growth
     rdcon_xarray = rdcon_xarray.assign(
-        Q0_surf = rdcon_xarray['X0_surf']/rdcon_xarray['taua_surf']) # seconds 
+        Q0_surf = rdcon_xarray['X0_surf']/rdcon_xarray['taua_surf']) # 1 / seconds 
 
     # Add mode number m for rational surfaces:
     m_ints = np.round(rdcon_xarray.n*rdcon_xarray['q_rational'].values).astype(int)

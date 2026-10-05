@@ -36,7 +36,8 @@ uv run tests/run_tests.py
 Complete install on Omega from login node, requires ssh key permissions for git clone.
 ``` 
 salloc -t 02:00:00 --mem=8G  
-module purge 
+module purge
+module load default-paths 
 module load gcc/11.x
 git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
 curl -LsSf https://astral.sh/uv/install.sh | sh 

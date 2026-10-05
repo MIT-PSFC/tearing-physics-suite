@@ -260,8 +260,15 @@ class LibraryBuilder:
         if lib64_candidate.exists():
             lib64_so_count = len(list(lib64_candidate.glob("*.so*")))
         
-        # Choose the directory with shared object files
-        if lib64_so_count > 0 and lib64_so_count >= lib_so_count:
+        # Prefer the directory that actually holds this library's .so
+        # (install_dir is shared, so .so counts alone can pick the wrong one)
+        stem = {"netcdf-fortran": "netcdff"}.get(self.name, self.name)
+        own_dirs = [d for d in (lib_candidate, lib64_candidate)
+                    if d.exists() and any(d.glob(f"lib{stem}.so*"))]
+
+        if own_dirs:
+            lib_dir = own_dirs[0]
+        elif lib64_so_count > 0 and lib64_so_count >= lib_so_count:
             lib_dir = lib64_candidate
         elif lib_so_count > 0:
             lib_dir = lib_candidate

@@ -314,7 +314,7 @@ def build_all(
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
-    libs_str  = "SKIPPED" if skip_libs  else ("OK" if all_ok and not missing else "FAILED")
+    libs_str  = "SKIPPED" if skip_libs  else ("OK" if not missing else "FAILED")
     p3_str    = "SKIPPED" if skip_pest3 else ("OK" if pest3_ok else "FAILED")
     gpec_str  = "SKIPPED" if skip_gpec  else ("OK" if gpec_ok  else "FAILED")
     print("\n" + "=" * 60)

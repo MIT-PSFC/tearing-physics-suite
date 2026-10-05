@@ -843,42 +843,36 @@ def is_library_built(install_dir, lib_names=None, verbose=False):
             print(f"Installation directory does not exist: {install_dir}")
         return False
     
-    # Check for lib or lib64 directory
-    lib_dir = None
-    for libname in ['lib', 'lib64']:
-        candidate = install_dir / libname
-        if candidate.exists():
-            lib_dir = candidate
-            break
-    
-    if not lib_dir:
+    # Libraries may be in lib or lib64 (e.g. LAPACK goes to lib64 while HDF5 uses lib)
+    lib_dirs = [install_dir / d for d in ('lib', 'lib64') if (install_dir / d).exists()]
+
+    if not lib_dirs:
         if verbose:
             print(f"No lib or lib64 directory found in {install_dir}")
         return False
-    
+
     if verbose:
-        print(f"Found library directory: {lib_dir}")
-    
+        print(f"Found library directories: {lib_dirs}")
+
     # Check for library files
     if lib_names:
         for lib_name in lib_names:
-            # Look for .so files matching the pattern
-            so_files = list(lib_dir.glob(f"lib{lib_name}*.so*"))
+            so_files = [f for d in lib_dirs for f in d.glob(f"lib{lib_name}*.so*")]
             if not so_files:
                 if verbose:
-                    print(f"No library files found for {lib_name} in {lib_dir}")
+                    print(f"No library files found for {lib_name} in {lib_dirs}")
                 return False
             if verbose:
                 print(f"Found library files for {lib_name}: {so_files}")
     else:
         # Just check if there are any .so files
-        so_files = list(lib_dir.glob("*.so*"))
+        so_files = [f for d in lib_dirs for f in d.glob("*.so*")]
         if not so_files:
             if verbose:
-                print(f"No library files (.so) found in {lib_dir}")
+                print(f"No library files (.so) found in {lib_dirs}")
             return False
         if verbose:
-            print(f"Found {len(so_files)} library files in {lib_dir}")
+            print(f"Found {len(so_files)} library files in {lib_dirs}")
     
     # Check for include directory
     include_dir = install_dir / "include"

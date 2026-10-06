@@ -70,6 +70,7 @@ All files come from the same TokaMaker reference equilibrium (GPEC `spline_impro
 ## Verification
 On this branch (`main` `025debf` + the four commits, built from HEAD `9243fbd`):
 - `test_TokaMaker.py -k "test_ITER_eq and not io"`: 4/4 pass. The same tests fail on an install without these commits, as they should.
+- Full `test_TokaMaker.py`: **106/106 pass** (5.7 min).
 
 The results above were measured on `GPECf_interface` (the same four commits on `PSFC_dev`), where the full `test_TokaMaker.py` passed 114/114.
 
@@ -78,4 +79,4 @@ The diagnosis scripts and inputs ship as `ifile_fixes_for_GPEC_interface_scripts
 
 ## Status
 - [x] Commits cherry-picked onto `main`, no conflicts
-- [x] Built; i-file tests pass
+- [x] Built; full `test_TokaMaker.py` passes (106/106)

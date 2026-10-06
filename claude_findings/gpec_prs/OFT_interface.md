@@ -16,15 +16,23 @@ Read OpenFUSIONToolkit/TokaMaker i-files (`save_ifile`, OFT branch `GPECf_interf
    - With the fix, flipping the sign of F in a file gives the same Δ′ to every digit: 8.50824 for both.
 2. **The i-file format is documented** in the reader header.
 
-## Results
-RDCON and STRIDE on the same TokaMaker equilibrium written both ways, nn = 1, mpsi = 257.
+## Results: i-file vs g-file
+One TokaMaker reference equilibrium (DIII-D-like, q0 = 1.25, q95 = 4.49), written by `save_ifile` with FF′ and p′ records and by `save_eqdsk`, run through STRIDE with `profile_source = integrate`. The last surface is at the same true ψ_N = 0.985 in every run. Integrated GSE is the θ-integrated residual over the θ-integrated source, median over 0.05 < ψ_N < 0.95.
 
-| file | RDCON Δ′(2/1) | STRIDE Δ′(2/1) |
-|---|---|---|
-| g257.geqdsk (efit, integrate) | 8.400 | 8.415 |
-| i129x257.ifile (ldp_i) | 8.246 | 8.261 |
+| file | size | GSE local / integrated (mpsi = 128) | Δ′(2/1), mpsi = 128 | 256 | 512 |
+|---|---|---|---|---|---|
+| g-file 129×129 (`efit`) | 0.29 MB | 1.7e-4 / 7.1e-5 | 8.60 | 8.28 | 8.61 |
+| g-file 257×257 | 1.1 MB | 1.8e-4 / 7.4e-5 | 8.57 | 9.24 | 8.80 |
+| g-file 513×513 | 4.3 MB | 1.8e-4 / 1.3e-4 | 8.52 | 8.93 | 8.26 |
+| i-file 65×129 (`ldp_i`) | 0.14 MB | 2.4e-4 / 4.5e-5 | 8.58 | 8.57 | 8.60 |
+| i-file 129×257 | 0.54 MB | 1.5e-4 / 2.4e-5 | 8.60 | 8.60 | 8.60 |
+| i-file 257×513 | 2.1 MB | 1.7e-4 / 3.0e-5 | 8.59 | 8.50 | 8.62 |
 
-The direct STRIDE runs in [spline_improvements.md](spline_improvements.md) and [GPECf_interface.md](GPECf_interface.md) show the i-file result staying fixed as mpsi changes (8.51 to 8.53 from mpsi 128 to 512), while the g-file result moves by about 10% at mpsi 256.
+![i-file vs g-file](OFT_interface/figures/ifile_vs_gfile.png)
+
+- The i-files give Δ′(2/1) = 8.50–8.62 at every mpsi; the g-files scatter over 8.26–9.24 at mpsi ≥ 256 (single-precision ψ(R,Z)).
+- The i-files' integrated GSE is 1.6–5× lower than the g-files'.
+- A 129×257 i-file (0.54 MB) beats the 513×513 g-file (4.3 MB) on both counts.
 
 ## Status
 - [x] Built; the negative-F test above passes
@@ -32,3 +40,6 @@ The direct STRIDE runs in [spline_improvements.md](spline_improvements.md) and [
   - The DCON, STRIDE, RDCON and GPEC outputs of the ideal and resistive Solovev examples are **bit-for-bit identical**.
   - The kinetic example differs by up to 8e-5, and PENTRC by up to 1e-6 in n and T, because PENTRC's kinetic table now uses pchip. The exceptions are the last 2 of 17 PENTRC output points next to the edge (ψ_N > 0.99), where T → 0: there `logLambda`/`nu` were already unphysical (negative) with the cubic spline and change value.
   - The example pass/fail pattern is unchanged; the gpec/pentrc/rmatch "failures" in the DIIID examples happen the same way on the base build.
+
+## How to reproduce
+The scripts and their inputs ship with this PR as `OFT_interface_scripts.zip`; its `README.md` has the commands.

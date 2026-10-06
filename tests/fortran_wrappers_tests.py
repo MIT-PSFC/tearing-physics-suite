@@ -94,13 +94,13 @@ if multi_wrapper_test1:
     if read_write_test:
         #Read the results
         print("Reading results from multi-wrapper test...")
-        rdcon_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + eq_filename_short +  '_rdcon_n' + str(nn) + '.nc'))
-        stride_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + eq_filename_short +  '_stride_n' + str(nn) + '.nc'))
-        pest3_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + eq_filename_short +  '_pest3_n' + str(nn) + '.nc'))
-        fpkl = open(os.path.join(results_dir, output_prefix + eq_filename_short + '_rdcon_stride_input_n'+str(nn)+'.pkl'),"rb")
+        rdcon_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) +  '_rdcon_n' + str(nn) + '.nc'))
+        stride_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) +  '_stride_n' + str(nn) + '.nc'))
+        pest3_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) +  '_pest3_n' + str(nn) + '.nc'))
+        fpkl = open(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) + '_rdcon_stride_input_n'+str(nn)+'.pkl'),"rb")
         rdcon_stride_input_dict_read = pd.read_pickle(fpkl)
         fpkl.close()
-        fpkl = open(os.path.join(results_dir, output_prefix + eq_filename_short + '_pest3_input_n'+str(nn)+'.pkl'),"rb")
+        fpkl = open(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) + '_pest3_input_n'+str(nn)+'.pkl'),"rb")
         pest3_input_dict_read = pd.read_pickle(fpkl)
         fpkl.close()
         #Check they're the same

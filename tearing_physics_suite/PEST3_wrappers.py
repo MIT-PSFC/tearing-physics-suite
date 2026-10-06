@@ -7,10 +7,20 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import Akima1DInterpolator
 import pickle as pkl
 import copy
 import math
+
+_EQ_SUFFIXES = ('.geqdsk', '.eqdsk', '.gfile')
+
+def eq_stem(eq_filename):
+    """Basename of eq_filename with a known equilibrium suffix removed (other dots kept)."""
+    name = os.path.basename(eq_filename)
+    for suffix in _EQ_SUFFIXES:
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
 
 home_dir = os.environ['TPSHOME']
 
@@ -242,25 +252,25 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
 
     if output_location is not None:
         if pest3_xr is not None:
-            pest3_output_name = str(output_prefix + eq_filename + '_pest3_n'+str(nn)+'.nc')
+            pest3_output_name = str(output_prefix + eq_stem(eq_filename) + '_pest3_n'+str(nn)+'.nc')
             if override_save and os.path.isfile(os.path.join(output_location, pest3_output_name)):
                 os.remove(os.path.join(output_location, pest3_output_name))
-            pest3_xr.to_netcdf(os.path.join(output_location, pest3_output_name))
+            pest3_xr.to_netcdf(os.path.join(output_location, pest3_output_name), engine="scipy")
             if verbose: print(f"Saved PEST3 output to {os.path.join(output_location, pest3_output_name)}")
         if save_terminal_output:
             if os.path.exists(os.path.join(working_dir, terminal_output_file)):
-                shutil.copy(os.path.join(working_dir, terminal_output_file), output_location+ '/' + output_prefix + eq_filename + terminal_output_file)
-                if verbose: print(f"Saved terminal output to {os.path.join(output_location, output_prefix + eq_filename + terminal_output_file)}")
+                shutil.copy(os.path.join(working_dir, terminal_output_file), output_location+ '/' + output_prefix + eq_stem(eq_filename) + terminal_output_file)
+                if verbose: print(f"Saved terminal output to {os.path.join(output_location, output_prefix + eq_stem(eq_filename) + terminal_output_file)}")
             else:
                 #raise an error with FileNotFoundError
                 raise FileNotFoundError(f"Pest3 terminal output file {terminal_output_file} not found in the working directory.")
         if save_input:
-            if override_save and os.path.isfile(os.path.join(output_location, output_prefix + eq_filename + '_pest3_input_n'+str(nn)+'.pkl')):
-                os.remove(os.path.join(output_location, output_prefix + eq_filename + '_pest3_input_n'+str(nn)+'.pkl'))
-            fpkl = open(os.path.join(output_location, output_prefix + eq_filename + '_pest3_input_n'+str(nn)+'.pkl'),"wb")
+            if override_save and os.path.isfile(os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_pest3_input_n'+str(nn)+'.pkl')):
+                os.remove(os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_pest3_input_n'+str(nn)+'.pkl'))
+            fpkl = open(os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_pest3_input_n'+str(nn)+'.pkl'),"wb")
             pkl.dump(pest3_input_dict,fpkl)
             fpkl.close()
-            if verbose: print(f"Saved PEST3 input to {os.path.join(output_location, output_prefix + eq_filename + '_pest3_input_n'+str(nn)+'.pkl')}")
+            if verbose: print(f"Saved PEST3 input to {os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_pest3_input_n'+str(nn)+'.pkl')}")
 
     return pest3_xr, pest3_ran, pest3_input_dict
 
@@ -441,7 +451,7 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
         return 0, False
 
     # Make cubic spline of pest3_xr.psinew.values and psipest3_xr.qa.values, shifted to the value of qlim_actual:
-    cs = CubicSpline(pest3_xr['psinew'].values, (pest3_xr['qa'].values-qlim_actual),extrapolate=False)
+    cs = Akima1DInterpolator(pest3_xr['psinew'].values, (pest3_xr['qa'].values-qlim_actual),extrapolate=False)
     roots = cs.roots()
 
     # Check if the cubic spline has roots:
@@ -452,7 +462,7 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
     if len(roots) > 1:
         print("WARNING: Multiple roots found for the pest3 q truncation point. Using the smallest one that is greater than 0.9")
         print("         Roots found = ", roots)
-        roots = [r for r in roots if r > 0.9]
+        roots = [root for root in roots if root > 0.9]
 
     psi_trunc_val = roots[0]
 

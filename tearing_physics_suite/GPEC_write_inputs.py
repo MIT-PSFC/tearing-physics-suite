@@ -3,6 +3,25 @@
 import os
 import shutil
 import xarray as xr
+import numpy as np
+
+ZEFF_MAX_PTS = 998 # rdcon's variable-length namelist read-in limit (GPEC Zeff_profile_support)
+
+def zeff_dict(Zeff):
+    """Return Zeff as {'x': psi_n, 'y': Zeff(psi_n)}, expanding a scalar to a flat profile."""
+    if isinstance(Zeff, dict):
+        x = np.asarray(Zeff['x'], dtype=float)
+        y = np.asarray(Zeff['y'], dtype=float)
+        if x.shape != y.shape or x.ndim != 1:
+            raise ValueError("Zeff dict 'x' and 'y' must be 1D arrays of equal length.")
+        if len(x) > ZEFF_MAX_PTS:
+            raise ValueError(f"Zeff fortran read-in requires psi_n resolution <= {ZEFF_MAX_PTS} pts.")
+        return {'x': x.tolist(), 'y': y.tolist()} # lists keep dict equality checks simple
+    try:
+        Zeff = float(Zeff)
+    except (TypeError, ValueError):
+        raise ValueError("Zeff must be a scalar number or a dict with 'x' and 'y' keys.")
+    return {'x': [0.0, 1.0], 'y': [Zeff, Zeff]}
 
 # Called from within write_rdcon_stride_inputs
 def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
@@ -31,7 +50,9 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         out_2d='f',         #Ascii output of processed 2D data
         bin_2d='f',         #Binary output of processed 2D data
         dump_flag='f',      #Binary dump of basic equilibrium data and 2D rzphi spline
-        a_wall=21           #Controls ideal conformal shell distance. See vac.in description below.
+        out_ahg2msc='f',    #Output deprecated ahg2msc.out files (used to communicate with vacuum, now done through memory)
+        a_wall=21,          #Controls ideal conformal shell distance if ishape=6. See vac.in description below.
+        ishape=6,           #ishape==6 -> conformal shell, ishape==8 -> DIII-D wall, ishape==42 -> wall shape read from wall_geo.in
         ):
     """Write the equil.in input file for GPEC equilibrium processing.
 
@@ -79,6 +100,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('    out_2d='+out_2d  +'\n') #Ascii output of processed 2D data
     f.write('    bin_2d='+bin_2d  +'\n') #Binary output of processed 2D data
     f.write('    dump_flag='+dump_flag +'\n') #Binary dump of basic equilibrium data and 2D rzphi spline
+    f.write('    out_ahg2msc='+out_ahg2msc +'\n') #Output deprecated ahg2msc.out files
     f.write('/'+'\n')
 
     f.close()
@@ -106,7 +128,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('   verbose_timer_output = f\n')
     f.write('/\n')
     f.write('&VACDAT\n')
-    f.write('   ishape = 6\n')
+    f.write('   ishape = '+str(ishape)+'\n')# ishape==8 -> DIII-D wall, ishape==42 -> wall read straight from wall_geo.in 
     f.write('   aw = 0.05\n')
     f.write('   bw = 1.5\n')
     f.write('   cw = 0\n')
@@ -212,7 +234,8 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         'out_2d': out_2d,
         'bin_2d': bin_2d,
         'dump_flag': dump_flag,
-        'a_wall': a_wall
+        'a_wall': a_wall,
+        'ishape': ishape
     }
 
     return return_dict
@@ -277,7 +300,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             sing_order_ceiling='f', # Auto detect the minium order to be retained in power series...
 
             regrid_flag='f',        # Redo the grid generation for galerkin method
-            Zeff=1.52,              # Plasma Z effective
+            Zeff={'x':[0.0,1.0],'y':[1.52,1.52]}, # Plasma Z effective dict, 'x' is psi_n, 'y' is Zeff
 
             #RDCON_OUTPUT
             crit_break='t',         # Color of the crit curve changes when crossing a singular surface
@@ -332,7 +355,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             sing_start_str=0,                    # Start integration at the sing_start'th rational from the axis (psilow). Different from rdcon sing_start since stride finds q_low searching from outside in
 
             #Extra 
-            a_wall=21,                           #Controls ideal conformal shell distance. See vac.in description below.
+            a_wall=21,                           # Controls ideal conformal shell distance. See vac.in description below.
+            ishape=6,                            # Set to 8 for DIII-D wall, 6 for a conformal shell (see vacuum_vac.f for more information)
             verbose = False,                     # Print verbose output to terminal
 
             #Scan logic: Default values will not affect above inputs.
@@ -368,7 +392,9 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         if os.path.exists(working_dir+'/vac.in'):
             os.remove(working_dir+'/vac.in')
 
-    if a_wall==0:
+    Zeff = zeff_dict(Zeff)
+
+    if a_wall==0 and ishape==6:
         vac_flag='f' 
     if vac_flag=='f':
         calc_dp_with_vac = 'f' # If vac_flag is false, then calc_dp_with_vac must be false
@@ -482,7 +508,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'verbose': verbose
     }
     
-    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,**kwargs)
+    equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,ishape=ishape,out_ahg2msc=out_ahg2msc,**kwargs)
     #combine the dictionaries
     return_dict.update(equil_dict)
     
@@ -552,7 +578,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    sing_order_ceiling='+sing_order_ceiling +'\n') # Auto detect the minium order to be retained in power series
 
         f.write('    regrid_flag='+regrid_flag  +'\n') #Redo the grid generation for galerkin method
-        f.write('    Zeff='+str(Zeff) +'\n') #Plasma Z effective
+        f.write('    psi_N_Zeff='+','.join(str(v) for v in Zeff['x'])+'\n') #Plasma Z effective psi_n values
+        f.write('    Zeff='+','.join(str(v) for v in Zeff['y'])+'\n') #Plasma Z effective values
         f.write('/'+'\n')
 
         f.write('&RDCON_OUTPUT'+'\n')
@@ -569,8 +596,6 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    bin_bal1='+bin_bal1  +'\n') #Binary output for bal_flag poloidal functions
         f.write('    out_bal2='+out_bal2  +'\n') #Ascii output for bal_flag functions
         f.write('    bin_bal2='+bin_bal2  +'\n') #Binary output for bal_flag functions
-        if not (out_ahg2msc is None):
-            f.write('    out_ahg2msc='+out_ahg2msc  +'\n')
         f.write('    MRE_flag='+MRE_flag  +'\n') #If true, outputs modified rutherford equation data
         f.write('    geom_flag='+geom_flag  +'\n') #If true, outputs surface integral information for the equilibrium
         f.write('/'+'\n')
@@ -642,8 +667,6 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    bin_bal2='+bin_bal2  +'\n') #Binary output for bal_flag functions
 
         f.write("""    netcdf_out=t""" +'\n') #Replicate ascii stride.out and delta_prime.out information in a netcdf file
-        if not (out_ahg2msc is None):
-            f.write('    out_ahg2msc='+out_ahg2msc  +'\n') 
         f.write('/'+'\n')
 
         f.write('&stride_params'+'\n')

@@ -11,7 +11,7 @@ import copy
 
 home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.GPEC_write_inputs import write_rdcon_stride_inputs
-from tearing_physics_suite.PEST3_wrappers import pest3_special_truncation_loop,pest3_clean_netcdf,PEST3_resistive_calculation
+from tearing_physics_suite.PEST3_wrappers import pest3_special_truncation_loop,pest3_clean_netcdf,PEST3_resistive_calculation,eq_stem
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 
 def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, run_pest3=True,
@@ -30,6 +30,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         override_save=True, 
         pest_pull_mtheta=True, # Change at your own risk, see mtheta_scan scan results
         debug_GPEC_resistive_calculation=False, #Quick exit after GPEC resistive calculation
+        ascii_q_plot=False,       # Print an ascii q-profile plot after the GPEC run
         **kwargs):
     """
     Run resistive toroidal calculation for a single toroidal mode number by calling
@@ -94,6 +95,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     if debug_GPEC_resistive_calculation:
         return rdcon_xr, stride_xr, rdcon_ran, stride_ran, rdcon_stride_input_dict
+
+    if ascii_q_plot and rdcon_xr is not None:
+        ascii_q_plotter(rdcon_xr)
 
     #########################################################################################################
     # Set up pest3 calculation:
@@ -182,6 +186,8 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     if 'a_wall_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['a_wall_pest'] = rdcon_stride_input_dict['a_wall']
+        if rdcon_stride_input_dict['ishape']!=6 and rdcon_stride_input_dict['vac_flag']=='t':
+            print("WARNING: PEST3 cannot replicate GPEC's wall shape - calculation will differ.")
 
     if ('mtheta_pest' not in pest3_kwargs_dict) and pest_pull_mtheta:
         pest3_kwargs_dict['mtheta_pest'] = rdcon_stride_input_dict['mtheta']
@@ -201,24 +207,27 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     
     if run_pest3:
         pest3_trunc_ran = False
-        if pest_match_truncation and ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)) and allow_trunc_loop:
-            if verbose: print("Running pest3 truncation algorithm. qlim_actual = ", qlim_actual)
-            if psilow_actual > rdcon_stride_input_dict['psilow'] and (psilow_actual != 100):
-                print("WARNING: axis truncation in RDCON/STRIDE differs from PEST3 truncation. Results may not be comparable.")
-            if qlim_actual > -100:
-                psihigh_trunc_pest, pest3_trunc_ran = pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dict,
-                    make_working_dir=make_working_dir,
-                    working_dir=working_dir,
-                    pest3_dir=pest3_dir,
-                    verbose=verbose,
-                    fresh_start=fresh_start,
-                    output_location=None,
-                    save_input=False,
-                    output_prefix_special=output_prefix,
-                    save_terminal_output=save_terminal_output,
-                )
-                if pest3_trunc_ran:
-                    pest3_kwargs_dict['psihigh_pest'] = psihigh_trunc_pest
+        try:
+            if pest_match_truncation and ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)) and allow_trunc_loop:
+                if verbose: print("Running pest3 truncation algorithm. qlim_actual = ", qlim_actual)
+                if psilow_actual > rdcon_stride_input_dict['psilow'] and (psilow_actual != 100):
+                    print("WARNING: axis truncation in RDCON/STRIDE differs from PEST3 truncation. Results may not be comparable.")
+                if qlim_actual > -100:
+                    psihigh_trunc_pest, pest3_trunc_ran = pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dict,
+                        make_working_dir=make_working_dir,
+                        working_dir=working_dir,
+                        pest3_dir=pest3_dir,
+                        verbose=verbose,
+                        fresh_start=fresh_start,
+                        output_location=None,
+                        save_input=False,
+                        output_prefix_special=output_prefix,
+                        save_terminal_output=save_terminal_output,
+                    )
+                    if pest3_trunc_ran:
+                        pest3_kwargs_dict['psihigh_pest'] = psihigh_trunc_pest
+        except Exception as e:
+            print(f"WARNING: PEST3 truncation loop failed: {e}")
 
         if not ((run_rdcon and rdcon_ran) or (run_stride and stride_ran)):
             print("**************************************************************** WARNING **********************************************************************")
@@ -226,12 +235,18 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
             print("**************************************************************** WARNING **********************************************************************")
             raise RuntimeError
 
-        pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
-            eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
-            working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
-            fresh_start=fresh_start, output_location=output_location,
-            output_prefix=output_prefix, save_input=save_input,
-            save_terminal_output=save_terminal_output, q_rationals=q_rationals, r=r, r_prime=r_prime, **pest3_kwargs_dict)
+        try: 
+            pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
+                eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
+                working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
+                fresh_start=fresh_start, output_location=output_location,
+                output_prefix=output_prefix, save_input=save_input,
+                save_terminal_output=save_terminal_output, q_rationals=q_rationals, r=r, r_prime=r_prime, **pest3_kwargs_dict)
+        except Exception as e:
+            pest3_ran = False
+            pest3_xr = None
+            pest3_input_dict = None
+            print(f"WARNING: PEST3 run failed: {e}")
 
         if verbose:
             print("Pest3 ran:",pest3_ran, "Pest3 truncation ran:", pest3_trunc_ran)        
@@ -249,6 +264,82 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     # Return all results:
     return rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict
+
+
+def ascii_q_plotter(rdcon_xr):
+    """ Takes rdcon_xr, prints an ascii plot of rdcon_xr.psi_n versus rdcon_xr.q.
+    rdcon_xr.psi_n ranges from 0 to 1 (60-500 pts), rdcon_xr.q lies roughly between
+    0.8 and 7, with extra vertical resolution given to the region q < 3.
+    Also overlays the rational-surface points (rdcon_xr.psi_n_rational,
+    rdcon_xr.q_rational). Plot is ~150 chars wide and < 20 rows high. """
+
+    # --- pull data out as plain numpy -------------------------------------
+    psi   = np.asarray(rdcon_xr.psi_n).ravel()
+    q     = np.asarray(rdcon_xr.q).ravel()
+    psi_r = np.asarray(rdcon_xr.psi_n_rational).ravel()
+    q_r   = np.asarray(rdcon_xr.q_rational).ravel()
+
+    # --- plot geometry -----------------------------------------------------
+    label_w = 5                 # chars reserved for the y-axis labels
+    plot_w  = 150 - label_w - 1 # leave room for label + "|"
+    plot_h  = 18                # rows (< 20)
+
+    split_q  = 3.0              # below this we want detail
+    frac_low = 0.70             # fraction of vertical space for [qmin, split_q]
+
+    qmin = min(0.8, float(np.nanmin(q)))
+    qmax = max(float(np.nanmax(q)), float(np.nanmax(q_r)) if q_r.size else 0.0)
+    qmax = max(qmax, split_q + 1e-9)   # guard
+
+    # --- nonlinear y mapping: q -> fractional height in [0, 1] -------------
+    def q_to_frac(val):
+        val = np.clip(val, qmin, qmax)
+        if val <= split_q:
+            return (val - qmin) / (split_q - qmin) * frac_low
+        return frac_low + (val - split_q) / (qmax - split_q) * (1.0 - frac_low)
+
+    def q_to_row(val):
+        f = q_to_frac(val)
+        return int(round((1.0 - f) * (plot_h - 1)))   # row 0 = top
+
+    def psi_to_col(val):
+        val = np.clip(val, 0.0, 1.0)
+        return int(round(val * (plot_w - 1)))
+
+    # --- build the grid ----------------------------------------------------
+    grid = [[' '] * plot_w for _ in range(plot_h)]
+
+    # main q profile
+    for p, qq in zip(psi, q):
+        if np.isfinite(p) and np.isfinite(qq):
+            grid[q_to_row(qq)][psi_to_col(p)] = '.'
+
+    # rational surfaces (overlay, take priority)
+    for p, qq in zip(psi_r, q_r):
+        if np.isfinite(p) and np.isfinite(qq):
+            grid[q_to_row(qq)][psi_to_col(p)] = 'x'
+
+    # --- y-axis labels at integer q values --------------------------------
+    row_label = {}
+    for qi in range(int(np.ceil(qmin)), int(np.floor(qmax)) + 1):
+        row_label[q_to_row(qi)] = f"{qi:>{label_w}.0f}"
+
+    # --- render ------------------------------------------------------------
+    print(f"q vs psi_n   (x = rational surface;  q<{split_q:.0f} region expanded)")
+    for r in range(plot_h):
+        lab = row_label.get(r, ' ' * label_w)
+        print(lab + '|' + ''.join(grid[r]))
+
+    # x-axis
+    print(' ' * label_w + '+' + '-' * plot_w)
+    axis = [' '] * plot_w
+    for xt in [0.0, 0.25, 0.5, 0.75, 1.0]:
+        s = f"{xt:.2f}"
+        c = psi_to_col(xt)
+        start = min(max(c - len(s) // 2, 0), plot_w - len(s))
+        for i, ch in enumerate(s):
+            axis[start + i] = ch
+    print(' ' * (label_w + 1) + ''.join(axis) + '   psi_n')
 
 def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False, 
         make_working_dir=True, 
@@ -361,8 +452,8 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
 
     rdcon_stride_input_dict = write_rdcon_stride_inputs(working_dir, eq_filename, nn=nn, run_stride=run_stride, run_rdcon=run_rdcon, fresh_start=fresh_start, **kwargs)
 
-    rdcon_output_name = str(output_prefix + eq_filename + '_rdcon_n'+str(nn)+'.nc')
-    stride_output_name = str(output_prefix + eq_filename + '_stride_n'+str(nn)+'.nc')
+    rdcon_output_name = str(output_prefix + eq_stem(eq_filename) + '_rdcon_n'+str(nn)+'.nc')
+    stride_output_name = str(output_prefix + eq_stem(eq_filename) + '_stride_n'+str(nn)+'.nc')
 
     #########################################################################################################
     # Call executables:
@@ -433,30 +524,30 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
         if run_rdcon and rdcon_xr is not None:
             if override_save and os.path.isfile(os.path.join(output_location, rdcon_output_name)):
                 os.remove(os.path.join(output_location, rdcon_output_name))
-            rdcon_xr.to_netcdf(os.path.join(output_location, rdcon_output_name))
+            rdcon_xr.to_netcdf(os.path.join(output_location, rdcon_output_name), engine="scipy")
             if verbose: print(f"Saved rdcon output to {os.path.join(output_location, rdcon_output_name)}")
         if run_stride and stride_xr is not None:
             if override_save and os.path.isfile(os.path.join(output_location, stride_output_name)):
                 os.remove(os.path.join(output_location, stride_output_name))
-            stride_xr.to_netcdf(os.path.join(output_location, stride_output_name))
+            stride_xr.to_netcdf(os.path.join(output_location, stride_output_name), engine="scipy")
             if verbose: print(f"Saved stride output to {os.path.join(output_location, stride_output_name)}")
         if save_input:
-            if override_save and os.path.isfile(os.path.join(output_location, output_prefix + eq_filename + '_rdcon_stride_input_n'+str(nn)+'.pkl')):
-                os.remove(os.path.join(output_location, output_prefix + eq_filename + '_rdcon_stride_input_n'+str(nn)+'.pkl'))
-            fpkl = open(os.path.join(output_location, output_prefix + eq_filename + '_rdcon_stride_input_n'+str(nn)+'.pkl'),"wb")
+            if override_save and os.path.isfile(os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_rdcon_stride_input_n'+str(nn)+'.pkl')):
+                os.remove(os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_rdcon_stride_input_n'+str(nn)+'.pkl'))
+            fpkl = open(os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_rdcon_stride_input_n'+str(nn)+'.pkl'),"wb")
             pkl.dump(rdcon_stride_input_dict,fpkl)
             fpkl.close()
-            if verbose: print(f"Saved rdcon and stride input to {os.path.join(output_location, output_prefix + eq_filename + '_rdcon_stride_input_n'+str(nn)+'.pkl')}")
+            if verbose: print(f"Saved rdcon and stride input to {os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_rdcon_stride_input_n'+str(nn)+'.pkl')}")
         if save_terminal_output:
             if run_rdcon and os.path.exists(os.path.join(working_dir, 'rdcon_terminal_output_n'+str(nn)+'.txt')):
-                shutil.copy(os.path.join(working_dir, 'rdcon_terminal_output_n'+str(nn)+'.txt'), output_location+ '/' + output_prefix + eq_filename + '_rdcon_terminal_output_n'+str(nn)+'.txt')
-                if verbose: print(f"Saved rdcon terminal output to {os.path.join(output_location, output_prefix + eq_filename + '_rdcon_terminal_output_n'+str(nn)+'.txt')}")
+                shutil.copy(os.path.join(working_dir, 'rdcon_terminal_output_n'+str(nn)+'.txt'), output_location+ '/' + output_prefix + eq_stem(eq_filename) + '_rdcon_terminal_output_n'+str(nn)+'.txt')
+                if verbose: print(f"Saved rdcon terminal output to {os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_rdcon_terminal_output_n'+str(nn)+'.txt')}")
             elif run_rdcon:
                 #raise an error with FileNotFoundError
                 raise FileNotFoundError(f"Rdcon terminal output file rdcon_terminal_output_n{nn}.txt not found in the working directory.")
             if run_stride and os.path.exists(os.path.join(working_dir, 'stride_terminal_output_n'+str(nn)+'.txt')):
-                shutil.copy(os.path.join(working_dir, 'stride_terminal_output_n'+str(nn)+'.txt'), output_location+ '/' + output_prefix + eq_filename + '_stride_terminal_output_n'+str(nn)+'.txt')
-                if verbose: print(f"Saved stride terminal output to {os.path.join(output_location, output_prefix + eq_filename + '_stride_terminal_output_n'+str(nn)+'.txt')}")
+                shutil.copy(os.path.join(working_dir, 'stride_terminal_output_n'+str(nn)+'.txt'), output_location+ '/' + output_prefix + eq_stem(eq_filename) + '_stride_terminal_output_n'+str(nn)+'.txt')
+                if verbose: print(f"Saved stride terminal output to {os.path.join(output_location, output_prefix + eq_stem(eq_filename) + '_stride_terminal_output_n'+str(nn)+'.txt')}")
             elif run_stride:
                 #raise an error with FileNotFoundError
                 raise FileNotFoundError(f"Stride terminal output file stride_terminal_output_n{nn}.txt not found in the working directory.")

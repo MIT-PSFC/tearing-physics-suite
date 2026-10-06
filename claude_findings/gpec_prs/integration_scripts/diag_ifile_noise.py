@@ -6,7 +6,8 @@ along the same geometric-angle ray from the axis by Newton iteration on TokaMake
 the file and of the Newton-refined points.
 
 usage: python diag_ifile_noise.py TRUTH IFILE [IFILE ...]   (TRUTH: make_truth_equilibrium.py OUT)
-Writes <name>_exact.ifile (Newton-refined R,Z plus truth FF', p' records) in the working directory.
+Writes <name>_exact.ifile (Newton-refined R,Z plus truth FF', p' records) and diag_results.json in the
+working directory. If the file has FF', p' records, their error against the truth profiles is reported too.
 """
 import os, sys, json
 import numpy as np
@@ -44,6 +45,7 @@ def refine(d, its=8):
     return out, np.abs(np.hypot(dr, dz) - rho), np.abs(f).max()
 
 
+res = {}
 for path in sys.argv[2:]:
     d = read_ifile(path)
     x = (pb[1] - d['psi']) / (pb[1] - pb[0])
@@ -52,8 +54,15 @@ for path in sys.argv[2:]:
     e, drho, fres = refine(d)
     sel = (x > 0.1) & (x < 0.9)
     r0, r1 = gs_residual(d, ffp, pp), gs_residual(e, ffp, pp)
-    print(f'{os.path.basename(path)}: |rho_file - rho_exact| median {np.median(drho):.1e} max {drho.max():.1e} m '
+    name = os.path.basename(path)[:-6]
+    res[name] = {'bytes': os.path.getsize(path), 'drho_med': float(np.median(drho)), 'drho_max': float(drho.max()),
+                 'gs_file': float(np.median(r0[sel])), 'gs_exact': float(np.median(r1[sel]))}
+    if 'ffp' in d:
+        res[name]['ffp_err'] = float(np.max(np.abs(d['ffp'] - ffp)) / np.max(np.abs(ffp)))
+        res[name]['pp_err'] = float(np.max(np.abs(d['pp'] - pp)) / np.max(np.abs(pp)))
+    print(f'{name}: |rho_file - rho_exact| median {np.median(drho):.1e} max {drho.max():.1e} m '
           f'(Newton |psi err| {fres:.1e}); GS residual median file {np.median(r0[sel]):.1e} -> exact-crossing '
           f'{np.median(r1[sel]):.1e}', flush=True)
     e['ffp'], e['pp'] = ffp, pp
-    write_ifile(os.path.basename(path).replace('.ifile', '_exact.ifile'), e)
+    write_ifile(name + '_exact.ifile', e)
+json.dump(res, open('diag_results.json', 'w'), indent=1)

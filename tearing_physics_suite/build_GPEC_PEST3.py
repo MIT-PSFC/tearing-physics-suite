@@ -64,6 +64,9 @@ GPEC_LEGACY_RECIPE = {
     },
     "a5_tearing_example": {},
 }
+# a8be45d built F and p from the tabulated values; later GPEC defaults to
+# profile_source="integrate", so the legacy copies pin "values" when supported.
+GPEC_LEGACY_PROFILE_SOURCE = 'profile_source="values"'
 
 
 _NAMELIST_KV = re.compile(r"^(\s*)([A-Za-z_]\w*)(\s*=\s*)(.*?)(\s*(?:!.*)?)$")
@@ -98,6 +101,18 @@ def _has_legacy_inputs(case_dir, case):
     return bool(namelists)
 
 
+def _pin_legacy_profile_source(equil_in):
+    """Add GPEC_LEGACY_PROFILE_SOURCE to the &equil_control group of *equil_in*."""
+    path = Path(equil_in)
+    lines = path.read_text().splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        if ln.strip().lower() == "&equil_control":
+            lines.insert(i + 1, f"    {GPEC_LEGACY_PROFILE_SOURCE}\n")
+            path.write_text("".join(lines))
+            return
+    raise KeyError(f"{path}: no &equil_control group")
+
+
 def prepare_GPEC_legacy_examples(gpec_dir=None, work_root=None):
     """
     Copy the GPEC test examples to *work_root* and apply GPEC_LEGACY_RECIPE,
@@ -113,6 +128,8 @@ def prepare_GPEC_legacy_examples(gpec_dir=None, work_root=None):
     work_root.mkdir(parents=True)
 
     outputs = shutil.ignore_patterns("*.nc", "*.bin", "*.out", "*.dat", "rdcon", "stride")
+    global_f = gpec_dir / "equil" / "global.f"
+    has_profile_source = global_f.is_file() and "profile_source" in global_f.read_text()
     for case, recipe in GPEC_LEGACY_RECIPE.items():
         dest = work_root / case
         shutil.copytree(src_root / case, dest, ignore=outputs)
@@ -122,6 +139,8 @@ def prepare_GPEC_legacy_examples(gpec_dir=None, work_root=None):
                     shutil.copy2(data_dir / eq, dest / eq)
             else:
                 _set_namelist_values(dest / fname, values)
+        if has_profile_source:
+            _pin_legacy_profile_source(dest / "equil.in")
     return work_root
 
 

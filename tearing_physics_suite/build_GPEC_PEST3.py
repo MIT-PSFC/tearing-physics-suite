@@ -9,6 +9,103 @@ from tearing_physics_suite.compiler_utils import detect_compilers, get_cmake_for
 
 home_dir = os.environ['TPSHOME']
 
+# ----------------------------------------------------------------------
+# GPEC install-test reference values: example -> (Delta_prime, tol).
+# "current": upstream develop example inputs as-is (set against 5be646f).
+# "legacy" : inputs as at GPEC a8be45d, recreated by GPEC_LEGACY_RECIPE.
+# ----------------------------------------------------------------------
+GPEC_TEST_REFERENCE = {
+    "current": {
+        "rdcon": {
+            "DIIID_resistive_example":   (3.89,       0.1),
+            "solovev_resistive_example": (4.676e+09,  1e+08),
+            "a5_tearing_example":        (13.2,       0.3),
+        },
+        "stride": {
+            "DIIID_resistive_example":   (7.40,       0.1),
+            "solovev_resistive_example": (7.726e+12,  1e+11),
+            "a5_tearing_example":        (13.2,       0.3),
+            "DIIID_ideal_example":       (7.40,       0.1),
+        },
+    },
+    "legacy": {
+        "rdcon": {
+            "DIIID_resistive_example":   (2.0,          0.1),
+            "solovev_resistive_example": (4.567634e+09, 1e+08),
+            "a5_tearing_example":        (13.2,         0.3),
+        },
+        "stride": {
+            "DIIID_resistive_example":   (8.0,          0.1),
+            "solovev_resistive_example": (6.4e+12,      1e+11),
+            "a5_tearing_example":        (13.2,         0.3),
+            "DIIID_ideal_example":       (8.0,          0.1),
+        },
+    },
+}
+
+# Legacy test recipe: only these namelist values and equilibrium files differ
+# from upstream develop. Equilibria are copied from <TPSHOME>/tests/data.
+GPEC_LEGACY_COMMIT = "a8be45d"
+GPEC_LEGACY_RECIPE = {
+    "DIIID_resistive_example": {
+        "equil.in": {"eq_filename": '"../DIIID_ideal_example/g147131.02300_DIIID_KEFIT"',
+                     "psihigh": "0.993"},
+    },
+    "DIIID_ideal_example": {
+        "equil.in": {"eq_filename": '"g147131.02300_DIIID_KEFIT"', "psihigh": "0.993"},
+        "equilibria": ["g147131.02300_DIIID_KEFIT"],
+    },
+    "solovev_resistive_example": {
+        "equil.in": {"psihigh": "0.99999"},
+        "vac.in":   {"a": "0.2415"},
+    },
+    "a5_tearing_example": {},
+}
+
+
+def _set_namelist_values(path, values):
+    """Set ``key = value`` entries in a Fortran namelist file, keeping comments."""
+    import re
+    path = Path(path)
+    pending = {k.lower(): v for k, v in values.items()}
+    kv = re.compile(r"^(\s*)([A-Za-z_]\w*)(\s*=\s*)(.*?)(\s*(?:!.*)?)$")
+    lines = path.read_text().splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        m = kv.match(ln.rstrip("\n"))
+        if m and m.group(2).lower() in pending:
+            new = pending.pop(m.group(2).lower())
+            lines[i] = m.group(1) + m.group(2) + m.group(3) + new + m.group(5) + ("\n" if ln.endswith("\n") else "")
+    if pending:
+        raise KeyError(f"{path}: namelist keys not found: {sorted(pending)}")
+    path.write_text("".join(lines))
+
+
+def prepare_GPEC_legacy_examples(gpec_dir=None, work_root=None):
+    """
+    Copy the GPEC test examples to *work_root* and apply GPEC_LEGACY_RECIPE,
+    so the upstream tree is left untouched. Returns the new examples root.
+    """
+    gpec_dir = Path(gpec_dir) if gpec_dir else Path(home_dir) / "submodules" / "GPEC"
+    work_root = Path(work_root) if work_root else Path(home_dir) / "build" / "gpec_legacy_examples"
+    src_root = gpec_dir / "docs" / "examples"
+    data_dir = Path(home_dir) / "tests" / "data"
+
+    if work_root.exists():
+        shutil.rmtree(work_root)
+    work_root.mkdir(parents=True)
+
+    outputs = shutil.ignore_patterns("*.nc", "*.bin", "*.out", "*.dat", "rdcon", "stride")
+    for case, recipe in GPEC_LEGACY_RECIPE.items():
+        dest = work_root / case
+        shutil.copytree(src_root / case, dest, ignore=outputs)
+        for fname, values in recipe.items():
+            if fname == "equilibria":
+                for eq in values:
+                    shutil.copy2(data_dir / eq, dest / eq)
+            else:
+                _set_namelist_values(dest / fname, values)
+    return work_root
+
 
 def is_pest3_built(build_dir=None):
     """
@@ -493,7 +590,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     return True
 
 
-def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="develop", disable_openmp=False):
+def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="develop", disable_openmp=False, legacy_test=True):
     """
     Build the GPEC code by downloading from GitHub and compiling with make.
     Requires that build_netcdf_lapack.py has already been used to compile
@@ -538,6 +635,9 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         If True, pass ``OMPFLAG=`` (empty) to make, omitting the OpenMP
         compiler flag so the compiled executables run single-threaded.
         Default is False (OpenMP enabled via OMPFLAG=-fopenmp).
+    legacy_test : bool
+        If True (default) and run_tests, also run the legacy install test
+        (GPEC_LEGACY_RECIPE inputs vs the "legacy" reference values).
 
     Returns
     -------
@@ -565,7 +665,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         print(f"GPEC already built in {gpec_source}, skipping compilation.")
         if run_tests:
             print("Running install test on existing build...")
-            test_ok = GPEC_install_test(gpec_dir=gpec_source, lib_paths=lib_paths)
+            test_ok = run_GPEC_install_tests(gpec_dir=gpec_source, lib_paths=lib_paths, legacy_test=legacy_test)
             if not test_ok:
                 print("✗ GPEC install test FAILED.")
                 return False
@@ -797,7 +897,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     # ------------------------------------------------------------------
     if run_tests:
         print("\nRunning post-build install test (pass run_tests=False to skip)...")
-        test_ok = GPEC_install_test(gpec_dir=gpec_source, lib_paths=lib_paths)
+        test_ok = run_GPEC_install_tests(gpec_dir=gpec_source, lib_paths=lib_paths, legacy_test=legacy_test)
         if not test_ok:
             print("✗ GPEC install test FAILED – build artefacts may be unusable.")
             return False
@@ -807,7 +907,15 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     return True
 
 
-def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
+def run_GPEC_install_tests(gpec_dir=None, lib_paths=None, legacy_test=True):
+    """Run the current-inputs GPEC install test and, if *legacy_test*, the legacy one."""
+    ok = GPEC_install_test(gpec_dir=gpec_dir, lib_paths=lib_paths)
+    if legacy_test:
+        ok = GPEC_install_test(gpec_dir=gpec_dir, lib_paths=lib_paths, legacy=True) and ok
+    return ok
+
+
+def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=False):
     """
     Verify that the newly installed GPEC ``rdcon`` and ``stride`` executables
     work by running the standard example cases and validating the output
@@ -819,7 +927,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
       3. Sets ``LD_LIBRARY_PATH`` so shared libraries are found at runtime.
       4. Runs 3 rdcon tests and 4 stride tests.
       5. Opens the NetCDF output files and checks ``Delta_prime`` against
-         reference values from ``tests/fortran_default_tests.py``.
+         ``GPEC_TEST_REFERENCE``.
 
     Parameters
     ----------
@@ -833,35 +941,17 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
         Fall-back installation prefix (e.g. ``submodules/utils``) used when
         *lib_paths* is not provided.
         Defaults to ``<home_dir>/submodules/utils``.
+    legacy : bool
+        If True, run on a copy of the examples with GPEC_LEGACY_RECIPE applied
+        (namelist values and equilibria as at GPEC a8be45d) and check against
+        the "legacy" reference values. Default False uses the upstream
+        examples and the "current" values.
 
     Returns
     -------
     bool
         ``True`` if all tests run and all ``Delta_prime`` values are within
         tolerance; ``False`` otherwise.
-
-    Notes
-    -----
-    Expected reference values (from ``tests/fortran_default_tests.py``):
-
-    rdcon
-      =========  ============================  =============  =======
-      Test       Example directory             Delta_prime    tol
-      =========  ============================  =============  =======
-      1          DIIID_resistive_example       2.0            ±0.1
-      2          solovev_resistive_example     4.567634e+09   ±1e+08
-      3          a5_tearing_example            13.2           ±0.3
-      =========  ============================  =============  =======
-
-    stride
-      =========  ============================  =============  =======
-      Test       Example directory             Delta_prime    tol
-      =========  ============================  =============  =======
-      1          DIIID_resistive_example       8.0            ±0.1
-      2          solovev_resistive_example     6.4e+12        ±1e+11
-      3          a5_tearing_example            13.2           ±0.3
-      4          DIIID_ideal_example           8.0            ±0.1
-      =========  ============================  =============  =======
     """
     import shutil as _shutil
     import xarray as xr
@@ -877,16 +967,26 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
         gpec_dir = Path(gpec_dir)
 
     examples_root = gpec_dir / "docs" / "examples"
+    mode = "legacy" if legacy else "current"
+    ref = GPEC_TEST_REFERENCE[mode]
 
     print("=" * 60)
-    print("GPEC install test")
+    print(f"GPEC install test ({mode} inputs"
+          + (f", as at GPEC {GPEC_LEGACY_COMMIT})" if legacy else ")"))
     print("=" * 60)
     print(f"  gpec_dir      : {gpec_dir}")
-    print(f"  examples_root : {examples_root}")
 
     if not examples_root.exists():
         print(f"ERROR: examples directory not found at {examples_root}")
         return False
+
+    if legacy:
+        try:
+            examples_root = prepare_GPEC_legacy_examples(gpec_dir)
+        except Exception as e:
+            print(f"ERROR: could not prepare legacy examples: {e}")
+            return False
+    print(f"  examples_root : {examples_root}")
 
     # ------------------------------------------------------------------
     # Locate rdcon and stride executables
@@ -997,22 +1097,22 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
             "name"    : "rdcon test 1: DIIID_resistive_example",
             "dir"     : examples_root / "DIIID_resistive_example",
             "nc_file" : "rdcon_output_n1.nc",
-            "expected": 2.0,
-            "tol"     : 0.1,
+            "expected": ref["rdcon"]["DIIID_resistive_example"][0],
+            "tol"     : ref["rdcon"]["DIIID_resistive_example"][1],
         },
         {
             "name"    : "rdcon test 2: solovev_resistive_example",
             "dir"     : examples_root / "solovev_resistive_example",
             "nc_file" : "rdcon_output_n1.nc",
-            "expected": 4.567634e+09,
-            "tol"     : 1e+08,
+            "expected": ref["rdcon"]["solovev_resistive_example"][0],
+            "tol"     : ref["rdcon"]["solovev_resistive_example"][1],
         },
         {
             "name"    : "rdcon test 3: a5_tearing_example",
             "dir"     : examples_root / "a5_tearing_example",
             "nc_file" : "rdcon_output_n1.nc",
-            "expected": 13.2,
-            "tol"     : 0.3,
+            "expected": ref["rdcon"]["a5_tearing_example"][0],
+            "tol"     : ref["rdcon"]["a5_tearing_example"][1],
         },
     ]
 
@@ -1074,22 +1174,22 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
             "name"    : "stride test 1: DIIID_resistive_example",
             "dir"     : examples_root / "DIIID_resistive_example",
             "nc_file" : "stride_output_n1.nc",
-            "expected": 8.0,
-            "tol"     : 0.1,
+            "expected": ref["stride"]["DIIID_resistive_example"][0],
+            "tol"     : ref["stride"]["DIIID_resistive_example"][1],
         },
         {
             "name"    : "stride test 2: solovev_resistive_example",
             "dir"     : examples_root / "solovev_resistive_example",
             "nc_file" : "stride_output_n1.nc",
-            "expected": 6.4e+12,
-            "tol"     : 1e+11,
+            "expected": ref["stride"]["solovev_resistive_example"][0],
+            "tol"     : ref["stride"]["solovev_resistive_example"][1],
         },
         {
             "name"         : "stride test 3: a5_tearing_example",
             "dir"          : examples_root / "a5_tearing_example",
             "nc_file"      : "stride_output_n1.nc",
-            "expected"     : 13.2,
-            "tol"          : 0.3,
+            "expected"     : ref["stride"]["a5_tearing_example"][0],
+            "tol"          : ref["stride"]["a5_tearing_example"][1],
             # stride exits with "Integration direction not reversed" for this
             # equilibrium – known code-level incompatibility, not a build fault.
             # Reported as a warning but does NOT count against all_passed.
@@ -1099,8 +1199,8 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None):
             "name"    : "stride test 4: DIIID_ideal_example",
             "dir"     : examples_root / "DIIID_ideal_example",
             "nc_file" : "stride_output_n1.nc",
-            "expected": 8.0,
-            "tol"     : 0.1,
+            "expected": ref["stride"]["DIIID_ideal_example"][0],
+            "tol"     : ref["stride"]["DIIID_ideal_example"][1],
         },
     ]
 

@@ -156,6 +156,7 @@ def build_all(
     debug=False,
     verbose=False,
     gpec_single_threaded=False,
+    legacy_gpec_test=True,
 ):
     """
     Run the full tearing-physics-suite build pipeline.
@@ -193,6 +194,9 @@ def build_all(
         If True, build GPEC with ``OMPFLAG=`` (empty), disabling OpenMP so
         the compiled executables run single-threaded.  Default is False
         (OpenMP enabled via ``OMPFLAG=-fopenmp``).
+    legacy_gpec_test : bool
+        If True (default), also run the GPEC legacy install test (example
+        inputs as at GPEC a8be45d, see ``GPEC_LEGACY_RECIPE``).
 
     Returns
     -------
@@ -304,6 +308,7 @@ def build_all(
             remake=remake_gpec,
             debug=debug,
             disable_openmp=gpec_single_threaded,
+            legacy_test=legacy_gpec_test,
         )
         if not gpec_ok:
             print("\nERROR: GPEC build failed.")
@@ -374,6 +379,8 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--gpec-single-threaded", action="store_true",
                         help="Build GPEC with OMPFLAG= (no OpenMP) so executables run single-threaded")
+    parser.add_argument("--no-legacy-gpec-test", action="store_true",
+                        help="Skip the GPEC legacy install test (example inputs as at GPEC a8be45d)")
 
     args = parser.parse_args()
 
@@ -390,6 +397,7 @@ def main():
         debug=args.debug,
         verbose=args.verbose,
         gpec_single_threaded=args.gpec_single_threaded,
+        legacy_gpec_test=not args.no_legacy_gpec_test,
     )
 
     sys.exit(0 if success else 1)

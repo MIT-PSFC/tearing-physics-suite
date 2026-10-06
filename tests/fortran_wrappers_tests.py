@@ -19,7 +19,7 @@ working_dir = os.path.join(home_dir, 'tests/test_working_dir')
 results_dir = os.path.join(home_dir, 'tests/test_results')
 
 # Choose equilibrium file
-default_equilibrium =  os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT')
+default_equilibrium =  os.path.join(home_dir, 'tests/data/g147131.02300_DIIID_KEFIT')
 eq_filename = default_equilibrium
 
 #Options:

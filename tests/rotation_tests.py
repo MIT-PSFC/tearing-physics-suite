@@ -38,7 +38,7 @@ IDA_output_cdf_path = ''
 #########################################################################################################
 
 # Choose equilibrium file
-default_equilibrium =  os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT')
+default_equilibrium =  os.path.join(home_dir, 'tests/data/g147131.02300_DIIID_KEFIT')
 eq_filename = default_equilibrium
 print(" Getting equilibrium file from ", eq_filename)
 

@@ -12,7 +12,7 @@ from tearing_physics_suite.multi_run import _get_num_cpus
 #########################################################################################################
 
 # Choose equilibrium file
-eq_filename = os.path.join(home_dir, 'submodules/GPEC/docs/examples/DIIID_ideal_example/g147131.02300_DIIID_KEFIT')
+eq_filename = os.path.join(home_dir, 'tests/data/g147131.02300_DIIID_KEFIT')
 
 print(" Getting equilibrium file from ", eq_filename)
 eq_filename_short= eq_filename.split('/')[-1]

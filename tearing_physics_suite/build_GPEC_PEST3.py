@@ -214,7 +214,7 @@ def setup_scimake(pest3_source):
         return None
 
 
-def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests=True):
+def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests=True, work_dir=None):
     """
     Build the PEST3 library by downloading the source code at github url 'https://github.com/MIT-PSFC/PEST3'.
     Assumes you have already ran build_netcdf_lapack.py to compile dependencies, and utilizes the paths returned by that function to link against the dependencies.
@@ -242,6 +242,10 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     run_tests : bool
         If True (default), run PEST3_install_test() after a successful build.
         Set to False to skip post-build verification.
+    work_dir : str or Path, optional
+        If given, configure, build and install in ``<work_dir>/PEST3`` (e.g. on
+        a fast local disk) and copy ``pest3x`` back to
+        ``<build_dir>/cmake_build/pest3/pest3x``. Sources stay in submodules/PEST3.
     
     Returns:
     --------
@@ -391,7 +395,8 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     cmake_fortran_flags = get_cmake_fortran_flags(compiler_info['compiler_type'])
     
     # Create a separate build directory for CMake (clean it for fresh configure)
-    cmake_build_dir = Path(build_dir) / "cmake_build"
+    prefix = Path(work_dir) / "PEST3" if work_dir else build_dir
+    cmake_build_dir = prefix / "cmake_build"
     if cmake_build_dir.exists():
         shutil.rmtree(cmake_build_dir, ignore_errors=True)
     cmake_build_dir.mkdir(parents=True, exist_ok=True)
@@ -429,7 +434,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     
     cmake_cmd = [
         "cmake",
-        f"-DCMAKE_INSTALL_PREFIX={build_dir}",
+        f"-DCMAKE_INSTALL_PREFIX={prefix}",
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         # Use compiler-specific flags (gfortran needs -fallow-argument-mismatch,
@@ -500,7 +505,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             capture_output=True,
             text=True,
             env=env,
-            timeout=300
+            timeout=1800
         )
         
         if result.returncode != 0:
@@ -531,7 +536,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             capture_output=True,
             text=True,
             env=env,
-            timeout=600
+            timeout=3600
         )
         
         if result.returncode != 0:
@@ -560,7 +565,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             capture_output=True,
             text=True,
             env=env,
-            timeout=300
+            timeout=1800
         )
         
         if result.returncode != 0:
@@ -569,13 +574,19 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             print("STDERR:", result.stderr[-500:] if len(result.stderr) > 500 else result.stderr)
             return False
         
-        print(f"PEST3 installed to {build_dir}")
+        print(f"PEST3 installed to {prefix}")
     except subprocess.TimeoutExpired:
         print("Install timed out")
         return False
     except Exception as e:
         print(f"Error running make install: {e}")
         return False
+
+    if work_dir:
+        pest3x = build_dir / "cmake_build" / "pest3" / "pest3x"
+        pest3x.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cmake_build_dir / "pest3" / "pest3x", pest3x)
+        print(f"Copied pest3x to {pest3x}")
     
     print("\n" + "=" * 60)
     print("✓ PEST3 build completed successfully!")
@@ -596,7 +607,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     return True
 
 
-def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="develop", disable_openmp=False, legacy_test=True):
+def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="develop", disable_openmp=False, legacy_test=True, work_dir=None):
     """
     Build the GPEC code by downloading from GitHub and compiling with make.
     Requires that build_netcdf_lapack.py has already been used to compile
@@ -644,6 +655,10 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     legacy_test : bool
         If True (default) and run_tests, also run the legacy install test
         (GPEC_LEGACY_RECIPE inputs vs the "legacy" reference values).
+    work_dir : str or Path, optional
+        If given, sync the source tree (with .git, without git-ignored build
+        products) to ``<work_dir>/GPEC``, compile there (e.g. on a fast local
+        disk) and copy ``bin/*``, ``rdcon/rdcon`` and ``stride/stride`` back.
 
     Returns
     -------
@@ -711,6 +726,21 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
             return False
     else:
         print(f"Using existing GPEC source at {gpec_source}")
+
+    if work_dir:
+        make_root = Path(work_dir) / "GPEC"
+        print(f"Syncing GPEC source to work directory {make_root}...")
+        make_root.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run(
+                ["rsync", "-a", "--delete", "--filter=:- .gitignore",
+                 f"{gpec_source}/", f"{make_root}/"],
+                check=True, capture_output=True, text=True, timeout=1800,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            print(f"Error syncing GPEC source: {getattr(e, 'stderr', '') or e}")
+            return False
+        gpec_install_dir = make_root / "install"
 
     if not gpec_install_dir.exists():
         print(f"ERROR: GPEC install directory not found at {gpec_install_dir}")
@@ -858,7 +888,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
             capture_output=True,
             text=True,
             env=env,
-            timeout=1200,  # 20 minutes – GPEC has many modules
+            timeout=3600,  # GPEC has many modules; slow on shared filesystems
         )
 
         if result.returncode != 0:
@@ -874,11 +904,17 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
 
         print("GPEC build completed successfully.")
     except subprocess.TimeoutExpired:
-        print("GPEC build timed out (>20 min)")
+        print("GPEC build timed out (>60 min)")
         return False
     except Exception as e:
         print(f"Error building GPEC: {e}")
         return False
+
+    if work_dir:
+        shutil.copytree(make_root / "bin", gpec_source / "bin", dirs_exist_ok=True)
+        for name in ("rdcon", "stride"):
+            shutil.copy2(make_root / name / name, gpec_source / name / name)
+        print(f"Copied executables back to {gpec_source}")
 
     # ------------------------------------------------------------------
     # Step 6: Verify key executables exist

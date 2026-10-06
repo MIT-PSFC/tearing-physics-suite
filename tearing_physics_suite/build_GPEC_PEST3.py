@@ -5,7 +5,9 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
-from tearing_physics_suite.compiler_utils import detect_compilers, get_cmake_fortran_flags
+from tearing_physics_suite.compiler_utils import (
+    detect_compilers, get_cmake_fortran_flags, get_cmake_c_flags,
+)
 
 home_dir = os.environ['TPSHOME']
 
@@ -457,6 +459,10 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     if mpicxx_path:
         cmake_cmd.insert(-1, f"-DCMAKE_CXX_COMPILER={mpicxx_path}")
         print(f"Using CXX compiler: {mpicxx_path}")
+    cmake_c_flags = get_cmake_c_flags(mpicc_path or compiler_info['cc'])
+    if cmake_c_flags:
+        cmake_cmd.insert(-1, f"-DCMAKE_C_FLAGS={cmake_c_flags}")
+        print(f"Using C flags: {cmake_c_flags}")
     
     # Add BLAS/LAPACK configuration using library dirs and names
     # (avoids SciSeparateLibs argument mismatch)
@@ -718,7 +724,8 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     env = os.environ.copy()
 
     # --- Compilers: Use environment variables or auto-detect -----------
-    compiler_info = detect_compilers()
+    # GPEC uses OpenMP, not MPI, and its makefile rejects MPI wrapper names.
+    compiler_info = detect_compilers(mpi=False)
     env["FC"] = compiler_info['fc']
     env["CC"] = compiler_info['cc']
     if compiler_info['f77']:

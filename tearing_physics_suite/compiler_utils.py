@@ -6,14 +6,33 @@ across multiple build scripts.
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 
-def detect_compilers():
+def _is_mpi_wrapper(compiler):
+    """True for MPI compiler wrappers such as mpif90, mpifort or mpicc."""
+    return bool(compiler) and Path(compiler).name.startswith("mpi")
+
+
+def _which_first(*names):
+    """Full path of the first of *names* found on PATH, or None."""
+    return next((p for p in map(shutil.which, names) if p), None)
+
+
+def detect_compilers(mpi=True):
     """
     Detect available Fortran and C compilers using environment variables
     or system PATH searching. Returns a dict with compiler info and flags.
+
+    Parameters
+    ----------
+    mpi : bool
+        If True (default), fall back to the MPI wrappers (mpif90, mpicc) when
+        FC/CC are unset. If False, MPI wrappers are ignored, also when set in
+        FC/CC/F77, and the plain GNU compilers are used instead (for codes
+        without MPI, e.g. GPEC, whose makefile rejects wrapper names).
     
     Returns
     -------
@@ -26,18 +45,18 @@ def detect_compilers():
             'fflags_base': base compiler flags for the detected Fortran compiler
         }
     """
-    import shutil as _shutil
-    
     # Check for explicit compiler environment variables first
     fc = os.environ.get('FC')
     cc = os.environ.get('CC')
     f77 = os.environ.get('F77', fc)  # Fall back to FC if F77 not set
+    if not mpi:
+        fc, cc, f77 = (None if _is_mpi_wrapper(c) else c for c in (fc, cc, f77))
     
-    # If not set, try to find MPI wrappers, then individual compilers
+    # If not set, try to find MPI wrappers (if mpi), then individual compilers
     if not fc:
-        fc = _shutil.which("mpif90") or _shutil.which("mpifort") or _shutil.which("gfortran")
+        fc = _which_first(*(["mpif90", "mpifort"] if mpi else []), "gfortran")
     if not cc:
-        cc = _shutil.which("mpicc") or _shutil.which("gcc")
+        cc = _which_first(*(["mpicc"] if mpi else []), "gcc")
     if not f77:
         f77 = fc
     
@@ -123,3 +142,26 @@ def get_cmake_fortran_flags(compiler_type='gfortran'):
         'armflang': '-O3',
     }
     return flags.get(compiler_type, '-O3')
+
+
+def gnu_major_version(compiler):
+    """Major version of a GNU compiler (or a wrapper around one), else None."""
+    def query(flag):
+        return subprocess.run([compiler, flag], capture_output=True,
+                              text=True, timeout=30).stdout
+    try:
+        if "Free Software Foundation" not in query("--version"):
+            return None
+        return int(query("-dumpversion").split(".")[0])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def get_cmake_c_flags(cc):
+    """
+    Get CMAKE_C_FLAGS for the C compiler *cc*. GCC >= 14 turns implicit
+    function declarations into errors; -fpermissive makes them warnings again,
+    as legacy C sources (PEST3 portlib) rely on them.
+    """
+    major = gnu_major_version(cc)
+    return "-fpermissive" if major and major >= 14 else ""

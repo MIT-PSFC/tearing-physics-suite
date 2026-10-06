@@ -76,7 +76,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
 
     # Detect compilers and get appropriate flags
     from tearing_physics_suite.compiler_utils import detect_compilers
-    compiler_info = detect_compilers()
+    compiler_info = detect_compilers(mpi=False)
 
     # Collect unique LD_LIBRARY_PATH entries in order
     ld_dirs = []

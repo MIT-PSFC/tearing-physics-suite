@@ -2,10 +2,8 @@
 
 usage: python make_figures.py RESULTS_ROOT FIGDIR
 RESULTS_ROOT holds the outputs of the other scripts:
-  truth/                                   make_truth_equilibrium.py
-  profile_source_m{128,256,512}/           run_profile_source_comparison.py (mpsi=...)
-  ifile/                                   run_ifile_comparison.py
-  ifile_exact/exact_results_m{128,256,512}.json   run_exact_ifiles.py (MPSI=...)
+  truth/                            make_truth_equilibrium.py
+  profile_source_m{128,256,512}/    run_profile_source_comparison.py (mpsi=...)
 """
 import os, sys, json, glob
 import numpy as np
@@ -47,38 +45,20 @@ fig.suptitle("F as GPEC's sq holds it, from a TokaMaker g-file (257 nodes, singl
              color=INK, fontsize=10)
 fig.tight_layout(); fig.savefig(os.path.join(FIG, 'profile_source_Fpp.png'), dpi=150); plt.close(fig)
 
-# 2. Delta'(2/1) vs mpsi
+# 2. Delta'(2/1) vs mpsi, direct (g-file) and inverse (i-file) equilibria
 fig, ax = plt.subplots(1, 2, figsize=(11, 3.8), sharey=True)
 mp = (128, 256, 512)
-res = {m: json.load(open(os.path.join(ROOT, d, 'profile_source_results.json')))
-       for m, d in zip(mp, ('profile_source_m128', 'profile_source_m256', 'profile_source_m512'))}
+res = {m: json.load(open(os.path.join(ROOT, f'profile_source_m{m}', 'profile_source_results.json'))) for m in mp}
 for i, (meth, mk) in enumerate((('values', 'o'), ('integrate', 's'))):
-    for n, ls in zip((129, 257, 513), (':', '--', '-')):
-        ax[i].plot(mp, [res[m][f'g{n}'][meth]['dp_diag'][0] for m in mp], ls=ls, marker=mk, ms=8,
-                   color=COL[meth], label=f'g-file {n}x{n}')
-    ax[i].set_title(f'g-file, profile_source = {meth}', color=INK, fontsize=10)
-ex = {m: json.load(open(os.path.join(ROOT, 'ifile_exact', f'exact_results_m{m}.json'))) for m in mp}
-for name, ls in (('i129x257_exact', '--'), ('i257x513_exact', '-')):
-    for a in ax:
-        a.plot(mp, [ex[m][name]['dp_diag'][0] for m in mp], ls=ls, marker='D', ms=8, color=COL['ifile'],
-               label=name.replace('_exact', ' i-file (exact crossings)'))
+    for name, ls in (('g129', ':'), ('g257', '--'), ('g513', '-')):
+        ax[i].plot(mp, [res[m][name][meth]['dp_diag'][0] for m in mp], ls=ls, marker=mk, ms=8,
+                   color=COL[meth], label=f'g-file {name[1:]}x{name[1:]}')
+    for name, ls in (('i65x129', ':'), ('i129x257', '--'), ('i257x513', '-')):
+        ax[i].plot(mp, [res[m][name][meth]['dp_diag'][0] for m in mp], ls=ls, marker='D', ms=7,
+                   color=COL['ifile'], label=f'i-file {name[1:]}')
+    ax[i].set_title(f'profile_source = {meth}', color=INK, fontsize=10)
 for a in ax:
     a.set_xscale('log', base=2); a.set_xticks(mp, [str(m) for m in mp]); a.set_xlabel('GPEC mpsi')
-ax[0].set_ylabel(r"STRIDE $\Delta'$ (2/1)"); ax[1].legend(fontsize=8)
+ax[0].set_ylabel(r"STRIDE $\Delta'$ (2/1)"); ax[1].legend(fontsize=8, ncol=2)
 fig.tight_layout(); fig.savefig(os.path.join(FIG, 'delta_prime_vs_mpsi.png'), dpi=150); plt.close(fig)
-
-# 3. GSE vs file size
-a6 = json.load(open(os.path.join(ROOT, 'ifile/ifile_results.json')))
-fig, ax = plt.subplots(figsize=(6.5, 4.2))
-groups = {'g-file (efit, integrate)': ([v for k, v in a6.items() if k.startswith('g')], COL['integrate'], 's'),
-          'OFT i-file as written': ([v for k, v in a6.items() if k.startswith('i') and not k.endswith('_ffp')], COL['hermite'], 'o')}
-ex128 = ex[128]
-groups['i-file, exact psi crossings'] = (list(ex128.values()), COL['ifile'], 'D')
-for lab, (vals, c, mk) in groups.items():
-    ax.scatter([v['bytes'] / 1e6 for v in vals], [v['int_med'] for v in vals], color=c, marker=mk, s=40, label=lab,
-               edgecolor='white', linewidth=1)
-ax.set_xscale('log'); ax.set_yscale('log')
-ax.set_xlabel('file size [MB]'); ax.set_ylabel('GPEC GSE, surface-integrated, median')
-ax.legend(fontsize=8)
-fig.tight_layout(); fig.savefig(os.path.join(FIG, 'gse_vs_filesize.png'), dpi=150); plt.close(fig)
 print('wrote', FIG)

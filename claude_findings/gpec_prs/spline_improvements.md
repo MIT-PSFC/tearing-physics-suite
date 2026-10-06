@@ -1,6 +1,6 @@
 # GPEC PR report: `spline_improvements` → `develop`
 
-This PR builds on `Zeff_profile_support` (PR #296)
+This PR builds on `Zeff_profile_support` (PR #296). It fixes an issue identified and fixed by d-burg in Julia GPEC PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506)
 
 - **Branch:** `spline_improvements`, 6 commits on top of `0b4a7720`, then the merge of `bugfix/dcon-vacuum-theta-frame` (via `Zeff_profile_support`) and 6 more commits (below), the last two from a code review.
 
@@ -10,7 +10,6 @@ This PR builds on `Zeff_profile_support` (PR #296)
 - F and p were cubic-splined and then differentiated.
 - TokaMaker writes single-precision values, and F changes by only about 2% across the plasma.
 - Differentiating twice turns that rounding into noise of tens of percent in F″, which is the current gradient that Δ′ depends on (`FFp_error.png`).
-- d-burg's Julia GPEC PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506) identified and fixed this defect. It is the reference method for the `integrate` option below.
 
 ## Changes
 Each change is its own commit.
@@ -42,9 +41,7 @@ Each change is its own commit.
 **pchip and Akima are not used for F and p:** they cannot be constrained by derivatives, and once derivatives are supplied they reduce to the same Hermite form. pchip is used for tabulated data without derivatives (item 11).
 
 ## Evidence
-The reference is a TokaMaker equilibrium (`make_truth_equilibrium.py`): DIII-D-like, q0 = 1.25, q95 = 4.49. Its FF′ and p′ are dense and smooth, so F, F′, F″ and p′ are known exactly at every ψ. Its g-files and i-files were written with OpenFUSIONToolkit before its `GPECf_interface` i-file fix.
-
-These results predate the `bugfix/dcon-vacuum-theta-frame` merge. Rerun on the current branch, Δ′(2/1) moves by +0.007 (truth g-files) to +0.035 (g147131) for both profile sources; the comparisons and conclusions are unchanged.
+The reference is a TokaMaker equilibrium (`make_truth_equilibrium.py`): DIII-D-like, q0 = 1.25, q95 = 4.49. Its FF′ and p′ are dense and smooth, so F, F′, F″ and p′ are known exactly at every ψ. It is written as g-files (129², 257², 513²; `efit`, direct) and as i-files with FF′ and p′ records (65×129, 129×257, 257×513; `ldp_i`, inverse). The last surface is at the same true ψ_N = 0.985 in every run.
 
 **1. F″ against the exact value** (`gpec_profiles.py`, which reproduces GPEC's sq construction), for the 257-point g-file:
 
@@ -62,54 +59,29 @@ Root-mean-square error in F″ for 0.1 < ψ_N < 0.85:
 
 `hermite`, which keeps the noisy values alongside exact slopes, is the worst: the values' rounding noise has nowhere to go but F″ inside each interval, about (value error)/h². It was dropped (item 13).
 
-**2. STRIDE Δ′(2/1)** (`run_profile_source_comparison.py`):
+**2. STRIDE Δ′(2/1), `values` / `integrate`** (`run_profile_source_comparison.py`):
 
-| file | profile_source | mpsi = 128 | 256 | 512 |
-|---|---|---|---|---|
-| g129 | values / integrate | 8.58 / 8.59 | 8.86 / 8.28 | 9.24 / 7.99 |
-| g257 | values / integrate | 8.45 / 8.59 | 10.25 / 9.19 | 8.76 / 8.48 |
-| g513 | values / integrate | 8.46 / 8.45 | 9.32 / 8.48 | 11.97 / 14.06 |
-| g257 | hermite | 9.02 | 10.45 | 9.31 |
-| i-files, exact ψ crossings (4 files) | integrate | 8.37–8.50 | 8.38–8.47 | 8.52–8.60 |
-
-- At the default mpsi = 128, `integrate` is consistent across g-file resolutions to ±1%.
-- At mpsi ≥ 256, the g-file results scatter with every profile_source. The 2D ψ(R,Z) table is also single precision, so the geometry is noisy as well as the profiles.
-- An inverse file with accurate R and Z converges at every mpsi (next section). The profile fix is needed, but it does not remove all of the g-file error.
+| file | mpsi = 128 | 256 | 512 |
+|---|---|---|---|
+| g129 | 8.59 / 8.60 | 8.90 / 8.28 | 8.68 / 8.61 |
+| g257 | 8.47 / 8.57 | 10.33 / 9.24 | 9.48 / 8.80 |
+| g513 | 8.49 / 8.52 | 9.72 / 8.93 | 9.03 / 8.26 |
+| i65×129 | 8.57 / 8.58 | 8.56 / 8.57 | 8.59 / 8.60 |
+| i129×257 | 8.60 / 8.60 | 8.60 / 8.60 | 8.61 / 8.60 |
+| i257×513 | 8.60 / 8.59 | 8.51 / 8.50 | 8.63 / 8.62 |
+| TkMkr example (g-file) | 7.42 / 7.47 | 6.14 / 6.18 | 11.71 / 9.90 |
+| g147131 (EFIT) | 8.04 / 8.18 | 8.40 / 8.46 | 8.18 / 8.63 |
 
 ![Delta' vs mpsi](spline_improvements/figures/delta_prime_vs_mpsi.png)
 
-## Inverse file vs g-file: GSE and file size (`run_ifile_comparison.py`)
-All files come from the same TokaMaker equilibrium, with the last surface at the same true ψ_N = 0.985 and mpsi = 128. Integrated GSE is the θ-integrated residual divided by the θ-integrated source, taking the median over 0.05 < ψ_N < 0.95.
-
-| file | size | Δ′(2/1) | GSE local, median | GSE integrated, median |
-|---|---|---|---|---|
-| g129 / g257 / g513 (efit, integrate) | 0.29 / 1.1 / 4.3 MB | 8.59 / 8.59 / 8.45 | 1.6–2.2e-4 | 0.7–1.2e-4 |
-| OFT i-file 65×65 / 129×257 / 257×513 | 0.07 / 0.53 / 2.1 MB | 7.44 / 0.35 / −2.50 | 1.2e-3 / 2.3e-3 / 1.3e-3 | 1.5e-3 / 7.6e-3 / 7.4e-3 |
-| same, with FF′ and p′ records | same | unchanged | unchanged | unchanged |
-| i-file with exact ψ crossings, 129×257 / 257×513 | 0.54 / 2.1 MB | 8.49 / 8.50 | 1.7e-4 / 1.8e-4 | 3.0e-5 / 2.9e-5 |
-
-![GSE vs file size](spline_improvements/figures/gse_vs_filesize.png)
-
-**Why the `ldp_i` GSE has been high: the problem is in the file, not in GPEC's reader or its GSE check.**
-- The R,Z points that OFT `gs_save_ifile` writes are about 2e-7 m off the true ψ = ψ_k crossings (median), with occasional points up to 1e-3 m off. This was measured by Newton iteration on TokaMaker's own FEM ψ along each ray (`diag_ifile_noise.py`).
-- The file's own Grad–Shafranov residual, computed independently of GPEC (`ifile_tools.py gs_residual`), grows as the grid is refined:
-
-  | npsi | 65 | 129 | 257 |
-  |---|---|---|---|
-  | file's own residual | 2e-3 | 5e-3 | 1.8e-2 |
-
-  Errors in individual surface positions are amplified by the second derivatives in ψ.
-- When the same points are placed at the exact crossings, the residual stays at 3–4e-4 (the FEM limit) at every resolution.
-- GPEC then gives GSE equal to or better than the g-file path, and the integrated GSE is 2–4× lower.
-- Its Δ′ agrees with the g-file result at mpsi = 128 and stays put as mpsi is refined.
-- **A 129×257 i-file (0.54 MB) beats a 257×257 g-file (1.1 MB).**
-
-The fix belongs in OFT `gs_save_ifile`: place each point at the exact crossing, or tighten the tracing tolerance. It is the first item for the `OFT_interface` / `GPECf_interface` branches.
+- **Direct equilibria (g-files):** `integrate` cuts the spread across the three g-files from 1.43 to 0.96 at mpsi = 256 and from 0.80 to 0.54 at mpsi = 512, and moves them toward the converged value. The remaining scatter comes from the single-precision ψ(R,Z) table, which this PR does not touch.
+- **Inverse equilibria (i-files):** F and p are stored in double precision and agree with FF′ and p′, so the two settings agree to 0.2% at every resolution, and every i-file gives 8.50–8.63. `integrate` is safe for inverse equilibria and uses the same profile derivatives as the direct path.
+- GPEC's integrated GSE changes by up to 30% between the two settings, in either direction; it is set mostly by the geometry, not the profiles.
 
 ## Effects on results
 - **Results change for every g-file run.** With the new default, `efit` results change by design. Examples:
   - DIIID ideal example: μ0p changes by up to 3.7e-4 relative, D_I by up to 2.6e-3.
-  - g147131: Δ′(2/1) goes from 8.00 to 8.14 at mpsi = 128.
+  - g147131: Δ′(2/1) goes from 8.04 to 8.18 at mpsi = 128.
   - Downstream reference values tuned to the old profiles (e.g. Δ′ tolerances of ±0.1) will move.
 - **Unchanged:** the CI Solovev regressions (ideal, kinetic, resistive) are bit-for-bit identical. The other example pass/fail outcomes match the base branch.
 - **Dump path:** fixed (items 8 and 9).
@@ -134,7 +106,8 @@ The scripts and their inputs ship with this PR as `spline_improvements_scripts.z
 ```bash
 make -C regression/spline_tests run                      # Fortran unit test, after building GPEC
 python make_truth_equilibrium.py inputs/D3Dlike_Hmode_baseline.geqdsk inputs/DIIID_mesh.h5 results/truth
-python run_profile_source_comparison.py <GPEC>/bin results/truth results/profile_source_m128
-python run_ifile_comparison.py <GPEC>/bin results/truth results/ifile
+for m in 128 256 512; do
+  G147131=inputs/g147131.02300_DIIID_KEFIT python run_profile_source_comparison.py <GPEC>/bin results/truth results/profile_source_m$m mpsi=$m
+done
 python make_figures.py results figures
 ```

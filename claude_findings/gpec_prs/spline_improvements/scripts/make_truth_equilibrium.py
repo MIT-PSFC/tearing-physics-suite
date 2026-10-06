@@ -10,7 +10,7 @@ i-file round trips.
 Writes into OUT:
   truth_profiles.npz        psi_N, F, F', FF', p, p' (dF/dpsi_N etc., psi in Wb/rad) on a fine grid
   g{N}.geqdsk               save_eqdsk at nr = nz = N
-  i{NPSI}x{NTHETA}[_nopack][_pad{X}].ifile   save_ifile variants
+  i{NPSI}x{NTHETA}.ifile    save_ifile (with FF', p' records) at 65x129, 129x257, 257x513
   truth_meta.json           psi bounds, F0, padding, stats, SOURCE and MESH paths
 
 usage: python make_truth_equilibrium.py SOURCE MESH OUT   (env NTHREADS, NODES)
@@ -82,11 +82,8 @@ if __name__ == '__main__':
 
     for n in (129, 257, 513):
         mygs.save_eqdsk(os.path.join(OUT, f'g{n}.geqdsk'), nr=n, nz=n, lcfs_pad=PSI_PAD, truncate_eq=True)
-    ifiles = [(npsi, nth, True, 0.01) for npsi in (65, 129, 257) for nth in (65, 129, 257, 513)]
-    ifiles += [(257, 513, False, 0.01), (257, 513, True, PSI_PAD), (129, 257, True, PSI_PAD)]
-    for npsi, nth, pack, pad in ifiles:
-        name = f'i{npsi}x{nth}' + ('' if pack else '_nopack') + ('' if pad == 0.01 else f'_pad{pad:g}')
-        mygs.save_ifile(os.path.join(OUT, name + '.ifile'), npsi=npsi, ntheta=nth, lcfs_pad=pad, pack_lcfs=pack)
+    for npsi, nth in ((65, 129), (129, 257), (257, 513)):
+        mygs.save_ifile(os.path.join(OUT, f'i{npsi}x{nth}.ifile'), npsi=npsi, ntheta=nth, lcfs_pad=PSI_PAD)
     json.dump({'psi_bounds': list(mygs.psi_bounds), 'F0': abs(g['rcentr'] * g['bcentr']), 'psi_pad': PSI_PAD,
                'source': SOURCE, 'mesh': MESH,
                'stats': {k: float(v) for k, v in stats.items() if np.isscalar(v)}},

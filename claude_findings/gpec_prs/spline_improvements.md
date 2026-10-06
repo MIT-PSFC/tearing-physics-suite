@@ -12,7 +12,7 @@ This PR builds on `Zeff_profile_support`.
 - F and p were cubic-splined and then differentiated.
 - TokaMaker writes single-precision values, and F changes by only about 2% across the plasma.
 - Differentiating twice turns that rounding into noise of tens of percent in F″, which is the current gradient that Δ′ depends on (`FFp_error.png`).
-- Julia GPEC PR #506 found and fixed the same defect.
+- d-burg's Julia GPEC PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506) found and fixed the same defect. It is the reference method for the `integrate` option below.
 
 ## Changes
 Each change is its own commit.
@@ -22,7 +22,7 @@ Each change is its own commit.
 2. **New `equil.in` variable `profile_source`** (`read_eq.f`, `global.f`, `equil.f`). It applies to `efit` and to `ldp_i` when the file has FF′ and p′ records. Options:
    - `values`: the old behaviour (tabulated values, spline-fitted derivatives);
    - `hermite`: tabulated values, with the file's FF′/F and p′ as slopes;
-   - `integrate`: F²/2 and p integrated inward from their boundary values, with the file's derivatives as slopes. This is the method of PR #506.
+   - `integrate`: F²/2 and p integrated inward from their boundary values, with the file's derivatives as slopes. This is the method of PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506).
 
    Supporting changes:
    - **Fallback:** if the derivatives are non-finite, give F² ≤ 0, or disagree in sign with the values, GPEC falls back to `values` and prints a warning.

@@ -28,7 +28,7 @@ def cases():
     truth = np.load(os.path.join(TRUTH, 'truth_profiles.npz'))
     for f in sorted(glob.glob(os.path.join(TRUTH, 'i*.ifile'))):
         name = os.path.basename(f)[:-6]
-        pad = float(name.split('_pad')[1]) if '_pad' in name else 0.01
+        pad = float(name.split('_pad')[1]) if '_pad' in name else META['psi_pad']
         aug = os.path.join(ROOT, 'ifiles', name + '_ffp.ifile')
         append_derivatives(f, aug, truth, META['psi_bounds'])
         out.append((name, f, 'ldp_i', 'values', PSI_TRUE / (1 - pad)))

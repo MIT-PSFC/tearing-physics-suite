@@ -68,15 +68,14 @@ All files come from the same TokaMaker reference equilibrium (GPEC `spline_impro
 - **A 129×257 i-file (0.54 MB) beats a 257×257 g-file (1.1 MB).**
 
 ## Verification
-The results above were measured on `GPECf_interface` (the same four commits on `PSFC_dev`), where:
-- `test_TokaMaker.py -k "test_ITER_eq and not io"`: 4/4 pass; the order-3 cases fail on the old install, as they should.
-- Full `test_TokaMaker.py`: 114/114 pass.
+On this branch (`main` `025debf` + the four commits, built from HEAD `9243fbd`):
+- `test_TokaMaker.py -k "test_ITER_eq and not io"`: 4/4 pass. The same tests fail on an install without these commits, as they should.
 
-On this branch (`main` + the four commits): not yet built or tested.
+The results above were measured on `GPECf_interface` (the same four commits on `PSFC_dev`), where the full `test_TokaMaker.py` passed 114/114.
 
 ## Reproduce
 The diagnosis scripts and inputs ship as `ifile_fixes_for_GPEC_interface_scripts.zip`.
 
 ## Status
 - [x] Commits cherry-picked onto `main`, no conflicts
-- [ ] Build and run `test_TokaMaker.py` on this branch
+- [x] Built; i-file tests pass

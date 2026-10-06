@@ -1,6 +1,6 @@
 """GPEC on i-files whose R,Z are exact FEM psi crossings (diag_ifile_noise.py output).
 
-usage: python run_exact_ifiles.py BINDIR OUTROOT IFILE [IFILE ...]  (env MPSI sets mpsi, default 128)
+usage: python run_exact_ifiles.py BINDIR OUTROOT IFILE [IFILE ...]  (env MPSI, default 128; PSI_PAD, the i-files' lcfs_pad unless named _pad<X>, default 1e-3)
 """
 import os, sys, json
 from concurrent.futures import ProcessPoolExecutor
@@ -14,7 +14,7 @@ MPSI = os.environ.get('MPSI', '128')
 
 def one(path):
     name = os.path.basename(path)[:-6]
-    pad = float(name.split('_pad')[1].split('_')[0]) if '_pad' in name else 0.01
+    pad = float(name.split('_pad')[1].split('_')[0]) if '_pad' in name else float(os.environ.get('PSI_PAD', '1e-3'))
     out = os.path.join(ROOT, name + f'_m{MPSI}')
     ok = run_stride(BIN, out, path, eq_type='"ldp_i"', profile_source='"integrate"',
                     psihigh=f'{0.985 / (1 - pad):.6f}', mpsi=MPSI)

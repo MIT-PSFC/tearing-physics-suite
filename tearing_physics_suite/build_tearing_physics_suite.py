@@ -1,6 +1,6 @@
 # Master build script for tearing-physics-suite.
 """
-Master build script for tearing-physics-suite.
+Master build script for tearing-physics-suite. See main() for argument control.
 
 Orchestrates the full build by calling:
   1. build_netcdf_lapack.build_libraries()  – downloads & builds LAPACK, BLAS,
@@ -122,6 +122,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         "# ── NetCDF ────────────────────────────────────────────────────────────────",
         f"export NETCDFHOME={netcdf_prefix}",
         f"export NETCDFINC={netcdf_inc}",
+        "export HDF5_USE_FILE_LOCKING=FALSE",
         "",
         "# ── Shared library search path ────────────────────────────────────────────",
         "export LD_LIBRARY_PATH=" + ":".join(ld_dirs) + ":${LD_LIBRARY_PATH:-}",

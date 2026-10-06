@@ -12,7 +12,7 @@ This PR builds on `Zeff_profile_support`.
 - F and p were cubic-splined and then differentiated.
 - TokaMaker writes single-precision values, and F changes by only about 2% across the plasma.
 - Differentiating twice turns that rounding into noise of tens of percent in F″, which is the current gradient that Δ′ depends on (`FFp_error.png`).
-- d-burg's Julia GPEC PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506) found and fixed the same defect. It is the reference method for the `integrate` option below.
+- d-burg's Julia GPEC PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506) identified and fixed this defect. It is the reference method for the `integrate` option below.
 
 ## Changes
 Each change is its own commit.

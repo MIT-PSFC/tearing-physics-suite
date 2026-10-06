@@ -12,7 +12,7 @@ import pickle as pkl
 import copy
 import math
 
-_EQ_SUFFIXES = ('.geqdsk', '.eqdsk', '.gfile')
+_EQ_SUFFIXES = ('.geqdsk', '.eqdsk', '.gfile', '.ifile')
 
 def eq_stem(eq_filename):
     """Basename of eq_filename with a known equilibrium suffix removed (other dots kept)."""

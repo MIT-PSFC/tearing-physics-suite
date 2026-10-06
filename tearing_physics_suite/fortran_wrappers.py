@@ -14,6 +14,11 @@ from tearing_physics_suite.GPEC_write_inputs import write_rdcon_stride_inputs
 from tearing_physics_suite.PEST3_wrappers import pest3_special_truncation_loop,pest3_clean_netcdf,PEST3_resistive_calculation,eq_stem
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
 
+def _default_eq_type(eq_filename, kwargs):
+    """An OFT i-file (*.ifile) is read by GPEC as eq_type 'ldp_i' unless eq_type is given."""
+    if 'eq_type' not in kwargs and str(eq_filename).endswith('.ifile'):
+        kwargs['eq_type'] = """'ldp_i'"""
+
 def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, run_pest3=True,
         make_working_dir=True,
         make_results_dir=True,
@@ -81,6 +86,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
             del kwargs[key]
 
     # Make equilibrium type consistent (default case is eqdsk):
+    _default_eq_type(eq_filename, kwargs)
     if 'eq_type' in kwargs:
         if kwargs['eq_type'] == """'ldp_i'""" or kwargs['eq_type'] == '''"ldp_i"''':
             pest3_kwargs_dict['eq_type_pest']=8
@@ -450,6 +456,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
     # Write the input files for rdcon and stride & create output names:
     #########################################################################################################
 
+    _default_eq_type(eq_filename, kwargs)
     rdcon_stride_input_dict = write_rdcon_stride_inputs(working_dir, eq_filename, nn=nn, run_stride=run_stride, run_rdcon=run_rdcon, fresh_start=fresh_start, **kwargs)
 
     rdcon_output_name = str(output_prefix + eq_stem(eq_filename) + '_rdcon_n'+str(nn)+'.nc')

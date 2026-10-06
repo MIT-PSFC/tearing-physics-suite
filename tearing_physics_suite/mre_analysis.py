@@ -6,7 +6,7 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import Akima1DInterpolator, CubicSpline
+from scipy.interpolate import Akima1DInterpolator, PchipInterpolator
 from scipy.signal import find_peaks
 import tearing_physics_suite.global_vars as gv
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
@@ -238,7 +238,7 @@ def mre_raw_interp(rdcon_xarray):
     # Handle Zeff - it may be a DataArray or already a numpy array
     psi_N_Zeff_vals = rdcon_xarray.psi_N_Zeff.values if hasattr(rdcon_xarray.psi_N_Zeff, 'values') else rdcon_xarray.psi_N_Zeff
     Zeff_vals = rdcon_xarray.Zeff.values if hasattr(rdcon_xarray.Zeff, 'values') else rdcon_xarray.Zeff
-    Zeff_spline = CubicSpline(psi_N_Zeff_vals, Zeff_vals, extrapolate=False) # Cubic spline to be consistent with GPEC/rdcon/mercier.f
+    Zeff_spline = PchipInterpolator(psi_N_Zeff_vals, Zeff_vals, extrapolate=False) # pchip, as GPEC/rdcon/mercier.f (spline_fit_pchip)
     Zeff_surf = Zeff_spline(rdcon_xarray['psi_n_rational'].values)
     #########################################################################################################
     # Load these surface values into the xarray:
@@ -554,10 +554,10 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     rdcon_xarray = rdcon_xarray.assign(ne_on_ni_axis = zi)
 
     #Derivatives (from splines):
-    ne_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
-    ni_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
-    te_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
-    ti_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
+    ne_spline = PchipInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
+    ni_spline = PchipInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
+    te_spline = PchipInterpolator(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
+    ti_spline = PchipInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
     ne1_values = np.array(ne_spline(rdcon_xarray.psi_n,1))
     ni1_values = np.array(ni_spline(rdcon_xarray.psi_n,1))
     te1_values = np.array(te_spline(rdcon_xarray.psi_n,1))

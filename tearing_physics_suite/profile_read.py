@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import xarray as xr
-from scipy.interpolate import Akima1DInterpolator
+from scipy.interpolate import PchipInterpolator
 
 def _average_ion_mass(psi_n, n_main, n_imp, main_mass_amu=2.0, imp_mass_amu=12.0):
     """rho-weighted (area-like) mean thermal ion mass [AMU] over psi_n <= 1."""
@@ -38,11 +38,11 @@ def read_kin_file(filename):
         try:
             profile_data_names = pd.read_csv(filename, sep='\s+',header=None,nrows=1)
             profile_data_xr = xr.Dataset(pd.read_csv(filename, skiprows=1, sep='\s+', header=None,names=profile_data_names.iloc[0].values))
-            te_keV_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['te(eV)'].values/1000,extrapolate=False)
-            ti_keV_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['ti(eV)'].values/1000,extrapolate=False)
-            ne_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['ne(m^-3)'].values,extrapolate=False)
-            ni_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
-            omega_ExB_spline = Akima1DInterpolator(profile_data_xr['psi'].values, profile_data_xr['wexb(rad/s)'].values,extrapolate=False)
+            te_keV_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['te(eV)'].values/1000,extrapolate=False)
+            ti_keV_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['ti(eV)'].values/1000,extrapolate=False)
+            ne_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['ne(m^-3)'].values,extrapolate=False)
+            ni_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['ni(m^-3)'].values,extrapolate=False)
+            omega_ExB_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['wexb(rad/s)'].values,extrapolate=False)
         except Exception as e:
             print(f"Error reading or processing .kin file: {e}")
             raise e
@@ -131,13 +131,13 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
             E_r_vals = rotation_xr.E_r.isel(time=time_idx).values
 
             # Create splines
-            n_e_spline = Akima1DInterpolator(psi_n_vals, n_e_vals, extrapolate=False)
-            T_e_spline = Akima1DInterpolator(psi_n_vals, T_e_vals, extrapolate=False)
-            n_i_spline = Akima1DInterpolator(psi_n_vals, n_i_vals, extrapolate=False)
-            T_i_spline = Akima1DInterpolator(psi_n_vals, T_i_vals, extrapolate=False)
-            omega_tor_spline = Akima1DInterpolator(psi_n_vals, omega_tor_12C6_vals, extrapolate=False)
-            v_pol_spline = Akima1DInterpolator(psi_n_vals, v_pol_vals, extrapolate=False)
-            Er_spline = Akima1DInterpolator(psi_n_vals, E_r_vals, extrapolate=False)
+            n_e_spline = PchipInterpolator(psi_n_vals, n_e_vals, extrapolate=False)
+            T_e_spline = PchipInterpolator(psi_n_vals, T_e_vals, extrapolate=False)
+            n_i_spline = PchipInterpolator(psi_n_vals, n_i_vals, extrapolate=False)
+            T_i_spline = PchipInterpolator(psi_n_vals, T_i_vals, extrapolate=False)
+            omega_tor_spline = PchipInterpolator(psi_n_vals, omega_tor_12C6_vals, extrapolate=False)
+            v_pol_spline = PchipInterpolator(psi_n_vals, v_pol_vals, extrapolate=False)
+            Er_spline = PchipInterpolator(psi_n_vals, E_r_vals, extrapolate=False)
             average_ion_mass = _average_ion_mass(psi_n_vals, n_i_vals, n_iC12_vals) # n_i assumed deuterium
             extra_key_vals = [rotation_xr[key].isel(time=time_idx).values for key in extra_keys]
             time_val = rotation_xr.time.values[time_idx]
@@ -181,7 +181,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
 
     for key, val in zip(extra_keys, extra_key_vals):
         if np.ndim(val) > 0 and len(val) == len(psi_n_vals) and np.all(np.isfinite(val)):
-            return_dict[key] = Akima1DInterpolator(psi_n_vals, val, extrapolate=False)
+            return_dict[key] = PchipInterpolator(psi_n_vals, val, extrapolate=False)
         else:
             return_dict[key] = val
 
@@ -236,11 +236,11 @@ def read_IDA_lite_all_times(filename, verbose=False, **kwargs):
 def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_dir=None,
                          ida_path=None, ida_extra_keys=None, ida_time_tol_ms=1.0,
                          meta_data=False, sample_limit=None, impurity_mass_amu=None,
-                         verbose=False):
+                         eq_source='geqdsk', verbose=False):
     """Unpack a bouquet (schema v2) archive into multi_run_ inputs.
 
-    Requires bouquet (branch bouquet_unified). Per draw: the g-file is written to
-    eqdsk_out_dir; ne/ni/Te/Ti are splined on psi_N_kinetic; Zeff comes from
+    Requires bouquet (branch bouquet_unified). Per draw: the equilibrium file is written
+    to eqdsk_out_dir; ne/ni/Te/Ti are pchip-splined on psi_N_kinetic (as bouquet does); Zeff comes from
     aux_zeff (or Zeff); omega_splines['omega_tor'] / Er_spline from aux_omega_tor /
     aux_e_r when bouquet perturbed them.
 
@@ -268,6 +268,10 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         Max draws per scan key.
     impurity_mass_amu : float or None
         Impurity mass for average_ion_mass. Default 2*Z_imp.
+    eq_source : {'geqdsk', 'ifile'}
+        Equilibrium written per draw: the g-file, or the OFT i-file (bouquet
+        write_ifile=True runs; GPEC reads it as eq_type 'ldp_i', see
+        run_resistive_calculation).
 
     Returns
     -------
@@ -285,6 +289,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
     if eqdsk_out_dir is None:
         eqdsk_out_dir = os.path.join(os.path.dirname(os.path.abspath(ar.path)), 'TPS_eqdsks')
     os.makedirs(eqdsk_out_dir, exist_ok=True)
+    if eq_source not in ('geqdsk', 'ifile'):
+        raise ValueError(f"eq_source must be 'geqdsk'|'ifile', got {eq_source!r}")
     if selection not in ('selected', 'all', 'excluded'):
         raise ValueError(f"selection must be 'selected'|'all'|'excluded', got {selection!r}")
 
@@ -303,9 +309,13 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
             if attrs.get('profile_coord', 'psi_n') != 'psi_n':
                 raise NotImplementedError(f"Bouquet draw {key}/{d.count} has profile_coord="
                                           f"{attrs['profile_coord']!r}; only psi_n archives are supported.")
-            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{d.count}.geqdsk")
+            eq_bytes = d.eqdsk_bytes if eq_source == 'geqdsk' else d.ifile_bytes
+            if eq_bytes is None:
+                raise KeyError(f"Bouquet draw {key}/{d.count} has no stored {eq_source} "
+                               f"(i-files need a bouquet run with write_ifile=True).")
+            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{d.count}.{eq_source}")
             with open(eq_path, 'wb') as fh:
-                fh.write(d.eqdsk_bytes)
+                fh.write(eq_bytes)
             eq_filenames.append(eq_path)
             profile_list.append(_bouquet_draw_profiles(prof, attrs, cfg, key, d.count, ida_extras,
                                                        meta_data, impurity_mass_amu))
@@ -331,7 +341,7 @@ def _scan_time(key):
 def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu):
     """Build one multi_run_ profile dict from a bouquet draw."""
     psi_k = prof.get('psi_N_kinetic', prof['psi_N'])
-    spl = lambda y: Akima1DInterpolator(psi_k, y, extrapolate=False)
+    spl = lambda y: PchipInterpolator(psi_k, y, extrapolate=False)
     out = {
         'ne_spline': spl(prof['n_e']),
         'ni_spline': spl(prof['n_i']),
@@ -362,7 +372,7 @@ def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, 
         psi_eq = prof['psi_N']
         for name in ('j_phi', 'j_BS', 'j_inductive'):
             if name in prof:
-                out[f'bq_{name}'] = Akima1DInterpolator(psi_eq, prof[name], extrapolate=False)
+                out[f'bq_{name}'] = PchipInterpolator(psi_eq, prof[name], extrapolate=False)
         for name, val in attrs.items():
             if np.ndim(val) == 0 and not isinstance(val, (bytes, str)):
                 out['bq_' + name.replace('(', '').replace(')', '')] = val

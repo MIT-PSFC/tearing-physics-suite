@@ -1,6 +1,7 @@
 # Build helpers for compiling GPEC and PEST3 Fortran executables
 
 import os
+import re
 import sys
 import subprocess
 import shutil
@@ -65,21 +66,36 @@ GPEC_LEGACY_RECIPE = {
 }
 
 
+_NAMELIST_KV = re.compile(r"^(\s*)([A-Za-z_]\w*)(\s*=\s*)(.*?)(\s*(?:!.*)?)$")
+
+
 def _set_namelist_values(path, values):
     """Set ``key = value`` entries in a Fortran namelist file, keeping comments."""
-    import re
     path = Path(path)
     pending = {k.lower(): v for k, v in values.items()}
-    kv = re.compile(r"^(\s*)([A-Za-z_]\w*)(\s*=\s*)(.*?)(\s*(?:!.*)?)$")
     lines = path.read_text().splitlines(keepends=True)
     for i, ln in enumerate(lines):
-        m = kv.match(ln.rstrip("\n"))
+        m = _NAMELIST_KV.match(ln.rstrip("\n"))
         if m and m.group(2).lower() in pending:
             new = pending.pop(m.group(2).lower())
             lines[i] = m.group(1) + m.group(2) + m.group(3) + new + m.group(5) + ("\n" if ln.endswith("\n") else "")
     if pending:
         raise KeyError(f"{path}: namelist keys not found: {sorted(pending)}")
     path.write_text("".join(lines))
+
+
+def _has_legacy_inputs(case_dir, case):
+    """True if the namelists in *case_dir* already hold GPEC_LEGACY_RECIPE[case]."""
+    namelists = {f: v for f, v in GPEC_LEGACY_RECIPE[case].items() if f != "equilibria"}
+    for fname, values in namelists.items():
+        path = Path(case_dir) / fname
+        if not path.is_file():
+            return False
+        found = {m.group(2).lower(): m.group(4)
+                 for m in map(_NAMELIST_KV.match, path.read_text().splitlines()) if m}
+        if any(found.get(k.lower()) != v for k, v in values.items()):
+            return False
+    return bool(namelists)
 
 
 def prepare_GPEC_legacy_examples(gpec_dir=None, work_root=None):
@@ -1011,7 +1027,6 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=Fa
 
     examples_root = gpec_dir / "docs" / "examples"
     mode = "legacy" if legacy else "current"
-    ref = GPEC_TEST_REFERENCE[mode]
 
     print("=" * 60)
     print(f"GPEC install test ({mode} inputs"
@@ -1030,6 +1045,16 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=Fa
             print(f"ERROR: could not prepare legacy examples: {e}")
             return False
     print(f"  examples_root : {examples_root}")
+
+    # Upstream examples that still hold the legacy inputs (GPEC branches that
+    # predate the develop example update) are checked against "legacy" values.
+    case_mode = {case: "legacy" if legacy or _has_legacy_inputs(examples_root / case, case)
+                 else "current" for case in GPEC_LEGACY_RECIPE}
+    ref = {code: {case: GPEC_TEST_REFERENCE[case_mode[case]][code][case] for case in cases}
+           for code, cases in GPEC_TEST_REFERENCE[mode].items()}
+    if not legacy:
+        for case in (c for c, m in case_mode.items() if m == "legacy"):
+            print(f"  NOTE: {case} has the legacy inputs; using legacy reference values")
 
     # ------------------------------------------------------------------
     # Locate rdcon and stride executables

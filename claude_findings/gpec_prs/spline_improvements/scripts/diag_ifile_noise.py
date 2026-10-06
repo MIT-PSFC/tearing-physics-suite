@@ -5,20 +5,22 @@ along the same geometric-angle ray from the axis by Newton iteration on TokaMake
 (get_field_eval 'psi'/'dPSI'). Reports |rho_file - rho_newton| and the independent GS residual of
 the file and of the Newton-refined points.
 
-usage: python diag_ifile_noise.py IFILE [IFILE ...]
+usage: python diag_ifile_noise.py TRUTH IFILE [IFILE ...]   (TRUTH: make_truth_equilibrium.py OUT)
 Writes <name>_exact.ifile (Newton-refined R,Z plus truth FF', p' records) in the working directory.
 """
 import os, sys, json
 import numpy as np
 from scipy.interpolate import CubicSpline
 sys.path.insert(0, os.path.dirname(__file__))
-from make_truth_equilibrium import solve_truth, OUT as TRUTH
+from make_truth_equilibrium import solve_truth
 from ifile_tools import read_ifile, write_ifile, gs_residual
 
-mygs, _ = solve_truth()
+TRUTH = sys.argv[1]
+meta = json.load(open(os.path.join(TRUTH, 'truth_meta.json')))
+mygs, _ = solve_truth(meta['source'], meta['mesh'])
 fpsi, fgrad = mygs.get_field_eval('psi'), mygs.get_field_eval('dPSI')
 truth = np.load(os.path.join(TRUTH, 'truth_profiles.npz'))
-pb = json.load(open(os.path.join(TRUTH, 'truth_meta.json')))['psi_bounds']
+pb = meta['psi_bounds']
 
 
 def refine(d, its=8):
@@ -41,7 +43,7 @@ def refine(d, its=8):
     return out, np.abs(np.hypot(dr, dz) - rho), np.abs(f).max()
 
 
-for path in sys.argv[1:]:
+for path in sys.argv[2:]:
     d = read_ifile(path)
     x = (pb[1] - d['psi']) / (pb[1] - pb[0])
     ffp = CubicSpline(truth['psi_N'], truth['FFp'])(x)

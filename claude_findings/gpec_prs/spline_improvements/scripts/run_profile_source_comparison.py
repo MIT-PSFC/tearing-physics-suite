@@ -1,26 +1,27 @@
-"""A4: compare profile_source = values | hermite | integrate on g-files (STRIDE Delta', GPEC GSE).
+"""Compare profile_source settings on g-files (STRIDE Delta', GPEC GSE).
 
-usage: python run_profile_source_comparison.py BINDIR OUTROOT [key=value ...]  (extra &EQUIL_CONTROL settings)
+usage: python run_profile_source_comparison.py BINDIR TRUTH OUTROOT [key=value ...]  (extra &EQUIL_CONTROL settings)
 Cases: the TokaMaker truth g-files at 129/257/513 (psihigh set so the last surface is at the
-same true psi_N = 0.985), the TkMkr D3D-like example, and g147131 (classic EFIT).
+same true psi_N = 0.985), GPEC's TkMkr D3D-like example, and g147131 (classic EFIT; env G147131,
+e.g. inputs/g147131.02300_DIIID_KEFIT, skipped if unset).
+env METHODS (default values,integrate); "hermite" needs a GPEC build before a95a365b, where it was dropped.
 Writes OUTROOT/profile_source_results.json.
 """
 import os, sys, json
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
-from gpec_runs import run_stride, read_delta_prime, read_gsec, gse_metrics, TEMPLATE
+from gpec_runs import run_stride, read_delta_prime, read_gsec, gse_metrics, example_dir
 
-BIN, ROOT = sys.argv[1], sys.argv[2]
-EXTRA = dict(a.split('=', 1) for a in sys.argv[3:])
-TRUTH = os.path.join(os.environ['PSCRATCH'], 'tmdb/gpec_spline_tests/truth')
-TPS = os.environ['TPS']
+BIN, TRUTH, ROOT = sys.argv[1:4]
+EXTRA = dict(a.split('=', 1) for a in sys.argv[4:])
 PSI_TRUE = 0.985
 GPAD = json.load(open(os.path.join(TRUTH, 'truth_meta.json')))['psi_pad']
 EQS = {f'g{n}': (os.path.join(TRUTH, f'g{n}.geqdsk'), PSI_TRUE / (1 - GPAD)) for n in (129, 257, 513)}
-EQS['TkMkr'] = (os.path.join(TEMPLATE, 'TkMkr_D3Dlike_Hmode.geqdsk'), 0.995)
-EQS['g147131'] = (os.path.join(TPS, 'tests/data/g147131.02300_DIIID_KEFIT'), 0.993)
-METHODS = ('values', 'hermite', 'integrate')
+EQS['TkMkr'] = (os.path.join(example_dir(BIN), 'TkMkr_D3Dlike_Hmode.geqdsk'), 0.995)
+if os.environ.get('G147131'):
+    EQS['g147131'] = (os.path.abspath(os.environ['G147131']), 0.993)
+METHODS = os.environ.get('METHODS', 'values,integrate').split(',')
 
 
 def one(args):

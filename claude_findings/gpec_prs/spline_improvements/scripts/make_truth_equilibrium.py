@@ -1,17 +1,19 @@
 """Solve a DIII-D-like TokaMaker equilibrium with known profiles and write it in every format we compare.
 
-The FF' and p' shapes, Ip, F0, and boundary come from bouquet's D3Dlike_Hmode_baseline.geqdsk.
+The FF' and p' shapes, Ip, F0, and boundary come from SOURCE (inputs/D3Dlike_Hmode_baseline.geqdsk,
+a TokaMaker D3D-like H-mode); MESH is the TokaMaker DIII-D mesh (inputs/DIIID_mesh.h5).
 The shapes are interpolated with a C2 cubic spline onto NODES (default 4001) points and given
 to TokaMaker as piecewise-linear ('linterp') profiles, so F'' is smooth to within ~1/NODES**2.
 TokaMaker's F, F', p, p' are exact at any psi: they are the ground truth for the g-file and
 i-file round trips.
 
-Writes into OUT (default $PSCRATCH/tmdb/gpec_spline_tests/truth):
+Writes into OUT:
   truth_profiles.npz        psi_N, F, F', FF', p, p' (dF/dpsi_N etc., psi in Wb/rad) on a fine grid
   g{N}.geqdsk               save_eqdsk at nr = nz = N
   i{NPSI}x{NTHETA}[_nopack][_pad{X}].ifile   save_ifile variants
+  truth_meta.json           psi bounds, F0, padding, stats, SOURCE and MESH paths
 
-usage: python make_truth_equilibrium.py [OUT]
+usage: python make_truth_equilibrium.py SOURCE MESH OUT   (env NTHREADS, NODES)
 """
 import os, sys, json
 import numpy as np
@@ -21,20 +23,18 @@ from OpenFUSIONToolkit.TokaMaker import TokaMaker
 from OpenFUSIONToolkit.TokaMaker.meshing import load_gs_mesh
 from OpenFUSIONToolkit.TokaMaker.util import read_eqdsk
 
-BOUQUET = '/global/cfs/cdirs/m3195/stubenj9/tmdb/src/bouquet/examples/D3D-like'
-OUT = os.path.join(os.environ['PSCRATCH'], 'tmdb/gpec_spline_tests/truth')
 PSI_PAD = 1e-3
 
 
-def solve_truth(nthreads=4):
+def solve_truth(source, mesh, nthreads=4):
     """Solve the truth equilibrium; returns (TokaMaker, source g-file dict)."""
-    g = read_eqdsk(os.path.join(BOUQUET, 'D3Dlike_Hmode_baseline.geqdsk'))
+    g = read_eqdsk(source)
     psi_N = np.linspace(0.0, 1.0, g['nr'])
     F0 = abs(g['rcentr'] * g['bcentr'])
 
     myOFT = OFT_env(nthreads=nthreads)
     mygs = TokaMaker(myOFT)
-    mp, ml, mr, cd, cnd = load_gs_mesh(os.path.join(BOUQUET, 'DIIID_mesh.h5'))
+    mp, ml, mr, cd, cnd = load_gs_mesh(mesh)
     mygs.setup_mesh(mp, ml, mr)
     mygs.setup_regions(cond_dict=cnd, coil_dict=cd)
     mygs.setup(order=3, F0=F0)
@@ -67,9 +67,9 @@ def solve_truth(nthreads=4):
 
 
 if __name__ == '__main__':
-    OUT = sys.argv[1] if len(sys.argv) > 1 else OUT
+    SOURCE, MESH, OUT = (os.path.abspath(a) for a in sys.argv[1:4])
     os.makedirs(OUT, exist_ok=True)
-    mygs, g = solve_truth(int(os.environ.get('NTHREADS', '4')))
+    mygs, g = solve_truth(SOURCE, MESH, int(os.environ.get('NTHREADS', '4')))
     stats = mygs.get_stats(lcfs_pad=PSI_PAD)
     print({k: stats[k] for k in ('Ip', 'q_0', 'q_95', 'l_i', 'beta_n') if k in stats}, flush=True)
 
@@ -88,6 +88,7 @@ if __name__ == '__main__':
         name = f'i{npsi}x{nth}' + ('' if pack else '_nopack') + ('' if pad == 0.01 else f'_pad{pad:g}')
         mygs.save_ifile(os.path.join(OUT, name + '.ifile'), npsi=npsi, ntheta=nth, lcfs_pad=pad, pack_lcfs=pack)
     json.dump({'psi_bounds': list(mygs.psi_bounds), 'F0': abs(g['rcentr'] * g['bcentr']), 'psi_pad': PSI_PAD,
+               'source': SOURCE, 'mesh': MESH,
                'stats': {k: float(v) for k, v in stats.items() if np.isscalar(v)}},
               open(os.path.join(OUT, 'truth_meta.json'), 'w'), indent=1)
     print('wrote', OUT, flush=True)

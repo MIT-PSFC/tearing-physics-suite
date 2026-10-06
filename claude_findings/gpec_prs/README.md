@@ -77,14 +77,14 @@ q is proportional to F); format documented.
 ## Phase B results
 - **OFT i-file:** the file's own GS residual is now 2–4e-4 (the FE limit) at every resolution; it was 2e-3 to 1.8e-2 before. GPEC's GSE is at or below the g-file path's.
   Δ′(2/1) is 8.51 for the 129×257 i-file at mpsi 128, and 8.53 at mpsi 512. Details in [GPECf_interface.md](GPECf_interface.md).
-- **TPS end to end** (`scripts/tps_ifile_e2e.py`, nn = 1, mpsi = 257, TPS defaults):
+- **TPS end to end** (`integration_scripts/tps_ifile_e2e.py`, nn = 1, mpsi = 257, TPS defaults):
 
   | file | RDCON Δ′(2/1) | STRIDE Δ′(2/1) |
   |---|---|---|
   | g257 g-file | 8.400 | 8.415 |
   | i129x257 i-file (picked up as `ldp_i`) | 8.246 | 8.261 |
 
-- **Real bouquet run** (`scripts/bouquet_ifile_run.py`, D3D-like example, 2 draws, `write_ifile=True`, 2.4 min):
+- **Real bouquet run** (`integration_scripts/bouquet_ifile_run.py`, D3D-like example, 2 draws, `write_ifile=True`, 2.4 min):
   - Every draw stored its eqdsk (1.1 MB) and its i-file (0.54 MB).
   - TPS `read_bouquet_archive(eq_source=...)` and RDCON/STRIDE ran on draw 0:
 
@@ -94,7 +94,7 @@ q is proportional to F); format documented.
     | i-file | 8.07 | 8.08 |
 
   - The i-file result is the one that stays put as mpsi changes (see the reports).
-- **Kinetics (Issue 3.3)** (`scripts/kinetic_pressure_check.py`, golden archive, 3 draws):
+- **Kinetics (Issue 3.3)** (`integration_scripts/kinetic_pressure_check.py`, golden archive, 3 draws):
   - TPS's pchip splines give e(n_e T_e + n_i T_i), which matches bouquet's `pressure_thermal` (the solve's pressure without impurity and fast ions) to 1.5e-5 of the peak.
   - pchip and Akima differ by only 2e-6 on the dense kinetic grid.
   - pchip is used everywhere now, to match bouquet's `pp_prof` and GPEC's Zeff fit.

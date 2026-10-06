@@ -42,9 +42,11 @@ Each change is its own commit.
 **pchip and Akima are not used for F and p:** they cannot be constrained by derivatives, and once derivatives are supplied they reduce to the same Hermite form. pchip is used for tabulated data without derivatives (item 11).
 
 ## Evidence
-The reference is a TokaMaker equilibrium (`scripts/make_truth_equilibrium.py`): DIII-D-like, q0 = 1.25, q95 = 4.49. Its FF′ and p′ are dense and smooth, so F, F′, F″ and p′ are known exactly at every ψ. Its g-files and i-files were written with the unmodified OFT install `f2098a9`.
+The reference is a TokaMaker equilibrium (`make_truth_equilibrium.py`): DIII-D-like, q0 = 1.25, q95 = 4.49. Its FF′ and p′ are dense and smooth, so F, F′, F″ and p′ are known exactly at every ψ. Its g-files and i-files were written with OpenFUSIONToolkit before its `GPECf_interface` i-file fix.
 
-**1. F″ against the exact value** (`scripts/gpec_profiles.py`, which reproduces GPEC's sq construction), for the 257-point g-file:
+These results predate the `bugfix/dcon-vacuum-theta-frame` merge. Rerun on the current branch, Δ′(2/1) moves by +0.007 (truth g-files) to +0.035 (g147131) for both profile sources; the comparisons and conclusions are unchanged.
+
+**1. F″ against the exact value** (`gpec_profiles.py`, which reproduces GPEC's sq construction), for the 257-point g-file:
 
 ![F'' vs truth](spline_improvements/figures/profile_source_Fpp.png)
 
@@ -60,7 +62,7 @@ Root-mean-square error in F″ for 0.1 < ψ_N < 0.85:
 
 `hermite`, which keeps the noisy values alongside exact slopes, is the worst: the values' rounding noise has nowhere to go but F″ inside each interval, about (value error)/h². It was dropped (item 13).
 
-**2. STRIDE Δ′(2/1)** (`scripts/run_profile_source_comparison.py`):
+**2. STRIDE Δ′(2/1)** (`run_profile_source_comparison.py`):
 
 | file | profile_source | mpsi = 128 | 256 | 512 |
 |---|---|---|---|---|
@@ -76,7 +78,7 @@ Root-mean-square error in F″ for 0.1 < ψ_N < 0.85:
 
 ![Delta' vs mpsi](spline_improvements/figures/delta_prime_vs_mpsi.png)
 
-## Inverse file vs g-file: GSE and file size (`scripts/run_ifile_comparison.py`)
+## Inverse file vs g-file: GSE and file size (`run_ifile_comparison.py`)
 All files come from the same TokaMaker equilibrium, with the last surface at the same true ψ_N = 0.985 and mpsi = 128. Integrated GSE is the θ-integrated residual divided by the θ-integrated source, taking the median over 0.05 < ψ_N < 0.95.
 
 | file | size | Δ′(2/1) | GSE local, median | GSE integrated, median |
@@ -89,8 +91,8 @@ All files come from the same TokaMaker equilibrium, with the last surface at the
 ![GSE vs file size](spline_improvements/figures/gse_vs_filesize.png)
 
 **Why the `ldp_i` GSE has been high: the problem is in the file, not in GPEC's reader or its GSE check.**
-- The R,Z points that OFT `gs_save_ifile` writes are about 2e-7 m off the true ψ = ψ_k crossings (median), with occasional points up to 1e-3 m off. This was measured by Newton iteration on TokaMaker's own FEM ψ along each ray (`scripts/diag_ifile_noise.py`).
-- The file's own Grad–Shafranov residual, computed independently of GPEC (`scripts/ifile_tools.py gs_residual`), grows as the grid is refined:
+- The R,Z points that OFT `gs_save_ifile` writes are about 2e-7 m off the true ψ = ψ_k crossings (median), with occasional points up to 1e-3 m off. This was measured by Newton iteration on TokaMaker's own FEM ψ along each ray (`diag_ifile_noise.py`).
+- The file's own Grad–Shafranov residual, computed independently of GPEC (`ifile_tools.py gs_residual`), grows as the grid is refined:
 
   | npsi | 65 | 129 | 257 |
   |---|---|---|---|
@@ -110,7 +112,7 @@ The fix belongs in OFT `gs_save_ifile`: place each point at the exact crossing, 
   - g147131: Δ′(2/1) goes from 8.00 to 8.14 at mpsi = 128.
   - Downstream reference values tuned to the old profiles (e.g. Δ′ tolerances of ±0.1) will move.
 - **Unchanged:** the CI Solovev regressions (ideal, kinetic, resistive) are bit-for-bit identical. The other example pass/fail outcomes match the base branch.
-- **Dump path:** fixed in Phase B (items 8 and 9).
+- **Dump path:** fixed (items 8 and 9).
 
 ## Further changes
 7. **Merge of `bugfix/dcon-vacuum-theta-frame`** (`0bb9a111`, via `Zeff_profile_support` `99378252`), It puts the DCON/RDCON/STRIDE vacuum matrix in the plasma's Fourier frame. It merged cleanly.
@@ -128,13 +130,11 @@ The fix belongs in OFT `gs_save_ifile`: place each point at the exact crossing, 
 13. **`profile_source = "hermite"` dropped** (`a95a365b`). It was the worst option in every comparison above. `spline_fit_hermite` stays: `integrate` uses it to keep the derivatives through `sq_in`, `sq`, `newq0`, `sq_out` and the dump. Δ′ results unchanged.
 
 ## How to reproduce
+The scripts and their inputs ship with this PR as `spline_improvements_scripts.zip`; its `README.md` lists each script and the commands. In short:
 ```bash
-source scripts/env.sh          # sets WT (GPEC worktrees), PY, OFT_INSTALL
-cd $WT/spline_improvements/install && make -j8 && make -C ../regression/spline_tests run
-PYTHONPATH=$OFT_INSTALL/python $PY scripts/make_truth_equilibrium.py
-$PY scripts/run_profile_source_comparison.py $WT/spline_improvements/bin OUT [mpsi=256]
-$PY scripts/run_ifile_comparison.py $WT/spline_improvements/bin OUT
-PYTHONPATH=$OFT_INSTALL/python $PY scripts/diag_ifile_noise.py truth/i*.ifile   # writes *_exact.ifile
-$PY scripts/run_exact_ifiles.py $WT/spline_improvements/bin OUT *_exact.ifile
-PYTHONPATH=$OFT_INSTALL/python $PY scripts/make_figures.py RESULTS FIGDIR
+make -C regression/spline_tests run                      # Fortran unit test, after building GPEC
+python make_truth_equilibrium.py inputs/D3Dlike_Hmode_baseline.geqdsk inputs/DIIID_mesh.h5 results/truth
+python run_profile_source_comparison.py <GPEC>/bin results/truth results/profile_source_m128
+python run_ifile_comparison.py <GPEC>/bin results/truth results/ifile
+python make_figures.py results figures
 ```

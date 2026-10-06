@@ -36,6 +36,7 @@ def sq_profiles(xs_in, F, p, ffp, pp, method, xs_sq):
     """Splines for |F| and mu0 p as GPEC holds them in `sq` (knots xs_sq).
 
     xs_in: uniform psi_N of the file; F, p (mu0 p): values; ffp, pp: d(F^2/2)/dpsi_N, d(mu0 p)/dpsi_N.
+    method: 'values', 'integrate', or 'hermite' (tabulated values with the file's slopes; tested, not in GPEC).
     Returns (F spline, p spline) callables on psi_N with .derivative().
     """
     if method == 'values':

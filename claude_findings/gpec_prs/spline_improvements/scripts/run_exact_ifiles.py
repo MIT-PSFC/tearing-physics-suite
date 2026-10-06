@@ -1,4 +1,4 @@
-"""A6 follow-up: GPEC on i-files whose R,Z are exact FEM psi crossings (diag_ifile_noise.py output).
+"""GPEC on i-files whose R,Z are exact FEM psi crossings (diag_ifile_noise.py output).
 
 usage: python run_exact_ifiles.py BINDIR OUTROOT IFILE [IFILE ...]  (env MPSI sets mpsi, default 128)
 """

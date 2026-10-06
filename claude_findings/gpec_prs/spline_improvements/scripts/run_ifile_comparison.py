@@ -1,6 +1,6 @@
-"""A6: i-file (eq_type='ldp_i', inverse.f) vs g-file (eq_type='efit', direct.f): GPEC GSE, Delta', file size.
+"""i-file (eq_type='ldp_i', inverse.f) vs g-file (eq_type='efit', direct.f): GPEC GSE, Delta', file size.
 
-usage: python run_ifile_comparison.py BINDIR OUTROOT [key=value ...]  (extra &EQUIL_CONTROL settings)
+usage: python run_ifile_comparison.py BINDIR TRUTH OUTROOT [key=value ...]  (extra &EQUIL_CONTROL settings)
 All files come from the same TokaMaker truth equilibrium (make_truth_equilibrium.py). Each i-file
 is run as written by OFT (F, p only -> profile_source falls back to values) and with appended
 FF', p' records (profile_source = integrate). psihigh puts the last surface at true psi_N = 0.985.
@@ -13,9 +13,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from gpec_runs import run_stride, read_delta_prime, read_gsec, gse_metrics
 from ifile_tools import append_derivatives
 
-BIN, ROOT = sys.argv[1], sys.argv[2]
-EXTRA = dict(a.split('=', 1) for a in sys.argv[3:])
-TRUTH = os.path.join(os.environ['PSCRATCH'], 'tmdb/gpec_spline_tests/truth')
+BIN, TRUTH, ROOT = sys.argv[1:4]
+EXTRA = dict(a.split('=', 1) for a in sys.argv[4:])
 META = json.load(open(os.path.join(TRUTH, 'truth_meta.json')))
 PSI_TRUE = 0.985
 

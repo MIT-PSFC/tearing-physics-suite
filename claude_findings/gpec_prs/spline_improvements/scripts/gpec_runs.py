@@ -4,7 +4,11 @@ import numpy as np
 import xarray as xr
 from scipy.io import FortranFile
 
-TEMPLATE = os.path.join(os.environ.get('WT', ''), 'spline_improvements/docs/examples/DIIID_ideal_example')
+
+
+def example_dir(bindir):
+    """GPEC's DIIID_ideal_example (input templates and the TkMkr g-file), from the GPEC bin directory."""
+    return os.path.join(os.path.dirname(os.path.abspath(bindir)), 'docs/examples/DIIID_ideal_example')
 
 
 def set_namelist(path, group, **kv):
@@ -19,8 +23,10 @@ def set_namelist(path, group, **kv):
     open(path, 'w').write(s[:m.start(1)] + body + s[m.end(1):])
 
 
-def run_stride(bindir, out, eqfile, template=TEMPLATE, threads=2, **equil):
-    """Run stride in a fresh directory `out`; equil overrides go into &EQUIL_CONTROL (strings pre-quoted)."""
+def run_stride(bindir, out, eqfile, template=None, threads=2, **equil):
+    """Run stride in a fresh directory `out` with the *.in files of `template` (default example_dir(bindir));
+    equil overrides go into &EQUIL_CONTROL (strings pre-quoted)."""
+    template = template or example_dir(bindir)
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     for f in os.listdir(template):

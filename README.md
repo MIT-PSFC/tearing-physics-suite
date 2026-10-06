@@ -104,7 +104,9 @@ uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics
 &emsp;&emsp;&emsp;GPEC    - https://github.com/PrincetonUniversity/GPEC    
 &emsp;&emsp;and build them using a combination of make and cmake software. I recommend    
 &emsp;&emsp;debugging this script with an AI agent if something goes wrong. V0 works    
-&emsp;&emsp;on the clusters OMEGA and Engaging (more to come...)
+&emsp;&emsp;on the clusters OMEGA and Engaging (more to come...)    
+&emsp;&emsp;On slow shared filesystems (e.g. NERSC CFS) add `--work-dir <fast dir>` (or set    
+&emsp;&emsp;`TPS_BUILD_DIR`) to compile PEST3 and GPEC there; the executables are copied back into `submodules/`.
 
 5. Load environmental variables: 
 ```

@@ -8,10 +8,10 @@ Tracking for open work on this branch. Update this file when an item is done (ti
   - `sampling_DB.py` and in-TPS GPR rotation resampling (bouquet now perturbs rotation itself);
   - the old worker-dir/`map_object.pkl` bouquet reader;
   - the hand-copied bouquet h5 loaders.
-- Not yet run: the full `tests/run_tests.py` suite. It needs GPEC built from `Zeff_profile_support` (see below).
+- Full `tests/run_tests.py` suite passes (7/7, exit 0) on Perlmutter, 2026-10-06, with GPEC built from `Zeff_profile_support`. Remaining value issue: `fortran_wrappers_tests` prints `PEST3 Delta prime 21 no-wall value correct: False` (PEST3 2.57 vs reference 7.3; rdcon 7.29 and stride 7.31 match). The script does not fail on it. Not yet diagnosed.
 
 ## GPEC branch dependencies
-TPS `build_GPEC(branch="develop")` is still the default.
+TPS `build_GPEC(branch="develop")` is still the default. Use `--gpec-branch Zeff_profile_support` when cloning GPEC for the TPS tests. The branch is used only when `submodules/GPEC` does not exist yet.
 
 | TPS feature | Requires | Status (2026-10-05) |
 |---|---|---|
@@ -43,3 +43,15 @@ TPS `build_GPEC(branch="develop")` is still the default.
   - peak at w=1 → w_max=NaN.
 - `multi_run_` defaults to `warm_start=True`, so cases with an existing `done_{idx}.marker` are skipped.
 - Output file names strip only `.geqdsk`, `.eqdsk` and `.gfile` (`PEST3_wrappers.eq_stem`).
+
+## Building on NERSC Perlmutter
+Default modules: PrgEnv-gnu, gcc-native/14, cray-mpich. Build from a compute node:
+```bash
+export UV_CACHE_DIR=$PSCRATCH/uv-cache UV_LINK_MODE=copy HDF5_USE_FILE_LOCKING=FALSE
+uv run tearing_physics_suite/build_tearing_physics_suite.py --skip-libs \
+    --work-dir $PSCRATCH/tmdb/build/tps --gpec-branch Zeff_profile_support
+```
+- **CFS is too slow for compiling.** `--work-dir` (or `TPS_BUILD_DIR`) compiles PEST3 and GPEC there and copies the executables back into `submodules/`. A full build takes about 15 min: PEST3 about 5 min with `-j1`, GPEC about 4 min, plus the install tests.
+- **GPEC compilers.** GPEC gets plain `gfortran`/`gcc`, because its makefile rejects `mpif90`/`mpicc`. PEST3 still uses the MPI wrappers. The env file now exports the plain compilers.
+- **GCC 14.** PEST3's C is configured with `-fpermissive` for GCC >= 14 (implicit declarations in portlib).
+- **GPEC install test.** On `Zeff_profile_support` the DIIID examples still have the legacy g147131 inputs, so the "current" test checks them against the legacy references. It prints a NOTE when it does this.

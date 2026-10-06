@@ -76,7 +76,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
 
     # Detect compilers and get appropriate flags
     from tearing_physics_suite.compiler_utils import detect_compilers
-    compiler_info = detect_compilers()
+    compiler_info = detect_compilers(mpi=False)
 
     # Collect unique LD_LIBRARY_PATH entries in order
     ld_dirs = []
@@ -95,7 +95,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         or str(Path(netcdf_prefix) / "include")
     )
 
-    gpec_bin  = str(Path(repo_root) / "submodules" / "GPEC" / "install" / "bin")
+    gpec_bin  = str(Path(repo_root) / "submodules" / "GPEC" / "bin")
     pest3_bin = str(Path(repo_root) / "submodules" / "PEST3" / "cmake_build" / "pest3")
 
     lines = [
@@ -158,6 +158,8 @@ def build_all(
     verbose=False,
     gpec_single_threaded=False,
     legacy_gpec_test=True,
+    work_dir=None,
+    gpec_branch="develop",
 ):
     """
     Run the full tearing-physics-suite build pipeline.
@@ -198,6 +200,12 @@ def build_all(
     legacy_gpec_test : bool
         If True (default), also run the GPEC legacy install test (example
         inputs as at GPEC a8be45d, see ``GPEC_LEGACY_RECIPE``).
+    work_dir : str, optional
+        Directory in which PEST3 and GPEC are compiled (e.g. a fast local or
+        scratch disk); the executables are copied back into submodules/.
+        Defaults to ``$TPS_BUILD_DIR``, else in-tree.
+    gpec_branch : str
+        GPEC branch to clone if submodules/GPEC does not exist yet.
 
     Returns
     -------
@@ -211,6 +219,8 @@ def build_all(
         install_dir = str(repo_root / "submodules" / "utils")
     if build_dir is None:
         build_dir = str(repo_root / "build")
+    if work_dir is None:
+        work_dir = os.environ.get("TPS_BUILD_DIR")
 
     print("=" * 60)
     print("  tearing-physics-suite – master build")
@@ -218,6 +228,7 @@ def build_all(
     print(f"  Repository root : {repo_root}")
     print(f"  Install prefix  : {install_dir}")
     print(f"  Build directory : {build_dir}")
+    print(f"  Work directory  : {work_dir or 'in-tree'}")
     print()
 
     all_ok = True
@@ -287,6 +298,7 @@ def build_all(
             lib_paths,
             rebuild=rebuild_pest3,
             debug=debug,
+            work_dir=work_dir,
         )
         if not pest3_ok:
             print("\nERROR: PEST3 build failed.")
@@ -310,6 +322,8 @@ def build_all(
             debug=debug,
             disable_openmp=gpec_single_threaded,
             legacy_test=legacy_gpec_test,
+            work_dir=work_dir,
+            branch=gpec_branch,
         )
         if not gpec_ok:
             print("\nERROR: GPEC build failed.")
@@ -362,6 +376,20 @@ def main():
         default=None,
         help="Directory for downloading / building library sources (default: build/)",
     )
+    parser.add_argument(
+        "--work-dir",
+        type=str,
+        default=None,
+        help="Directory in which PEST3 and GPEC are compiled, e.g. on a fast local "
+             "or scratch disk; executables are copied back into submodules/ "
+             "(default: $TPS_BUILD_DIR, else in-tree)",
+    )
+    parser.add_argument(
+        "--gpec-branch",
+        type=str,
+        default="develop",
+        help="GPEC branch to clone if submodules/GPEC does not exist yet (default: develop)",
+    )
 
     # Skip flags
     parser.add_argument("--skip-libs", action="store_true", help="Skip building dependency libraries")
@@ -399,6 +427,8 @@ def main():
         verbose=args.verbose,
         gpec_single_threaded=args.gpec_single_threaded,
         legacy_gpec_test=not args.no_legacy_gpec_test,
+        work_dir=args.work_dir,
+        gpec_branch=args.gpec_branch,
     )
 
     sys.exit(0 if success else 1)

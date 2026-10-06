@@ -2,7 +2,7 @@
 
 This PR builds on `Zeff_profile_support`.
 
-- **Branch:** `spline_improvements`, local only. Phase A added 6 commits on top of `0b4a7720`; Phase B added the merge of `bugfix/dcon-vacuum-theta-frame` (via `Zeff_profile_support`) and 4 more commits (below).
+- **Branch:** `spline_improvements`, local only. Phase A added 6 commits on top of `0b4a7720`; Phase B added the merge of `bugfix/dcon-vacuum-theta-frame` (via `Zeff_profile_support`) and 5 more commits (below), the last from a code review.
 - **Worktree:** `$PSCRATCH/tmdb/build/gpec_wt/spline_improvements`. The commits live in the repository at `submodules/GPEC`.
 - **Scripts and data:** scripts are in `spline_improvements/scripts/`. Results are in `$PSCRATCH/tmdb/gpec_spline_tests/`, which is purged after 8 weeks; rerun the scripts to regenerate them.
 
@@ -122,6 +122,11 @@ The fix belongs in OFT `gs_save_ifile`: place each point at the exact crossing, 
    - STRIDE: its psilim reform regrids the equilibrium, so Δ′(2/1) differs by about 1% (7.47 against 7.39) for both profile sources.
 10. **`spline_fit_pchip`** (`de7440b5`). Monotone cubic Hermite (Fritsch–Carlson) with scipy's end slopes; the unit test matches scipy `PchipInterpolator` to 1e-7.
 11. **pchip for tabulated data without derivatives** (`42121c91`): the RDCON Zeff profile (`mercier.f`) and the PENTRC kinetic input table (`inputs.f90`). Both have pedestal-scale gradients, where a cubic spline rings. TPS's `Zeff_surf` uses `PchipInterpolator` to match.
+12. **Review fixes** (`7c44ec05`):
+   - The ψ direction of the file's derivatives is now taken from f and p together. Before, a flat p (pressureless equilibrium) or a flat f made the sign check fail and fell back to `values`.
+   - `equil_out_dump` writes `eqfun` only if it exists.
+   - Shorter `equil.in` entry; redundant wrappers removed from the unit test.
+   - Unit test passes; TPS end-to-end Δ′ unchanged to all printed digits.
 
 ## How to reproduce
 ```bash

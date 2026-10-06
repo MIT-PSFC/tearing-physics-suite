@@ -10,7 +10,7 @@ The i-file that `save_ifile` writes is read by GPEC's `eq_type='ldp_i'` (`invers
 - Second derivatives in ψ amplify these errors, so the file's own GS residual grows with resolution: 2e-3 at npsi = 65, 1.8e-2 at npsi = 257.
 
 ## Changes
-Three commits:
+Four commits:
 1. **`gs_save_ifile`** (`df92ada`)
    - After tracing, each point is moved onto its exact surface by Newton iteration on the FE ψ. The search runs along a ray from the axis at angle exactly 2πk/(ntheta−1).
    - F·dF/dψ and dP/dψ (ψ in Wb/rad, P in Pa) are written as two extra records **after** the R and Z records, so older readers that stop after Z are unaffected.
@@ -22,6 +22,7 @@ Three commits:
    - `util.read_ifile` returns `ffp` and `pp` when those records are present.
    - `save_ifile` defaults change to `npsi=129, ntheta=257`, the best accuracy for the file size in A6.
 3. **Test** (`164d4df`): `test_ITER_eq` now also checks that ψ at the i-file's R,Z points matches its ψ grid, and that the FF′ and P′ records match `get_profiles`, each to 1e-10. The test fails against the old install, as it should.
+4. **Review fix** (`7deb6f8`): if the Newton snap leaves the mesh or does not converge, `ifile_snap` keeps the traced point instead of using an unconverged one.
 
 ## Results
 Same TokaMaker truth equilibrium as in A6. The file's own GS residual (median, 0.1 < ψ_N < 0.9):
@@ -47,6 +48,7 @@ GPEC `spline_improvements`, reading `eq_type='ldp_i'` with `profile_source='inte
 ## Verification
 - `test_TokaMaker.py -k "test_ITER_eq and not io"`: 4/4 pass on the new install. On the old install the order-3 cases fail, as they should.
 - Full `test_TokaMaker.py` on the new install, built from HEAD `164d4df`: **114/114 pass** (8.4 min).
+- After the review fix, rebuilt from HEAD `7deb6f8`: full `test_TokaMaker.py` **114/114 pass** (6.8 min).
 - bouquet: the full test suite on `OFT_inverse` with this install passes (all tests, no failures).
 
 ## Status

@@ -6,13 +6,17 @@ The overarching plan is `~/.claude/plans/warm-gliding-hartmanis.md`. It covers I
 | Step | Branch (tip) | Status |
 |---|---|---|
 | Phase 0: merge `develop` and `bugfix/dcon-vacuum-theta-frame` | GPEC `Zeff_profile_support` `99378252` | Done. Built into `submodules/GPEC/bin`; TPS 7/7. [report](Zeff_profile_support.md) |
-| Phase A + B.0: profiles from FF′/p′, Hermite and pchip fits, dump fix | GPEC `spline_improvements` `42121c91` | Done. [report](spline_improvements.md) |
-| B.1: OFT i-file on exact surfaces, FF′/p′ records | OFT `GPECf_interface` `164d4df` | Done; OFT tests 114/114. **Merge into PSFC_dev blocked by a permission check; needs the user.** [report](GPECf_interface.md) |
-| B.2: `ldp_i` takes \|F\| | GPEC `OFT_interface` `c7a36108` | Done. [report](OFT_interface.md) |
-| B.3: `write_ifile` option | bouquet `OFT_inverse` `101b247` | Done; full bouquet suite passes |
+| Phase A + B.0: profiles from FF′/p′, Hermite and pchip fits, dump fix | GPEC `spline_improvements` `7c44ec05` | Done. [report](spline_improvements.md) |
+| B.1: OFT i-file on exact surfaces, FF′/p′ records | OFT `GPECf_interface` `7deb6f8` | Done; OFT tests 114/114. **Merge into PSFC_dev blocked by a permission check; needs the user.** [report](GPECf_interface.md) |
+| B.2: `ldp_i` takes \|F\| | GPEC `OFT_interface` `eb9e9fc1` | Done. [report](OFT_interface.md) |
+| B.3: `write_ifile` option | bouquet `OFT_inverse` `7df036f` | Done; full bouquet suite passes |
 | B.4: TPS `eq_source='ifile'`, `ldp_i` from extension, pchip kinetics and Zeff | TPS `bouquet_interface_v2` `a522e96` | Done; TPS 7/7 |
 | B.5: end-to-end and kinetics checks | — | Done (below) |
 
+- **Code review (session 2):** one fix commit per repo, verified as below.
+  - GPEC `7c44ec05`: profile-derivative sign from f and p together (a pressureless or flat-f equilibrium no longer falls back to `values`); dump writes `eqfun` only if allocated; doc and test tidy. Unit test passes; TPS end-to-end Δ′ identical on `spline_improvements` and on `OFT_interface` (rebased, `eb9e9fc1`).
+  - OFT `7deb6f8`: `ifile_snap` keeps the traced point if Newton leaves the mesh or does not converge. Full `test_TokaMaker.py` 114/114.
+  - bouquet `7df036f`: `try_save_ifile`, so a failed baseline i-file no longer aborts the warmstart eqdsk re-save. `test_ifile.py` 4/4; a fresh 2-draw run archived the baseline and both draw i-files and ran through TPS (draws are unseeded, so Δ′ differs from the earlier run: g-file 17.36/17.37, i-file 17.08/17.10).
 - Nothing has been pushed.
 - Worktrees:
   - GPEC: `$PSCRATCH/tmdb/build/gpec_wt/{spline_improvements,OFT_interface}`

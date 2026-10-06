@@ -2,7 +2,7 @@
 
 This PR builds on `Zeff_profile_support`.
 
-- **Branch:** `spline_improvements`, local only, 6 commits on top of `0b4a7720`.
+- **Branch:** `spline_improvements`, local only. Phase A added 6 commits on top of `0b4a7720`; Phase B added the merge of `bugfix/dcon-vacuum-theta-frame` (via `Zeff_profile_support`) and 4 more commits (below).
 - **Worktree:** `$PSCRATCH/tmdb/build/gpec_wt/spline_improvements`. The commits live in the repository at `submodules/GPEC`.
 - **Scripts and data:** scripts are in `spline_improvements/scripts/`. Results are in `$PSCRATCH/tmdb/gpec_spline_tests/`, which is purged after 8 weeks; rerun the scripts to regenerate them.
 
@@ -112,7 +112,16 @@ The fix belongs in OFT `gs_save_ifile`: place each point at the exact crossing, 
   - g147131: Δ′(2/1) goes from 8.00 to 8.14 at mpsi = 128.
   - TPS reference values (±0.1 tolerances) will need updating once TPS builds against this branch.
 - **Unchanged:** the CI Solovev regressions (ideal, kinetic, resistive) are bit-for-bit identical. The other example pass/fail outcomes match the base branch.
-- **Not carried by the dump path:** `eq_type = "dump"` (`equil_out_dump` / `read_eq_dump`) writes only `sq%fs`, so the supplied slopes are lost on a dump round trip. Making them survive would need a change to the dump format.
+- **Dump path:** fixed in Phase B (items 8 and 9).
+
+## Phase B additions (2026-10-06)
+7. **Merge of `bugfix/dcon-vacuum-theta-frame`** (`0bb9a111`, via `Zeff_profile_support` `99378252`), at the user's request. It puts the DCON/RDCON/STRIDE vacuum matrix in the plasma's Fourier frame. It merged cleanly, and TPS still passes 7/7 on `Zeff_profile_support` with it.
+8. **Bug fix in `direct_run`** (`822e8b59`). A second `sq%title` assignment with 4 entries (gfortran reallocates on assignment) made the dump record 6 bytes short, so `eq_type="dump"` always failed with "I/O past end of record". That made the dump path unusable before this work.
+9. **`eq_type="dump"` keeps the slopes and `eqfun`** (`8717d832`). `equil_out_dump` appends `sq_in_slopes(1:2), sq%fs1(:,1:2)` and then `eqfun%fs` after the old records. `read_eq_dump` reads them when present (older dumps read as before) and no longer fails when STRIDE re-reads the equilibrium.
+   - DCON: efit → dump → `eq_type=dump` reproduces f, μ0p, q, D_I and D_R **exactly**, for both `integrate` and `values`.
+   - STRIDE: its psilim reform regrids the equilibrium, so Δ′(2/1) differs by about 1% (7.47 against 7.39) for both profile sources.
+10. **`spline_fit_pchip`** (`de7440b5`). Monotone cubic Hermite (Fritsch–Carlson) with scipy's end slopes; the unit test matches scipy `PchipInterpolator` to 1e-7.
+11. **pchip for tabulated data without derivatives** (`42121c91`): the RDCON Zeff profile (`mercier.f`) and the PENTRC kinetic input table (`inputs.f90`). Both have pedestal-scale gradients, where a cubic spline rings. TPS's `Zeff_surf` uses `PchipInterpolator` to match.
 
 ## How to reproduce
 ```bash

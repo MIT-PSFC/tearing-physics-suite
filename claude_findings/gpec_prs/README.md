@@ -2,17 +2,23 @@
 
 The overarching plan is `~/.claude/plans/warm-gliding-hartmanis.md`. It covers Issue 1 (profiles from FF′ and p′), Issue 2 (splines) and Issue 3 (the OFT inverse interface).
 
-## State (2026-10-06)
-| Step | Branch | Status |
+## State (2026-10-06, end of session 1)
+| Step | Branch (tip) | Status |
 |---|---|---|
-| Phase 0: merge `develop` into `Zeff_profile_support` | GPEC `Zeff_profile_support` `0b4a7720` | Done. Built into `submodules/GPEC/bin`; TPS 7/7 passes. Report: [Zeff_profile_support.md](Zeff_profile_support.md) |
-| TPS test data fix | TPS `bouquet_interface_v2` `a845f72` | Done |
-| Phase A: Issues 1 and 2 | GPEC `spline_improvements` `414877b2` (6 commits) | Done. Report: [spline_improvements.md](spline_improvements.md) |
-| Phase B: Issue 3 | GPEC `OFT_interface`, OFT `GPECf_interface`, bouquet `OFT_inverse`, TPS `bouquet_interface_v2` | Not started. Detailed subplan below; needs approval |
+| Phase 0: merge `develop` and `bugfix/dcon-vacuum-theta-frame` | GPEC `Zeff_profile_support` `99378252` | Done. Built into `submodules/GPEC/bin`; TPS 7/7. [report](Zeff_profile_support.md) |
+| Phase A + B.0: profiles from FF′/p′, Hermite and pchip fits, dump fix | GPEC `spline_improvements` `42121c91` | Done. [report](spline_improvements.md) |
+| B.1: OFT i-file on exact surfaces, FF′/p′ records | OFT `GPECf_interface` `164d4df` | Done; OFT tests 114/114. **Merge into PSFC_dev blocked by a permission check; needs the user.** [report](GPECf_interface.md) |
+| B.2: `ldp_i` takes \|F\| | GPEC `OFT_interface` `c7a36108` | Done. [report](OFT_interface.md) |
+| B.3: `write_ifile` option | bouquet `OFT_inverse` `101b247` | Done; full bouquet suite passes |
+| B.4: TPS `eq_source='ifile'`, `ldp_i` from extension, pchip kinetics and Zeff | TPS `bouquet_interface_v2` `a522e96` | Done; TPS 7/7 |
+| B.5: end-to-end and kinetics checks | — | Done (below) |
 
 - Nothing has been pushed.
-- The worktree for `spline_improvements` is `$PSCRATCH/tmdb/build/gpec_wt/spline_improvements`, with its own binaries in its `bin/`.
-- TPS still runs the `Zeff_profile_support` binaries.
+- Worktrees:
+  - GPEC: `$PSCRATCH/tmdb/build/gpec_wt/{spline_improvements,OFT_interface}`
+  - OFT: `$TMDB_SRC/.oft_wt/GPECf_interface`, installed at `$PSCRATCH/tmdb/soft/oft/install_GPECf_interface`
+  - bouquet: `$TMDB_SRC/.bouquet_wt/OFT_inverse`
+- TPS still runs the `Zeff_profile_support` GPEC binaries and OFT `install_release`. Switching either is the user's call.
 
 ## Key results
 1. **`profile_source = integrate` (PR #506's method) is the most accurate and is now the default.**
@@ -26,40 +32,70 @@ The overarching plan is `~/.claude/plans/warm-gliding-hartmanis.md`. It covers I
      - file size is 0.54 MB at 129×257, against 1.1 MB for g257.
 3. **The g-file path is still noisy at mpsi ≥ 256 after the profile fix.** The single-precision ψ(R,Z) table limits it.
 
-## Phase B detailed subplan (proposed)
-**B.1 OFT `GPECf_interface`**, off `PSFC_dev`, in a worktree with its own build and its own `BUILD_TAG` install. The main tree stays untouched.
-1. **Exact points in `gs_save_ifile`.** After tracing, refine each (ψ_k, θ_j) point by Newton iteration on ψ along its ray, in the way `diag_ifile_noise.py` does, to |δψ| ≈ 1e-14.
-   - Alternatively, replace the per-surface ODE with ray-wise root finding.
-   - Acceptance: the file's own GS residual stays flat with npsi.
-2. **Append FF′ and p′ records** (real*8, against ψ in Wb/rad). This stays compatible with old readers, which stop after Z. Extend Python `read_ifile` to read them.
-3. **Small fixes** in `gs_save_ifile`:
-   - line 1041 should test `do_pack`, not the optional argument;
-   - the q min/max print should index `cout(:,4)`;
-   - the error label should read `gs_save_ifile`.
-4. **Defaults:** `npsi = 129`, `ntheta = 257`. Packing: keep the edge packing; A6 showed no gain from removing it.
-5. **Test:** an OFT pytest that round-trips an i-file and checks the GS residual.
+## Phase B plan (approved 2026-10-06)
+User decisions: GPECf_interface gets a PR report kept current ([GPECf_interface.md](GPECf_interface.md)) and is
+merged into PSFC_dev when done; TPS uses pchip like bouquet; upgrade the RDCON Zeff and other derivative-free
+profile spline pathways; TPS reference values may move; dump keeps the slopes; PEST3 no-wall Delta' later.
 
-**B.2 GPEC `OFT_interface`**, off `spline_improvements`.
-- `read_eq_ldp_i` already reads FF′ and p′, from Phase A.
-- Take `|F|`, as `read_eq_efit` does. The reader currently keeps the sign of F, and inverse.f computes q in proportion to F, so a file with F < 0 would give negative q.
-- Document the file format.
+**B.00 GPEC bugfix merge** (user request): `origin/bugfix/dcon-vacuum-theta-frame` (3 commits, DCON/RDCON/STRIDE
+`free.f`: vacuum matrix in the plasma's Fourier frame) merged into `Zeff_profile_support` (`99378252`) and forward
+into `spline_improvements` (`0bb9a111`); `OFT_interface` branches from there. Clean merges.
 
-**B.3 bouquet `OFT_inverse`**, off `bouquet_unified`.
-- Add `GenerationConfig.write_ifile` (default False), plus `ifile_npsi` and `ifile_ntheta`, following the `capture_live_eq` pattern.
-- Call `save_ifile` next to `safe_save_eqdsk` (`TokaMaker_interface.py` around lines 6281 and 4863).
-- Store the result as an `ifile` bytes dataset (a `schema.py` constant and a `store_equilibrium` keyword). Expose it as `d.ifile_bytes`.
-- Add pytests.
+**B.0 GPEC `spline_improvements` (additions)**
+- `equil_out_dump` appends `sq%fs1` after the existing records; `read_eq_dump` reads it if present and keeps the
+  f, p slopes (old dumps still read).
+- `spline_fit_pchip`: monotone cubic Hermite (Fritsch-Carlson) for tabulated data without derivatives. Used for
+  the RDCON Zeff profile and the PENTRC kinetic profile table, replacing cubic splines that ring at the pedestal.
 
-**B.4 TPS `bouquet_interface_v2`**
-- `read_bouquet_archive(eq_source='geqdsk'|'ifile')` writes `TPS_eqdsks/*.ifile`.
-- `write_equil_in` / `write_rdcon_stride_inputs` set `eq_type="'ldp_i'"` and convert `psihigh` for the i-file's padded edge (ψ_N_file = ψ_N / (1 − lcfs_pad)).
+**B.1 OFT `GPECf_interface`** off `PSFC_dev`, worktree `$TMDB_SRC/.oft_wt/GPECf_interface`, own build and install
+(the main tree and install_release are untouched until the final merge).
+1. `gs_save_ifile`: refine every traced point to the exact psi = psi_k crossing along its ray (Newton on the FEM
+   psi). Acceptance: the file's own GS residual stays flat with npsi.
+2. Append FF' and p' records (real*8, vs psi in Wb/rad); `read_ifile` reads them when present.
+3. Fixes: `IF(pack_lcfs)` -> `do_pack`; q min/max index; abort label.
+4. Defaults npsi = 129, ntheta = 257.
+5. pytest: i-file round trip, GS residual check.
+6. Merge into PSFC_dev when done.
 
-**B.5 Kinetic profiles (Issue 3.3)**
-- TPS interpolates kinetic profiles with Akima, while bouquet builds p′ with pchip.
-- Check Σ n·T against OFT's p(ψ) on a bouquet draw, and align the interpolants if they disagree.
-- Zeff reaches RDCON through a cubic `extrap` fit. Check it for ringing at the pedestal.
+**B.2 GPEC `OFT_interface`** off `spline_improvements`: `read_eq_ldp_i` takes |F| like `read_eq_efit` (inverse.f's
+q is proportional to F); format documented.
+
+**B.3 bouquet `OFT_inverse`** off `bouquet_unified`: `GenerationConfig.write_ifile` (+ `ifile_npsi`, `ifile_ntheta`),
+`save_ifile` beside `safe_save_eqdsk`, `ifile` bytes dataset, `ifile_bytes` accessor, pytests.
+
+**B.4 TPS `bouquet_interface_v2`**: `read_bouquet_archive(eq_source='geqdsk'|'ifile')`; `eq_type="'ldp_i'"` with
+`psihigh` converted to the i-file's padded edge; kinetic interpolants `PchipInterpolator` (as bouquet);
+`Zeff_surf` matches GPEC's pchip.
+
+**B.5 Checks**: bouquet draw -> ifile -> TPS -> rdcon/stride end to end; sum n*T against OFT p(psi).
+
+## Phase B results
+- **OFT i-file:** the file's own GS residual is now 2–4e-4 (the FE limit) at every resolution; it was 2e-3 to 1.8e-2 before. GPEC's GSE is at or below the g-file path's.
+  Δ′(2/1) is 8.51 for the 129×257 i-file at mpsi 128, and 8.53 at mpsi 512. Details in [GPECf_interface.md](GPECf_interface.md).
+- **TPS end to end** (`scripts/tps_ifile_e2e.py`, nn = 1, mpsi = 257, TPS defaults):
+
+  | file | RDCON Δ′(2/1) | STRIDE Δ′(2/1) |
+  |---|---|---|
+  | g257 g-file | 8.400 | 8.415 |
+  | i129x257 i-file (picked up as `ldp_i`) | 8.246 | 8.261 |
+
+- **Real bouquet run** (`scripts/bouquet_ifile_run.py`, D3D-like example, 2 draws, `write_ifile=True`, 2.4 min):
+  - Every draw stored its eqdsk (1.1 MB) and its i-file (0.54 MB).
+  - TPS `read_bouquet_archive(eq_source=...)` and RDCON/STRIDE ran on draw 0:
+
+    | source | RDCON Δ′(2/1) | STRIDE Δ′(2/1) |
+    |---|---|---|
+    | g-file | 7.88 | 7.89 |
+    | i-file | 8.07 | 8.08 |
+
+  - The i-file result is the one that stays put as mpsi changes (see the reports).
+- **Kinetics (Issue 3.3)** (`scripts/kinetic_pressure_check.py`, golden archive, 3 draws):
+  - TPS's pchip splines give e(n_e T_e + n_i T_i), which matches bouquet's `pressure_thermal` (the solve's pressure without impurity and fast ions) to 1.5e-5 of the peak.
+  - pchip and Akima differ by only 2e-6 on the dense kinetic grid.
+  - pchip is used everywhere now, to match bouquet's `pp_prof` and GPEC's Zeff fit.
+- **Dump path:** fixed and verified exact for DCON (see the spline report).
 
 ## Open items
-- TPS reference values will move once TPS builds against `spline_improvements` (g147131 Δ′ changes from 8.00 to 8.14).
-- The `eq_type = "dump"` round trip drops the supplied slopes (the dump format stores only `sq%fs`).
-- PEST3 no-wall Δ′: 2.57 against 7.3 (older issue, not yet diagnosed).
+- **Merge `GPECf_interface` into `PSFC_dev`.** This was blocked by a permission check, so it needs the user. Rebuilding `install_release` afterwards is also the user's call.
+- **TPS on the new GPEC:** point `submodules/GPEC` at `OFT_interface` (or rebuild it), then refresh the TPS reference values. The user has accepted that these will move.
+- PEST3 no-wall Δ′: 2.57 against 7.3 (deferred by the user).

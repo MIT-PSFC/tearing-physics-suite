@@ -159,6 +159,7 @@ def build_all(
     gpec_single_threaded=False,
     legacy_gpec_test=True,
     work_dir=None,
+    gpec_branch="develop",
 ):
     """
     Run the full tearing-physics-suite build pipeline.
@@ -203,6 +204,8 @@ def build_all(
         Directory in which PEST3 and GPEC are compiled (e.g. a fast local or
         scratch disk); the executables are copied back into submodules/.
         Defaults to ``$TPS_BUILD_DIR``, else in-tree.
+    gpec_branch : str
+        GPEC branch to clone if submodules/GPEC does not exist yet.
 
     Returns
     -------
@@ -320,6 +323,7 @@ def build_all(
             disable_openmp=gpec_single_threaded,
             legacy_test=legacy_gpec_test,
             work_dir=work_dir,
+            branch=gpec_branch,
         )
         if not gpec_ok:
             print("\nERROR: GPEC build failed.")
@@ -380,6 +384,12 @@ def main():
              "or scratch disk; executables are copied back into submodules/ "
              "(default: $TPS_BUILD_DIR, else in-tree)",
     )
+    parser.add_argument(
+        "--gpec-branch",
+        type=str,
+        default="develop",
+        help="GPEC branch to clone if submodules/GPEC does not exist yet (default: develop)",
+    )
 
     # Skip flags
     parser.add_argument("--skip-libs", action="store_true", help="Skip building dependency libraries")
@@ -418,6 +428,7 @@ def main():
         gpec_single_threaded=args.gpec_single_threaded,
         legacy_gpec_test=not args.no_legacy_gpec_test,
         work_dir=args.work_dir,
+        gpec_branch=args.gpec_branch,
     )
 
     sys.exit(0 if success else 1)

@@ -2,8 +2,7 @@
 
 This PR builds on `spline_improvements`.
 
-- **Branch:** `OFT_interface`, local only, 1 commit on top of `spline_improvements` `a95a365b`.
-- **Worktree:** `$PSCRATCH/tmdb/build/gpec_wt/OFT_interface`.
+- **Branch:** `OFT_interface`, 1 commit on top of `spline_improvements` `a95a365b`.
 
 ## Purpose
 Read OpenFUSIONToolkit/TokaMaker i-files (`save_ifile`, OFT branch `GPECf_interface`) with `eq_type = "ldp_i"`. The pieces that make this path accurate are spread over three PRs:
@@ -18,7 +17,7 @@ Read OpenFUSIONToolkit/TokaMaker i-files (`save_ifile`, OFT branch `GPECf_interf
 2. **The i-file format is documented** in the reader header.
 
 ## Results
-TPS `run_resistive_calculation` on the same TokaMaker equilibrium, with no PEST3, nn = 1, and TPS defaults (mpsi = 257). An `*.ifile` is picked up as `ldp_i` from its extension.
+RDCON and STRIDE on the same TokaMaker equilibrium written both ways, nn = 1, mpsi = 257.
 
 | file | RDCON Δ′(2/1) | STRIDE Δ′(2/1) |
 |---|---|---|

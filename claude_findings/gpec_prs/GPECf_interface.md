@@ -1,11 +1,9 @@
 # OFT PR report: `GPECf_interface` → `PSFC_dev`
 
-- **Branch:** `GPECf_interface`, branched from `PSFC_dev` `8b2510a`. Local only; it will be merged into `PSFC_dev` when Phase B is done.
-- **Worktree:** `$TMDB_SRC/.oft_wt/GPECf_interface`.
-- **Build:** `oft_build_local.sh wt:GPECf_interface` with `TMDB_SOFT=$PSCRATCH/tmdb/soft`. This installs to `$PSCRATCH/tmdb/soft/oft/install_GPECf_interface`; `install_release` is untouched.
+- **Branch:** `GPECf_interface`, branched from `PSFC_dev` `8b2510a`.
 
 ## Why
-The i-file that `save_ifile` writes is read by GPEC's `eq_type='ldp_i'` (`inverse.f`), and that path gave a high Grad–Shafranov error (GSE) and nonsense Δ′. The A6 study in [spline_improvements.md](spline_improvements.md) traced this to the file itself:
+The i-file that `save_ifile` writes is read by GPEC's `eq_type='ldp_i'` (`inverse.f`), and that path gave a high Grad–Shafranov error (GSE) and nonsense Δ′. The i-file comparison in GPEC's [spline_improvements.md](spline_improvements.md) traced this to the file itself:
 - `gs_save_ifile` places R,Z about 2e-7 m off the ψ = ψ_k surfaces (median), with occasional points up to 1e-3 m off. This is surface-tracing error, which is resampled through a spline.
 - Second derivatives in ψ amplify these errors, so the file's own GS residual grows with resolution: 2e-3 at npsi = 65, 1.8e-2 at npsi = 257.
 
@@ -20,12 +18,12 @@ Four commits:
      - the abort label now names `gs_save_ifile`.
 2. **Python** (`d957919`)
    - `util.read_ifile` returns `ffp` and `pp` when those records are present.
-   - `save_ifile` defaults change to `npsi=129, ntheta=257`, the best accuracy for the file size in A6.
+   - `save_ifile` defaults change to `npsi=129, ntheta=257`, the best accuracy for the file size in that comparison.
 3. **Test** (`164d4df`): `test_ITER_eq` now also checks that ψ at the i-file's R,Z points matches its ψ grid, and that the FF′ and P′ records match `get_profiles`, each to 1e-10. The test fails against the old install, as it should.
 4. **Review fix** (`7deb6f8`): if the Newton snap leaves the mesh or does not converge, `ifile_snap` keeps the traced point instead of using an unconverged one.
 
 ## Results
-Same TokaMaker truth equilibrium as in A6. The file's own GS residual (median, 0.1 < ψ_N < 0.9):
+Same TokaMaker reference equilibrium as in that comparison. The file's own GS residual (median, 0.1 < ψ_N < 0.9):
 
 | npsi \ ntheta | 65 | 129 | 257 | 513 |
 |---|---|---|---|---|
@@ -54,4 +52,4 @@ GPEC `spline_improvements`, reading `eq_type='ldp_i'` with `profile_source='inte
 ## Status
 - [x] Code and tests committed
 - [x] Full test suite (114/114)
-- [ ] Merge into `PSFC_dev`: the merge in the main OFT tree was blocked by a permission check. It needs the user's go-ahead or for them to run it: `cd $TMDB_SRC/OpenFUSIONToolkit && git merge --no-ff GPECf_interface`. This is a fast-forwardable merge onto `8b2510a`. `install_release` has not been rebuilt.
+- [ ] Merge into `PSFC_dev` (no conflicts; `PSFC_dev` is still at `8b2510a`)

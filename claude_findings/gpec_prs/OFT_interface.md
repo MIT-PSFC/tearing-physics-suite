@@ -2,7 +2,7 @@
 
 This PR builds on `spline_improvements`.
 
-- **Branch:** `OFT_interface`, local only, 1 commit on top of `spline_improvements` `7c44ec05`.
+- **Branch:** `OFT_interface`, local only, 1 commit on top of `spline_improvements` `a95a365b`.
 - **Worktree:** `$PSCRATCH/tmdb/build/gpec_wt/OFT_interface`.
 
 ## Purpose
@@ -12,7 +12,7 @@ Read OpenFUSIONToolkit/TokaMaker i-files (`save_ifile`, OFT branch `GPECf_interf
 - **This PR:** the remaining reader fix.
 
 ## Changes
-1. **`read_eq_ldp_i` takes |F|** (`eb9e9fc1`), as `read_eq_efit` does.
+1. **`read_eq_ldp_i` takes |F|** (`19a8099b`), as `read_eq_efit` does.
    - `inverse_run` computes q in proportion to F. An i-file with F < 0 (TokaMaker with B_t < 0) therefore stopped with "Invalid extrapolation near axis".
    - With the fix, flipping the sign of F in a file gives the same Δ′ to every digit: 8.50824 for both.
 2. **The i-file format is documented** in the reader header.

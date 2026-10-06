@@ -1,10 +1,8 @@
 # GPEC PR report: `spline_improvements` → `develop`
 
-This PR builds on `Zeff_profile_support`.
+This PR builds on `Zeff_profile_support` (PR #296)
 
-- **Branch:** `spline_improvements`, local only. Phase A added 6 commits on top of `0b4a7720`; Phase B added the merge of `bugfix/dcon-vacuum-theta-frame` (via `Zeff_profile_support`) and 5 more commits (below), the last from a code review.
-- **Worktree:** `$PSCRATCH/tmdb/build/gpec_wt/spline_improvements`. The commits live in the repository at `submodules/GPEC`.
-- **Scripts and data:** scripts are in `spline_improvements/scripts/`. Results are in `$PSCRATCH/tmdb/gpec_spline_tests/`, which is purged after 8 weeks; rerun the scripts to regenerate them.
+- **Branch:** `spline_improvements`, 6 commits on top of `0b4a7720`, then the merge of `bugfix/dcon-vacuum-theta-frame` (via `Zeff_profile_support`) and 6 more commits (below), the last two from a code review.
 
 ## Problem
 `read_eq_efit` read the g-file's FFPRIM and PPRIME columns and then threw them away.
@@ -21,8 +19,8 @@ Each change is its own commit.
    - GPEC already stores every spline as a cubic Hermite, so evaluation, integration and `euler.bin` are unchanged.
 2. **New `equil.in` variable `profile_source`** (`read_eq.f`, `global.f`, `equil.f`). It applies to `efit` and to `ldp_i` when the file has FF′ and p′ records. Options:
    - `values`: the old behaviour (tabulated values, spline-fitted derivatives);
-   - `hermite`: tabulated values, with the file's FF′/F and p′ as slopes;
-   - `integrate`: F²/2 and p integrated inward from their boundary values, with the file's derivatives as slopes. This is the method of PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506).
+   - `integrate`: F²/2 and p integrated inward from their boundary values, with the file's derivatives as slopes kept by `spline_fit_hermite`. This is the method of PR [#506](https://github.com/OpenFUSIONToolkit/GPEC/pull/506).
+   - A third option, `hermite` (tabulated values with the file's slopes), was tested and dropped (item 13).
 
    Supporting changes:
    - **Fallback:** if the derivatives are non-finite, give F² ≤ 0, or disagree in sign with the values, GPEC falls back to `values` and prints a warning.
@@ -41,7 +39,7 @@ Each change is its own commit.
 
 **End conditions:** `"extrap"` needs no change. It is a clamped spline whose end slopes come from a 4-point Lagrange cubic; the end slope is O(h³), as the unit test shows. For F and p the end slopes now come from the file, so `"extrap"` no longer sets them.
 
-**pchip and Akima are not included.** As the user noted, "pchip and akima can't be constrained by derivatives". Once derivatives are supplied they reduce to the same Hermite form. They could come back later as an option for tabulated data that has no derivatives, such as Zeff.
+**pchip and Akima are not used for F and p:** they cannot be constrained by derivatives, and once derivatives are supplied they reduce to the same Hermite form. pchip is used for tabulated data without derivatives (item 11).
 
 ## Evidence
 The reference is a TokaMaker equilibrium (`scripts/make_truth_equilibrium.py`): DIII-D-like, q0 = 1.25, q95 = 4.49. Its FF′ and p′ are dense and smooth, so F, F′, F″ and p′ are known exactly at every ψ. Its g-files and i-files were written with the unmodified OFT install `f2098a9`.
@@ -60,7 +58,7 @@ Root-mean-square error in F″ for 0.1 < ψ_N < 0.85:
 
 `values` and `hermite` get worse as the grid is refined, because the noise in the values is amplified by 1/h². `integrate` converges.
 
-`hermite`, which keeps the noisy values alongside exact slopes, is the worst: inside each interval F″ is set by (F₁−F₀)/h².
+`hermite`, which keeps the noisy values alongside exact slopes, is the worst: the values' rounding noise has nowhere to go but F″ inside each interval, about (value error)/h². It was dropped (item 13).
 
 **2. STRIDE Δ′(2/1)** (`scripts/run_profile_source_comparison.py`):
 
@@ -106,36 +104,37 @@ All files come from the same TokaMaker equilibrium, with the last surface at the
 
 The fix belongs in OFT `gs_save_ifile`: place each point at the exact crossing, or tighten the tracing tolerance. It is the first item for the `OFT_interface` / `GPECf_interface` branches.
 
-## Effects on results and on TPS
+## Effects on results
 - **Results change for every g-file run.** With the new default, `efit` results change by design. Examples:
   - DIIID ideal example: μ0p changes by up to 3.7e-4 relative, D_I by up to 2.6e-3.
   - g147131: Δ′(2/1) goes from 8.00 to 8.14 at mpsi = 128.
-  - TPS reference values (±0.1 tolerances) will need updating once TPS builds against this branch.
+  - Downstream reference values tuned to the old profiles (e.g. Δ′ tolerances of ±0.1) will move.
 - **Unchanged:** the CI Solovev regressions (ideal, kinetic, resistive) are bit-for-bit identical. The other example pass/fail outcomes match the base branch.
 - **Dump path:** fixed in Phase B (items 8 and 9).
 
-## Phase B additions (2026-10-06)
-7. **Merge of `bugfix/dcon-vacuum-theta-frame`** (`0bb9a111`, via `Zeff_profile_support` `99378252`), at the user's request. It puts the DCON/RDCON/STRIDE vacuum matrix in the plasma's Fourier frame. It merged cleanly, and TPS still passes 7/7 on `Zeff_profile_support` with it.
+## Further changes
+7. **Merge of `bugfix/dcon-vacuum-theta-frame`** (`0bb9a111`, via `Zeff_profile_support` `99378252`), It puts the DCON/RDCON/STRIDE vacuum matrix in the plasma's Fourier frame. It merged cleanly.
 8. **Bug fix in `direct_run`** (`822e8b59`). A second `sq%title` assignment with 4 entries (gfortran reallocates on assignment) made the dump record 6 bytes short, so `eq_type="dump"` always failed with "I/O past end of record". That made the dump path unusable before this work.
 9. **`eq_type="dump"` keeps the slopes and `eqfun`** (`8717d832`). `equil_out_dump` appends `sq_in_slopes(1:2), sq%fs1(:,1:2)` and then `eqfun%fs` after the old records. `read_eq_dump` reads them when present (older dumps read as before) and no longer fails when STRIDE re-reads the equilibrium.
    - DCON: efit → dump → `eq_type=dump` reproduces f, μ0p, q, D_I and D_R **exactly**, for both `integrate` and `values`.
    - STRIDE: its psilim reform regrids the equilibrium, so Δ′(2/1) differs by about 1% (7.47 against 7.39) for both profile sources.
 10. **`spline_fit_pchip`** (`de7440b5`). Monotone cubic Hermite (Fritsch–Carlson) with scipy's end slopes; the unit test matches scipy `PchipInterpolator` to 1e-7.
-11. **pchip for tabulated data without derivatives** (`42121c91`): the RDCON Zeff profile (`mercier.f`) and the PENTRC kinetic input table (`inputs.f90`). Both have pedestal-scale gradients, where a cubic spline rings. TPS's `Zeff_surf` uses `PchipInterpolator` to match.
+11. **pchip for tabulated data without derivatives** (`42121c91`): the RDCON Zeff profile (`mercier.f`) and the PENTRC kinetic input table (`inputs.f90`). Both have pedestal-scale gradients, where a cubic spline rings.
 12. **Review fixes** (`7c44ec05`):
    - The ψ direction of the file's derivatives is now taken from f and p together. Before, a flat p (pressureless equilibrium) or a flat f made the sign check fail and fell back to `values`.
    - `equil_out_dump` writes `eqfun` only if it exists.
    - Shorter `equil.in` entry; redundant wrappers removed from the unit test.
-   - Unit test passes; TPS end-to-end Δ′ unchanged to all printed digits.
+   - Unit test passes; RDCON/STRIDE Δ′ on the reference g-file and i-file unchanged to all printed digits.
+13. **`profile_source = "hermite"` dropped** (`a95a365b`). It was the worst option in every comparison above. `spline_fit_hermite` stays: `integrate` uses it to keep the derivatives through `sq_in`, `sq`, `newq0`, `sq_out` and the dump. Δ′ results unchanged.
 
 ## How to reproduce
 ```bash
-source scripts/env.sh          # tmdb_env.sh + tearing_physics_suite_env.sh, sets TPS, GPEC, WT
+source scripts/env.sh          # sets WT (GPEC worktrees), PY, OFT_INSTALL
 cd $WT/spline_improvements/install && make -j8 && make -C ../regression/spline_tests run
 PYTHONPATH=$OFT_INSTALL/python $PY scripts/make_truth_equilibrium.py
-$TPS_PY scripts/run_profile_source_comparison.py $WT/spline_improvements/bin OUT [mpsi=256]
-$TPS_PY scripts/run_ifile_comparison.py $WT/spline_improvements/bin OUT
+$PY scripts/run_profile_source_comparison.py $WT/spline_improvements/bin OUT [mpsi=256]
+$PY scripts/run_ifile_comparison.py $WT/spline_improvements/bin OUT
 PYTHONPATH=$OFT_INSTALL/python $PY scripts/diag_ifile_noise.py truth/i*.ifile   # writes *_exact.ifile
-$TPS_PY scripts/run_exact_ifiles.py $WT/spline_improvements/bin OUT *_exact.ifile
-PYTHONPATH=$OFT_INSTALL/python $TPS_PY scripts/make_figures.py RESULTS FIGDIR
+$PY scripts/run_exact_ifiles.py $WT/spline_improvements/bin OUT *_exact.ifile
+PYTHONPATH=$OFT_INSTALL/python $PY scripts/make_figures.py RESULTS FIGDIR
 ```

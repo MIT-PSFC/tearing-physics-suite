@@ -1,6 +1,8 @@
 # GPEC PR report: `Zeff_profile_support` → `develop`
 
-**Branch tip:** `99378252` (local, not pushed). It is `origin/Zeff_profile_support` (`57246273`) plus two merge commits: `develop` (`0b4a7720`) and `bugfix/dcon-vacuum-theta-frame` (`99378252`).
+Builds on PR #295
+
+**Branch tip:** `99378252`. It is `origin/Zeff_profile_support` (`57246273`) plus two merge commits: `develop` (`0b4a7720`) and `bugfix/dcon-vacuum-theta-frame` (`99378252`). 
 
 ## What the PR adds
 - **RDCON reads a Zeff profile.** The new `&RDCON_CONTROL` arrays are `psi_N_Zeff` and `Zeff`, read with the new `read_var_len` routine (at most 1000 points). RDCON fits them with a spline in `mercier.f` and writes them to the rdcon netcdf. RDCON stops if `MRE_flag` is set but no Zeff profile was given.
@@ -16,7 +18,4 @@
 
 ## Verification
 - **GPEC build** (TPS build script, `--remake-gpec`): passes. The install tests pass, apart from `a5_tearing` STRIDE, which is a known failure that does not block.
-- **TPS `tests/run_tests.py`: 7/7.**
-  - The TPS tests used to read g147131 from `submodules/GPEC/docs/examples`. After the merge they read it from `tests/data`; this is TPS commit `a845f72`, which also adds the `.kin` file.
-  - The PEST3 no-wall Δ′ check still prints `False`. That failure predates this work.
 - **Build quirk, not caused by this PR.** `install/TARGETS.inc` regenerates `*/version.inc` only when the file is missing, so a rebuild in an existing tree reports the old `git describe`. Delete `*/version.inc` before rebuilding.

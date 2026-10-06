@@ -2,7 +2,7 @@
 
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import Akima1DInterpolator
 
 # Checked
 def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
@@ -80,7 +80,7 @@ def chi_para_lmfp_noisland_on_modes(rdcon_xarray):
     return rdcon_xarray
 
 # Checked
-def chi_para_smfp_on_modes(rdcon_xarray,Zeff):
+def chi_para_smfp_on_modes(rdcon_xarray):
     """Short-mean-free-path parallel thermal diffusivity at rational surfaces.
 
     Implements Fitzpatrick 2023 Eq. 14.205: chi_para set by assuming the mean free path is set by the electron-ion collision time.
@@ -89,8 +89,6 @@ def chi_para_smfp_on_modes(rdcon_xarray,Zeff):
     ----------
     rdcon_xarray : xr.Dataset
         Must contain taue_surf and v_te_surf.
-    Zeff : float
-        Effective ion charge.
 
     Returns
     -------
@@ -100,7 +98,7 @@ def chi_para_smfp_on_modes(rdcon_xarray,Zeff):
 
     # Fitzpatrick 2023 14.205
     rdcon_xarray = rdcon_xarray.assign(
-        chi_para_smfp_surf = 1.581*rdcon_xarray['taue_surf']*(rdcon_xarray['v_te_surf']**2)/(1+0.2535*Zeff)
+        chi_para_smfp_surf = 1.581*rdcon_xarray['taue_surf']*(rdcon_xarray['v_te_surf']**2)/(1+0.2535*rdcon_xarray['Zeff_surf'])
     )
 
     return rdcon_xarray
@@ -127,7 +125,7 @@ def chi_perp_on_modes(rdcon_xarray,
         The minor radius of the plasma, used if chi_perp_spline is not provided.
     energy_confinement_time : float, optional
         The energy confinement time of the plasma, used if chi_perp_spline is not provided.
-    chi_perp_spline : CubicSpline, optional
+    chi_perp_spline : 1DSpline, optional
         A precomputed spline for the perpendicular thermal diffusivity, used if provided.
 
     Returns

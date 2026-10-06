@@ -6,7 +6,7 @@ import subprocess
 import pandas as pd
 import xarray as xr
 import numpy as np
-from scipy.interpolate import CubicSpline #, make_interp_spline
+from scipy.interpolate import Akima1DInterpolator, CubicSpline
 from scipy.signal import find_peaks
 import tearing_physics_suite.global_vars as gv
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
@@ -46,7 +46,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         Path to MHD equilibrium file.
     nn : int
         Toroidal mode number.
-    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : 1DSpline
         Density (m^-3) and temperature (keV) profiles as functions of normalised poloidal flux.
 
     Returns
@@ -90,7 +90,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
-    rdcon_xr = chi_para_smfp_on_modes(rdcon_xr, rdcon_xr.Zeff)
+    rdcon_xr = chi_para_smfp_on_modes(rdcon_xr)
     rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
     rdcon_xr = deltaprime_crit_on_modes(rdcon_xr, force_lmfp=force_lmfp)
 
@@ -234,6 +234,12 @@ def mre_raw_interp(rdcon_xarray):
     avg_Bsq_on_nabla_psisq_surf = rdcon_xarray.avg_1.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_Bsq_surf = rdcon_xarray.avg_5.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
     avg_dpsisq_surf = rdcon_xarray.avg_7.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
+    # Zeff gets special treatment:
+    # Handle Zeff - it may be a DataArray or already a numpy array
+    psi_N_Zeff_vals = rdcon_xarray.psi_N_Zeff.values if hasattr(rdcon_xarray.psi_N_Zeff, 'values') else rdcon_xarray.psi_N_Zeff
+    Zeff_vals = rdcon_xarray.Zeff.values if hasattr(rdcon_xarray.Zeff, 'values') else rdcon_xarray.Zeff
+    Zeff_spline = CubicSpline(psi_N_Zeff_vals, Zeff_vals, extrapolate=False) # Cubic spline to be consistent with GPEC/rdcon/mercier.f
+    Zeff_surf = Zeff_spline(rdcon_xarray['psi_n_rational'].values)
     #########################################################################################################
     # Load these surface values into the xarray:
     #########################################################################################################
@@ -260,7 +266,8 @@ def mre_raw_interp(rdcon_xarray):
         avg_Rsq_surf =avg_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_Bsq_on_nabla_psisq_surf = avg_Bsq_on_nabla_psisq_surf+0.0*rdcon_xarray['psi_n_rational'],
         avg_Bsq_surf = avg_Bsq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational']
+        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational'],
+        Zeff_surf = Zeff_surf+0.0*rdcon_xarray['psi_n_rational']
     )
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray
@@ -358,13 +365,13 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     Parameters:
     rdcon_xarray : xarray.DataArray
         The xarray containing the radial coordinate data.
-    ni_spline : CubicSpline
+    ni_spline : 1DSpline
         Spline for ion density in m^(-3) on normalised poloidal flux.
-    ne_spline : CubicSpline
+    ne_spline : 1DSpline
         Spline for electron density in m^(-3) on normalised poloidal flux.
-    ti_spline : CubicSpline
+    ti_spline : 1DSpline
         Spline for ion temperature in KeV on normalised poloidal flux.
-    te_spline : CubicSpline
+    te_spline : 1DSpline
         Spline for electron temperature in KeV on normalised poloidal flux.
     
     Returns:
@@ -430,9 +437,8 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         taue_surf = 1.09*(10**16)*(rdcon_xarray['te_keV_surf']**(3/2))*(1/rdcon_xarray['ne_m3_surf'])*(1/rdcon_xarray['lnLamb_ei_surf'])) # seconds
 
     # mu_e_on_nu_e from Callen, 2010 UW-CPTC 09-6R, taking banana limit of eq. B17 (& B14).
-    Zeff = rdcon_xarray.Zeff
     rdcon_xarray = rdcon_xarray.assign(
-        mu_e_on_nu_e_surf = (rdcon_xarray['ftr_surf']/rdcon_xarray['fc_surf'])*(1+0.533/Zeff)) #Dimless
+        mu_e_on_nu_e_surf = (rdcon_xarray['ftr_surf']/rdcon_xarray['fc_surf'])*(1+0.533/rdcon_xarray['Zeff_surf'])) #Dimless
 
     # Neoclassical resistivity from Spitzer resistivity:
     rdcon_xarray = rdcon_xarray.assign(
@@ -522,7 +528,7 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     ----------
     rdcon_xarray : xr.Dataset
         Must contain ne_m3, ni_m3, te_keV, ti_keV, avg_nabla_psi, and psio.
-    Er_spline : CubicSpline or None
+    Er_spline : 1DSpline or None
         Radial electric field profile in V/m as a function of normalised poloidal flux.
     diamagnetic_rotation_ion_charge : float or None
         Ion charge state for diamagnetic frequency. If None, inferred from on-axis ne/ni.
@@ -548,10 +554,10 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     rdcon_xarray = rdcon_xarray.assign(ne_on_ni_axis = zi)
 
     #Derivatives (from splines):
-    ne_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
-    ni_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
-    te_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
-    ti_spline = CubicSpline(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
+    ne_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ne_m3)
+    ni_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ni_m3)
+    te_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.te_keV)
+    ti_spline = Akima1DInterpolator(rdcon_xarray.psi_n, rdcon_xarray.ti_keV)
     ne1_values = np.array(ne_spline(rdcon_xarray.psi_n,1))
     ni1_values = np.array(ni_spline(rdcon_xarray.psi_n,1))
     te1_values = np.array(te_spline(rdcon_xarray.psi_n,1))
@@ -624,8 +630,8 @@ def put_drift_rotation_on_surfaces(rdcon_xarray):
         )
 
     # Adding derivatives as surfaces:
-    omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_i.values,extrapolate=False)
-    omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_e.values,extrapolate=False)
+    omega_i_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_i.values,extrapolate=False)
+    omega_e_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_e.values,extrapolate=False)
 
     rdcon_xarray = rdcon_xarray.assign(
         omega_i1_surf = np.array(omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
@@ -633,9 +639,9 @@ def put_drift_rotation_on_surfaces(rdcon_xarray):
     )
 
     if 'omega_ExB' in rdcon_xarray:
-        omega_ExB_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
-        omega_ExB_plus_omega_e_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
-        omega_ExB_plus_omega_i_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
+        omega_ExB_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
+        omega_ExB_plus_omega_e_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
+        omega_ExB_plus_omega_i_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
         rdcon_xarray = rdcon_xarray.assign(
             omega_ExB1_surf = np.array(omega_ExB_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
             omega_ExB_plus_omega_e1_surf = np.array(omega_ExB_plus_omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
@@ -654,8 +660,8 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     ----------
     rdcon_xarray : xr.Dataset
         Dataset to add rotation data to.
-    omega_splines : dict of CubicSpline
-        Mapping of rotation name (e.g. 'omega_tor') to CubicSpline(psi_n) in rad/s.
+    omega_splines : dict of 1DSplines
+        Mapping of rotation name (e.g. 'omega_tor') to a rotation spline (on psi_n) in rad/s.
 
     Returns
     -------
@@ -755,7 +761,7 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_i
         #########################################################################################################
         # Find largest psi_n value where the q profile crosses the q value of interest.
         #########################################################################################################
-        shifted_q_spline = CubicSpline(rdcon_xarray.psi_n.values, np.array(rdcon_xarray.q.values-q_surf),extrapolate=False)
+        shifted_q_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, np.array(rdcon_xarray.q.values-q_surf),extrapolate=False)
         # Count how many times q_spline crosses this q_surf, and get the corresponding psi_n values:
         q_roots = shifted_q_spline.roots()
         if len(q_roots) == 0:
@@ -905,8 +911,8 @@ def mre_flux_gradients(rdcon_xarray):
     """
 
     # Make cubic splines of terms I want to differentiate:
-    q_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.q.values,extrapolate=False)
-    mu0p_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.mu0p.values,extrapolate=False)
+    q_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.q.values,extrapolate=False)
+    mu0p_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.mu0p.values,extrapolate=False)
 
     # Calculate the gradients of these terms:
     dq_dpsi_n = q_spline.derivative()(rdcon_xarray.psi_n.values)
@@ -937,7 +943,7 @@ def mre_flux_gradients(rdcon_xarray):
     )
 
     # Get plasma volumes on surfaces by integrating dVdpsi:
-    dVdpsi_spline = CubicSpline(rdcon_xarray.psi_n.values, rdcon_xarray.dvdpsi.values, extrapolate=False)
+    dVdpsi_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.dvdpsi.values, extrapolate=False)
     min_psi_n = rdcon_xarray.psi_n.values.min()
     V_surf = [dVdpsi_spline.integrate(min_psi_n, i) for i in rdcon_xarray.psi_n_rational.values]
     rdcon_xarray = rdcon_xarray.assign(
@@ -1088,9 +1094,9 @@ def extract_critical_mre_factors_on_modes(
     dwdt_lowres_da = tempda3.copy(deep=True)
 
     # Start surface by surface
-    for rloc in rdcon_xarray.psi_n_rational.r:
+    for ri in range(rdcon_xarray.sizes["r"]):
         # Necessity of going surface by surface = defining wd_function:
-        rdcon_surf = rdcon_xarray.sel(r=rloc)
+        rdcon_surf = rdcon_xarray.isel(r=ri)
         wd_function = generate_wd_function(rdcon_surf,**kwargs)
                 
         # Things needed for calculating MRE data
@@ -1103,9 +1109,9 @@ def extract_critical_mre_factors_on_modes(
         prefac = rdcon_surf['eta_star_surf'].values/k0
         wd_at_X0 = wd_function(rdcon_surf['X0_surf'].values)
 
-        # Update prefacs and wd_at_X0s:
-        prefacs.loc[dict(r=rloc)] = prefac
-        wd_at_X0s.loc[dict(r=rloc)] = wd_at_X0
+        # Update prefacs and wd_at_X0s  (POSITIONAL assignment)
+        prefacs[dict(r=ri)]   = prefac
+        wd_at_X0s[dict(r=ri)] = wd_at_X0
 
         # Check improper inputs:
         if np.isnan(Dr) or np.isnan(Di) or np.isnan(Dnc) or np.isnan(H) or Di > 0:
@@ -1115,18 +1121,19 @@ def extract_critical_mre_factors_on_modes(
         DP_to_MRE = mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_vec_lowres)
 
         # Apply DP_to_MRE across all delta prime types, record results
-        for Dp_type in DP_da.Delta_prime_type:
-            DP_val = DP_da.sel(r=rloc,Delta_prime_type=Dp_type).values
-            dwdt_low_res, w_marg, w_sat, w_max_loc, dwdtau_max, wd_at_marg = DP_to_MRE(DP_val)
+        for dpi, Dp_type in enumerate(DP_da.Delta_prime_type):
+            DP_val = DP_da.isel(r=ri, Delta_prime_type=dpi).values
+            (dwdt_low_res, w_marg, w_sat,
+             w_max_loc, dwdtau_max, wd_at_marg) = DP_to_MRE(DP_val)
 
-            w_margs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = w_marg
-            w_sats.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = w_sat
-            w_max_locs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = w_max_loc
-            dwdtau_maxs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = dwdtau_max
-            wd_at_margs.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = wd_at_marg  
-
-            # Update dwdt_lowres_da (will remain to be seen if this works)
-            dwdt_lowres_da.loc[dict(r=rloc, Delta_prime_type=Dp_type)] = dwdt_low_res
+            # POSITIONAL assignment on both r and Delta_prime_type
+            idx = dict(r=ri, Delta_prime_type=dpi)
+            w_margs[idx]        = w_marg
+            w_sats[idx]         = w_sat
+            w_max_locs[idx]     = w_max_loc
+            dwdtau_maxs[idx]    = dwdtau_max
+            wd_at_margs[idx]    = wd_at_marg
+            dwdt_lowres_da[idx] = dwdt_low_res
 
     # Now we store these data arrays in code_xarray
     code_xarray = code_xarray.assign(
@@ -1191,135 +1198,7 @@ def mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_v
         return dwdt_vec_low_res, w_marg, w_sat, w_max_loc, dwdtau_max, wd_at_marg
     return DP_to_MRE
 
-def extract_critical_mre_factors_on_modes_DEPRECATED(rdcon_xarray,Delta_prime_vec,use_cylindrical_terms=False, k0=0.8227, k1=1.7, C0=0.6,Dprim_name=None):
-    """
-    For each rational surface, extract critical MRE factors including maximum island width, 
-    location of maximum island width, and minimum marginally stable island width.
-    Parameters:
-    rdcon_xarray : xarray.DataSet after it has gone through mre_terms_on_modes.
-    Delta_prime_vec : numpy array that is a 1D vector of Delta' values on rational surfaces.
-    use_cylindrical_terms : bool, optional
-        Whether to use cylindrical terms in the calculation.
-    k0 = 0.8227 comes from private communication w. Eric Howell, but is near identical to LaHaye 2017 10.1051/epjconf/201715703027 Eq. 1.
-    k1 = 1.7 comes from Chang et al. PRL 1995 
-    C0 = 0.6 comes from Schlutt and Hegna PoP 2012
-    Returns:
-    rdcon_xarray : xarray.DataSet
-    The updated xarray with critical MRE terms calculated.
-    """
-    # Check Delta_prime_vec is the right shape:
-    if not (len(Delta_prime_vec) == len(rdcon_xarray.psi_n_rational.values)):
-        raise ValueError("Delta_prime_vec must be a 1D numpy array with length equal to the number of rational surfaces in rdcon_xarray.")
-    # This code should create a vector of w values, then construct the MRE for each w, pulling the minimum for diffusion etc...
-    w_vec = np.logspace(-8,0,num=1000)
-    w_vec_lowres = np.logspace(-5,0,num=200)
-    # Make outputs numpy arrays to store the results:
-    w_margs = np.full(len(rdcon_xarray.psi_n_rational.values), np.nan)
-    w_sats = np.full(len(rdcon_xarray.psi_n_rational.values), np.nan)
-    w_max_locs = np.full(len(rdcon_xarray.psi_n_rational.values), np.nan)
-    dwdtau_maxs = np.full(len(rdcon_xarray.psi_n_rational.values), np.nan)
-    prefacs = np.full(len(rdcon_xarray.psi_n_rational.values), np.nan)
-    lowres_vecs = np.full((len(rdcon_xarray.psi_n_rational.values), len(w_vec_lowres)), np.nan)
-    wd_at_margs = np.full(len(rdcon_xarray.psi_n_rational.values), np.nan)
-    wd_at_X0s = np.full(len(rdcon_xarray.psi_n_rational.values), np.nan)
-    for i in range(len(rdcon_xarray.psi_n_rational.values)):
-        # Get the current surface's data
-        rdcon_surf = rdcon_xarray.isel(r=i)
-        wd_function = generate_wd_function(rdcon_surf)
-        if not np.isnan(Delta_prime_vec[i]):
-            dwdtau_loc = lambda w_in: dwdtau(w_in, wd_function, Delta_prime_vec[i], 
-                                    rdcon_surf['Dr_surf'].values, rdcon_surf['Di_surf'].values, 
-                                    rdcon_surf['Dnc_surf'].values, rdcon_surf['H_surf'].values, 
-                                    k1, C0)
-            dwdtau_vec = dwdtau_loc(w_vec)
-            dwdtau_vec_low_res = dwdtau_loc(w_vec_lowres)
-            prefac = rdcon_surf['eta_star_surf'].values/k0
-            w_marg, w_sat, w_max_loc, dwdtau_max = extract_mre_factors(dwdtau_vec, w_vec)
-            if not np.isnan(w_marg):
-                wd_at_margs[i] = wd_function(w_marg)    
-            wd_at_X0s[i] = wd_function(rdcon_surf['X0_surf'].values)
-        else:
-            # If Delta' is NaN, set all values to NaN:
-            dwdtau_vec = np.full_like(w_vec, np.nan)
-            dwdtau_vec_low_res = np.full_like(w_vec_lowres, np.nan)
-            w_marg = np.nan
-            w_sat = np.nan
-            w_max_loc = np.nan
-            dwdtau_max = np.nan
-            prefac = np.nan
-        # Store the results in the output arrays:
-        w_margs[i] = w_marg
-        w_sats[i] = w_sat
-        w_max_locs[i] = w_max_loc
-        dwdtau_maxs[i] = dwdtau_max
-        prefacs[i] = prefac
-        lowres_vecs[i,:] = prefac*dwdtau_vec_low_res # These have units psi_p_norm/s now.
-    rdcon_xarray = rdcon_xarray.assign(
-        w_marg_surf=w_margs+0.0*rdcon_xarray['psi_n_rational'],
-        w_sat_surf=w_sats+0.0*rdcon_xarray['psi_n_rational'],
-        w_max_loc_surf=w_max_locs+0.0*rdcon_xarray['psi_n_rational'],
-        dwdtau_max_surf=dwdtau_maxs+0.0*rdcon_xarray['psi_n_rational'],
-        prefac_surf=prefacs+0.0*rdcon_xarray['psi_n_rational'],
-        wd_at_marg_surf = wd_at_margs+0.0*rdcon_xarray['psi_n_rational'],
-        wd_at_X0_surf = wd_at_X0s+0.0*rdcon_xarray['psi_n_rational']
-    )
-    rdcon_xarray = rdcon_xarray.assign(
-        lowres_dwdt_surf=(
-            ('r', 'w_bar'),
-            lowres_vecs
-        )
-    )
-    return rdcon_xarray
-
-def extract_mre_factors_old(dwdtau_vec, w_vec): #Update with cubic spline?
-    """Extract critical MRE factors from dwdtau(w) using sign-change zero-crossing.
-
-    Superseded by extract_mre_factors (cubic spline version).
-
-    Parameters
-    ----------
-    dwdtau_vec : array-like
-        MRE right-hand-side evaluated over w_vec.
-    w_vec : array-like
-        Island width grid (normalised poloidal flux).
-
-    Returns
-    -------
-    w_marg : float
-        Marginally stable island width (first zero crossing, if dwdtau starts negative).
-    w_sat : float
-        Saturated island width (last zero crossing, if dwdtau ends negative).
-    w_max_loc : float
-        Island width at maximum growth rate.
-    dwdtau_max : float
-        Peak dwdtau value.
-    """
-    # Find where dwdtau crosses zero:
-    zero_crossings = np.where(np.diff(np.sign(dwdtau_vec)))[0]
-    
-    w_marg = np.nan
-    w_sat = np.nan
-
-    if len(zero_crossings) != 0:
-        if dwdtau_vec[0] < 0:
-            # Marginally stable island width is the first zero crossing:
-            w_marg = w_vec[zero_crossings[0]]
-        if dwdtau_vec[-1] < 0:
-            # Saturated island width is the last zero crossing:
-            w_sat = w_vec[zero_crossings[-1]]
-
-    # Maximum island width is where dwdtau is maximum:
-    max_index = np.argmax(dwdtau_vec)
-    w_max_loc = w_vec[max_index]
-    dwdtau_max = dwdtau_vec[max_index]
-    # Check if max_index is start or end of vector:
-    if max_index==0 or max_index==len(dwdtau_vec)-1:
-        # If this is the case, we aren't at a local max. Want a local max
-        w_max_loc, dwdtau_max = get_local_max(w_vec,dwdtau_vec)
-
-    return w_marg, w_sat, w_max_loc, dwdtau_max
-
-def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
+def extract_mre_factors(dwdtau_vec, w_vec):
     """Extract critical MRE factors from dwdtau(w) using cubic spline root-finding.
 
     Parameters
@@ -1332,16 +1211,21 @@ def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
     Returns
     -------
     w_marg : float
-        Marginally stable island width (first spline root, if dwdtau starts negative).
+        First spline root if dwdtau starts negative. 1.0 if always decaying
+        (no roots, dwdtau_vec[0] < 0), 0.0 if always growing (no roots, dwdtau_vec[0] > 0).
     w_sat : float
-        Saturated island width (last spline root, if dwdtau ends negative).
+        Last spline root if dwdtau ends negative. 0.0 if always decaying, 1.0 if
+        always growing.
     w_max_loc : float
-        Island width at maximum growth rate (refined via derivative root).
+        Island width at peak dwdtau. nan if dwdtau monotonically increases to w=1 (not onset-relevant). 
     dwdtau_max : float
         Peak dwdtau value at w_max_loc.
     """
-    dwdtau_spln=CubicSpline(w_vec,dwdtau_vec,extrapolate=False)
-    dwdtau_deriv_spln=CubicSpline(w_vec,dwdtau_spln(w_vec,1),extrapolate=False) 
+    if not np.all(np.isfinite(dwdtau_vec)):
+        return np.nan, np.nan, np.nan, np.nan
+
+    dwdtau_spln=Akima1DInterpolator(w_vec,dwdtau_vec,extrapolate=False)
+    dwdtau_deriv_spln=Akima1DInterpolator(w_vec,dwdtau_spln(w_vec,1),extrapolate=False)
 
     # Find where dwdtau crosses zero:
     zero_crossings = dwdtau_spln.roots(extrapolate=False)
@@ -1356,24 +1240,38 @@ def extract_mre_factors(dwdtau_vec, w_vec): #Updated with cubic spline
         if dwdtau_vec[-1] < 0:
             # Saturated island width is the last zero crossing:
             w_sat = zero_crossings[-1]
+    else: 
+        if dwdtau_vec[0] < 0:   # Always decaying
+            w_marg = 1.0 
+            w_sat = 0.0 
+        elif dwdtau_vec[0] > 0: # Always growing
+            w_marg = 0.0
+            w_sat = 1.0
 
     # Maximum island width is where dwdtau is maximum:
     max_index = np.argmax(dwdtau_vec)
-    w_max_loc_temp = w_vec[max_index]
-    # Check if max_index is start or end of vector:
-    if max_index==0 or max_index==len(dwdtau_vec)-1:
-        # If this is the case, we aren't at a local max. Want a local max
-        w_max_loc_temp,_ = get_local_max(w_vec,dwdtau_vec)
-    
-    if np.isnan(w_max_loc_temp):
-        return w_marg, w_sat, np.nan, np.nan
+    w_max_temp = w_vec[max_index]
+    dwdtau_max_temp = dwdtau_vec[max_index]
 
-    extremum_points = dwdtau_deriv_spln.roots(extrapolate=False)
-    special_ind = np.argmin(np.abs(extremum_points-w_max_loc_temp))
-    w_max_loc = extremum_points[special_ind]
-    dwdtau_max = dwdtau_spln(w_max_loc)
+    # Check if max_index is at the start or end of the vector
+    if max_index==0:
+        return w_marg, w_sat, w_vec[max_index], dwdtau_vec[max_index]
+    if max_index==len(dwdtau_vec)-1:
+        # Look for local maxes at smaller island widths...
+        w_max_temp, dwdtau_max_temp, max_index = get_local_max(w_vec,dwdtau_vec)
+        if np.isnan(w_max_temp): # dwdtau monotonically increases to max at w = 1.0 
+            return w_marg, w_sat, np.nan, np.nan # Ignore dwdtau_max, doesn't relate to onset phenomena...
 
-    return w_marg, w_sat, w_max_loc, dwdtau_max
+    extremum_points = dwdtau_deriv_spln.roots(extrapolate=False) # w-location of extremum points in dwdtau
+    if len(extremum_points) == 0: # We found a local max but its so slight that only np.diff(dwdtau_vec)/np.diff(w_vec) will pick it up...
+        # We fall back to findings of get_local_max
+        return w_marg, w_sat, w_max_temp, dwdtau_max_temp
+
+    special_ind = np.argmin(np.abs(extremum_points-w_max_temp)) # Find spline-computed extremum point closest to w_max_temp
+    w_max = extremum_points[special_ind]
+    dwdtau_max = dwdtau_spln(w_max)
+
+    return w_marg, w_sat, w_max, dwdtau_max
 
 def get_local_max(xvec,yvec):
     """Find the local maximum of yvec, returning the corresponding (x, y) pair.
@@ -1390,14 +1288,16 @@ def get_local_max(xvec,yvec):
     -------
     x_peak, y_peak : float
         Coordinates of the selected peak.
+    peak_ind : int 
+        Index of the peak.
     """
     peak_inds = find_peaks(yvec)[0]
     if len(peak_inds) == 0:
-        return np.nan, np.nan
+        return np.nan, np.nan, np.nan
     elif len(peak_inds) > 1:
         print(" Warning, more than one peak in dw/dt, using peak with largest w value.")
-        return xvec[peak_inds[-1]], yvec[peak_inds[-1]]
-    return xvec[peak_inds[0]], yvec[peak_inds[0]]
+        return xvec[peak_inds[-1]], yvec[peak_inds[-1]], peak_inds[-1]
+    return xvec[peak_inds[0]], yvec[peak_inds[0]], peak_inds[0]
 
 # When you artificially set chifrac in M3DC1, make another generate_wd_function that just uses that chifrac. 
 # How to implement this within the island is another question
@@ -1456,6 +1356,8 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
                 else:
                     chi_para = chi_para_lmfp*chi_para_smfp/(chi_para_lmfp+chi_para_smfp) # If the two are equal, it cuts chi_para in half, which I don't agree with.
             chifrac = chi_perp/chi_para
+            if Wc_prefac_m < 0:
+                return np.nan
             return (chifrac*Wc_prefac_m)**(1/4)
     else:
         def wd_function(w_bar: float):

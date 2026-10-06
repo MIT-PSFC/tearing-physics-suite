@@ -9,6 +9,7 @@ home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.mre_analysis import analyse_with_mre
 from tearing_physics_suite.fortran_wrappers import run_resistive_calculation, compile_xarrays
 from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
+from tearing_physics_suite.GPEC_write_inputs import zeff_dict
 
 def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, 
     Zeff = None, 
@@ -44,10 +45,11 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     ----------
     eq_filename : str
         Path to the equilibrium file.
-    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : CubicSpline
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : 1DSpline
         Ion/electron density [m^-3] and temperature [keV] vs psi_n.
-    Zeff : float
+    Zeff : dict or scalar
         Effective ion charge (for chi_para and bootstrap current).
+        If dict, 'x' are psi_n values, 'y' are Zeff(psi_n) values.
     average_ion_mass : float
         Mean ion mass in AMU (for Alfven speed / mass density).
     nvec : list of int
@@ -59,6 +61,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     -------
     combined_xr : xr.Dataset or None
         Combined xarray with Delta primes, MRE quantities, and global metrics across all n.
+        'r'/'r_prime' are positional indices (see _uniquify_r); real values are in
+        r_value/r_prime_value. Use sel_rational or collapse_to_primary to select by value.
     input_dict_out : dict
         Merged input parameters from RDCON/STRIDE/PEST3 across all n.
     pest3_xr_vec : list of xr.Dataset
@@ -69,6 +73,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     if Zeff is None:
         raise ValueError("Zeff must be provided for nonlinear resistive calculation.")
+    Zeff = zeff_dict(Zeff)
     if average_ion_mass is None:
         raise ValueError("average_ion_mass must be provided for nonlinear resistive calculation.")
 
@@ -128,7 +133,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     # Concatenate xarray_vec:
     try:
-        combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
+        xarray_vec = [_uniquify_r(da) for da in xarray_vec]
+        combined_xr = xr.concat(xarray_vec, dim='nn', coords='all', join='outer')
         # Elevate variable nn to a coordinate:
         combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
         if not debug:
@@ -208,8 +214,18 @@ def clean_multi_n_dictionaries(input_dict_vec):
         first_value = input_dict_vec2[0][key]
         all_same = True
         for i, d in enumerate(input_dict_vec2[1:], 1):
-            if d[key] != first_value:
+            if key not in d:
                 all_same = False
+            else:
+                try:
+                    not_equal = d[key] != first_value
+                    # Handle numpy arrays and other iterables
+                    if hasattr(not_equal, '__iter__'):
+                        not_equal = np.any(not_equal)
+                    if not_equal:
+                        all_same = False
+                except (ValueError, TypeError):
+                    all_same = False
         if not all_same:
             keys_with_varied_values.append(key)
 
@@ -221,7 +237,7 @@ def clean_multi_n_dictionaries(input_dict_vec):
         for i, nn in enumerate(nn_vec[1:], 1):
             nn_dep_dict = {}
             for key in keys_with_varied_values:
-                nn_dep_dict[key] = input_dict_vec2[i][key]
+                nn_dep_dict[key] = input_dict_vec2[i].get(key, None)
             for key in extra_keys_alln[i-1]:
                 nn_dep_dict[key] = input_dict_vec2[i][key]
             nn_dep_dict_name = f'n{nn}_dependent_inputs'
@@ -309,7 +325,8 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
 
     # Concatenate xarray_vec:
     try:
-        combined_xr = xr.concat(xarray_vec, dim='nn', coords='all')
+        xarray_vec = [_uniquify_r(da) for da in xarray_vec]
+        combined_xr = xr.concat(xarray_vec, dim='nn', coords='all', join='outer')
         # Elevate variable nn to a coordinate:
         combined_xr = combined_xr.assign_coords(nn=combined_xr.nn)
         if not debug:
@@ -603,3 +620,141 @@ def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_
 
     return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
 
+def _uniquify_r(ds):
+    """
+    Make degenerate dims 'r'/'r_prime' concatenable by replacing each with a
+    UNIQUE INTEGER-VALUED FLOAT index, while preserving the real values and the
+    (from-the-right) occurrence pattern as plain coordinates.
+
+    Using float indices (0.0, 1.0, ...) instead of ints leaves room to insert
+    NaN sentinels into the 'r'/'r_prime' coordinates in later steps.
+    """
+    def _occ_from_right(vals):
+        seen = {}
+        occ = np.empty(len(vals), dtype=int)
+        for i in range(len(vals) - 1, -1, -1):
+            v = vals[i]
+            occ[i] = seen.get(v, 0)
+            seen[v] = occ[i] + 1
+        return occ
+    
+    def _unique_flag(vals):
+        # True where this value occurs exactly once in `vals`; False if it is
+        # part of a degenerate group (i.e. will be collapsed later).
+        _, inverse, counts = np.unique(
+            vals, return_inverse=True, return_counts=True)
+        return counts[inverse] == 1
+
+    has_r  = "r" in ds.dims
+    has_rp = "r_prime" in ds.dims
+
+    # r_prime is a copy of r -> compute the occurrence pattern once.
+    ref_vals = ds["r"].values if has_r else ds["r_prime"].values
+    occ = _occ_from_right(ref_vals)
+    unique = _unique_flag(ref_vals)
+
+    if has_r and has_rp:
+        if not np.array_equal(ds["r"].values, ds["r_prime"].values):
+            raise ValueError("r and r_prime differ in values; cannot share the occurrence pattern.")
+
+    def _apply(ds, dim, vals, occ, unique):
+        ds = ds.assign({
+            f"{dim}_value":  (dim, vals),    # real (degenerate) values
+            f"{dim}_occ":    (dim, occ),     # occurrence-from-right
+            f"{dim}_unique": (dim, unique),  # True if value occurs exactly once
+        })
+        # Replace the dim's index with unique integer-VALUED FLOATS 0.0..N-1.0
+        ds = ds.assign_coords({dim: np.arange(len(vals), dtype=float)})
+        return ds
+
+    if has_r:
+        ds = _apply(ds, "r", ref_vals, occ, unique)
+    if has_rp:
+        ds = _apply(ds, "r_prime", ds["r_prime"].values, occ,
+                    _unique_flag(ds["r_prime"].values))
+    return ds
+
+def add_unique_label(combined_xr, dims=("r", "r_prime")):
+    """Add {dim}_unique to datasets made before it existed ({dim}_value, {dim}_occ must be present)."""
+
+    out = combined_xr
+    for dim in dims:
+        occ_name    = f"{dim}_occ"
+        value_name  = f"{dim}_value"
+        unique_name = f"{dim}_unique"
+        if occ_name not in out.data_vars:
+            raise ValueError(f"Cannot collapse, '{occ_name}' not found in dataset data_vars")
+        if value_name not in out.data_vars:
+            raise ValueError(f"Cannot collapse, '{value_name}' not found in dataset data_vars")
+
+        # Per-slice occurrence counts along `dim` -> per-slice uniqueness flag.
+        # counts comes back in (dim, *val_other) order.
+        counts, val_other = _counts_along_dim(out[value_name], dim)
+        unique = counts == 1                        # shape (dim, *val_other)
+
+        # {dim}_unique lives on the SAME domain as {dim}_value, and should
+        # share its dimension ORDER too.
+        out = out.assign({unique_name: ((dim, *val_other), unique)})
+        out[unique_name] = out[unique_name].transpose(*out[value_name].dims)
+    return out
+
+def _counts_along_dim(da, dim):
+    """
+    Occurrence count of each value along `dim`, computed INDEPENDENTLY for
+    every combination of the other dimensions `da` lives on.
+    Returns (counts_ndarray shaped (dim, *other), other_dim_names).
+    np.unique groups exactly (no tolerance), matching the degenerate-surface
+    model where duplicates are the identical value repeated.
+    """
+    other = [d for d in da.dims if d != dim]
+    da = da.transpose(dim, *other)
+    arr = da.values
+    n = arr.shape[0]
+    flat = arr.reshape(n, -1)                       # (n, M) — M = prod(other)
+    counts = np.empty_like(flat, dtype=int)
+    for j in range(flat.shape[1]):
+        _, inv, c = np.unique(flat[:, j], return_inverse=True,
+                              return_counts=True)
+        counts[:, j] = c[inv]
+    return counts.reshape(arr.shape), other
+
+# Rational-surface access after _uniquify_r ('r'/'r_prime' are positional indices):
+#   positional pick:         combined_xr.isel(r=0)
+#   real values:             combined_xr.r_value (may vary along nn / run_idx)
+#   select by real value:    sel_rational(combined_xr, 2.0)
+#   real-valued r restored:  collapse_to_primary(combined_xr).sel(r=2.0)
+
+def collapse_to_primary(ds, dims=("r", "r_prime")):
+    """Restore real-valued 'r'/'r_prime' coordinates, undoing _uniquify_r.
+
+    Keeps the occ==0 (outermost) occurrence of each degenerate value and drops
+    NaN padding. If {dim}_value varies along other dims (e.g. nn, run_idx), each
+    slice is collapsed separately and re-concatenated with an outer join on the
+    real values. {dim}_unique is kept to flag surfaces that were degenerate.
+    """
+    present = [d for d in dims if d in ds.dims and f"{d}_value" in ds and f"{d}_occ" in ds]
+    if not present:
+        return ds
+
+    other = [o for d in present for o in ds[f"{d}_value"].dims
+             if o not in dims and ds.sizes[o] > 1]
+    if other:
+        o = other[0]
+        parts = [collapse_to_primary(ds.isel({o: [i]}), dims) for i in range(ds.sizes[o])]
+        return xr.concat(parts, dim=o, data_vars="minimal", coords="minimal",
+                         join="outer", compat="override")
+
+    for d in present:
+        # Remaining non-d dims have size 1, so these flatten to 1D along d.
+        vals = ds[f"{d}_value"].transpose(..., d).values.astype(float).reshape(-1)
+        occ = ds[f"{d}_occ"].transpose(..., d).values.astype(float).reshape(-1)
+        keep = np.where((occ == 0) & np.isfinite(vals))[0]
+        ds = ds.isel({d: keep})
+        ds = ds.drop_vars([f"{d}_value", f"{d}_occ"]).assign_coords({d: vals[keep]})
+    return ds
+
+def sel_rational(ds, value, dim="r", atol=1e-8):
+    """Select rational surface(s) by real value of 'r' (or 'r_prime'); see collapse_to_primary."""
+    collapsed = collapse_to_primary(ds)
+    idx = np.where(np.isclose(collapsed[dim].values, value, atol=atol))[0]
+    return collapsed.isel({dim: idx})

@@ -18,6 +18,7 @@ The overarching plan is `~/.claude/plans/warm-gliding-hartmanis.md`. It covers I
   - GPEC `a95a365b`: `profile_source = hermite` dropped (worst in every comparison); `spline_fit_hermite` kept for `integrate`. Δ′ unchanged; `OFT_interface` rebased to `19a8099b`.
   - OFT `7deb6f8`: `ifile_snap` keeps the traced point if Newton leaves the mesh or does not converge. Full `test_TokaMaker.py` 114/114.
   - bouquet `7df036f`: `try_save_ifile`, so a failed baseline i-file no longer aborts the warmstart eqdsk re-save. `test_ifile.py` 4/4; a fresh 2-draw run archived the baseline and both draw i-files and ran through TPS (draws are unseeded, so Δ′ differs from the earlier run: g-file 17.36/17.37, i-file 17.08/17.10).
+- **2026-10-06 late:** OFT `ifile_fixes_for_GPEC_interface` (worktree `$TMDB_SRC/.oft_wt/ifile_fixes_for_GPEC_interface`) = `origin/main` `025debf` + the four GPECf_interface commits cherry-picked cleanly (`7110b88 35a7dd2 7f6aaf4 9243fbd`). **Not yet built or tested** (allocation ran out): next step is `oft_build_local.sh wt:ifile_fixes_for_GPEC_interface` then `test_TokaMaker.py`. Report `ifile_fixes_for_GPEC_interface.md` (+ zip, untracked).
 - Nothing has been pushed.
 - Worktrees:
   - GPEC: `$PSCRATCH/tmdb/build/gpec_wt/{spline_improvements,OFT_interface}`

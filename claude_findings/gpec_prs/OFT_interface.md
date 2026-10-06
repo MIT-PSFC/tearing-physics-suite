@@ -5,8 +5,8 @@ This PR builds on `spline_improvements`.
 - **Branch:** `OFT_interface`, 1 commit on top of `spline_improvements` `a95a365b`.
 
 ## Purpose
-Read OpenFUSIONToolkit/TokaMaker i-files (`save_ifile`, OFT branch `GPECf_interface`) with `eq_type = "ldp_i"`. The pieces that make this path accurate are spread over three PRs:
-- **OFT `GPECf_interface`:** points lie exactly on their flux surfaces, and FF′ and p′ records are written. See [GPECf_interface.md](GPECf_interface.md).
+Read OpenFUSIONToolkit/TokaMaker i-files (`save_ifile`, OFT branch `ifile_fixes_for_GPEC_interface`) with `eq_type = "ldp_i"`. The pieces that make this path accurate are spread over three PRs:
+- **OFT `ifile_fixes_for_GPEC_interface`:** points lie exactly on their flux surfaces, and FF′ and p′ records are written. See [ifile_fixes_for_GPEC_interface.md](ifile_fixes_for_GPEC_interface.md).
 - **`spline_improvements`:** reads the optional FF′ and p′ records with `profile_source = integrate`.
 - **This PR:** the remaining reader fix.
 

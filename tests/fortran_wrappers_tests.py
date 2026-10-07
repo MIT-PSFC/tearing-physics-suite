@@ -11,7 +11,9 @@ import pickle as pkl
 
 import tearing_physics_suite
 home_dir = os.environ['TPSHOME']
-import tearing_physics_suite.fortran_wrappers as tfw
+import tearing_physics_suite.wrappers.run_codes as tfw
+from tearing_physics_suite.wrappers.pest3 import pest3_special_truncation_loop
+from tearing_physics_suite.utils import eq_stem
 
 os.chdir(home_dir)
 
@@ -40,7 +42,7 @@ if pest3_truncation_test:
     nn=1
     pest3_kwargs_dict={'psihigh_pest':1}
     output_prefix_special='trunctest1'
-    psi_trunc_frac, pest3_trunc_ran = tfw.pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dict, debug=True, output_prefix_special=output_prefix_special)
+    psi_trunc_frac, pest3_trunc_ran = pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dict, debug=True, output_prefix_special=output_prefix_special)
     print(f"PEST3 truncation test: psi_trunc_frac = {psi_trunc_frac}, pest3_trunc_ran = {pest3_trunc_ran}")
     pest3_truncation_test_result=pest3_trunc_ran
     print("PEST3 truncation test result:", pest3_truncation_test_result)
@@ -94,13 +96,13 @@ if multi_wrapper_test1:
     if read_write_test:
         #Read the results
         print("Reading results from multi-wrapper test...")
-        rdcon_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) +  '_rdcon_n' + str(nn) + '.nc'))
-        stride_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) +  '_stride_n' + str(nn) + '.nc'))
-        pest3_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) +  '_pest3_n' + str(nn) + '.nc'))
-        fpkl = open(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) + '_rdcon_stride_input_n'+str(nn)+'.pkl'),"rb")
+        rdcon_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + eq_stem(eq_filename) +  '_rdcon_n' + str(nn) + '.nc'))
+        stride_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + eq_stem(eq_filename) +  '_stride_n' + str(nn) + '.nc'))
+        pest3_xr_read = xr.open_dataset(os.path.join(results_dir, output_prefix + eq_stem(eq_filename) +  '_pest3_n' + str(nn) + '.nc'))
+        fpkl = open(os.path.join(results_dir, output_prefix + eq_stem(eq_filename) + '_rdcon_stride_input_n'+str(nn)+'.pkl'),"rb")
         rdcon_stride_input_dict_read = pd.read_pickle(fpkl)
         fpkl.close()
-        fpkl = open(os.path.join(results_dir, output_prefix + tfw.eq_stem(eq_filename) + '_pest3_input_n'+str(nn)+'.pkl'),"rb")
+        fpkl = open(os.path.join(results_dir, output_prefix + eq_stem(eq_filename) + '_pest3_input_n'+str(nn)+'.pkl'),"rb")
         pest3_input_dict_read = pd.read_pickle(fpkl)
         fpkl.close()
         #Check they're the same

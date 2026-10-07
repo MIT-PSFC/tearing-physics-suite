@@ -3,13 +3,17 @@
 import xarray as xr
 import numpy as np
 import copy
-import tearing_physics_suite.global_vars
 import os
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.mre_analysis import analyse_with_mre
-from tearing_physics_suite.fortran_wrappers import run_resistive_calculation, compile_xarrays
-from tearing_physics_suite.delta_prime_extraction import extract_delta_primes
-from tearing_physics_suite.GPEC_write_inputs import zeff_dict
+from tearing_physics_suite.wrappers.run_codes import run_resistive_calculation
+from tearing_physics_suite.physics.combine import compile_xarrays
+from tearing_physics_suite.physics.delta_prime_extraction import extract_delta_primes
+from tearing_physics_suite.wrappers.gpec_inputs import zeff_dict
+from tearing_physics_suite.physics.cross_field_transport import chi_para_lmfp_no_w_on_modes, chi_para_smfp_on_modes, chi_para_lmfp_noisland_on_modes, chi_perp_on_modes
+from tearing_physics_suite.physics.combine import _uniquify_r
+from tearing_physics_suite.physics.global_quantities import delta_prime_variability, global_mre_quantities
+from tearing_physics_suite.physics.mre_model import extract_critical_mre_factors_on_modes
+from tearing_physics_suite.physics.surface_terms import deltaprime_crit_on_modes, mre_terms_on_modes
 
 def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, 
     Zeff = None, 
@@ -344,417 +348,181 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
-def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
-    """Rank nonlinear stability of all modes across n and rational surfaces.
 
-    Computes least-stable-mode metrics: largest nondimensional island growth rate
-    (max_dwdtau) and smallest seed island needed to initiate NTM onset (min_w_marg). Rankings
-    are computed per (Delta_prime_type, code) combination within psi_pedestal_cutoff.
+# To do:
+# Add pressure check (kinetic vs equilibrium)
+
+def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+        # Rotation splines
+        Er_spline=None, # Assuming input units of V/m
+        omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
+        q_surfs_of_interest=[1.0],
+        psi_surfs_of_interest=[0.95],
+        energy_confinement_time = None,
+        chi_perp_spline=None,
+        k0=0.8227,
+        k1=1.7,
+        C0=0.6,
+        wd_static=False, # Set true to ignore the variation in the ratio of perpendicular to parallel transport across the island, as island width varies
+        debug_mre_terms=False,
+        debug=False,
+        delete_attrs=True,
+        average_ion_mass=2.5, # Average ion mass in amu, used for alfven time calculation
+        force_lmfp=False, # Default False <=> whichever parallel transport calculation is more physical, lmfp or smfp, is used. Set True to always use lmfp.
+        Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces.
+        eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
+        diamagnetic_rotation_ion_charge=None, # Ion charge for diamagnetic rotation calculation. If None, inferred from on-axis ne/ni.
+        **kwargs):
+    """ 
+    Executive function that calculates Delta primes with run_resistive_calculation, then runs MRE analysis on output deltaprimes, returning
+    a fully combined xarray.
 
     Parameters
     ----------
-    combined_xr : xr.Dataset
-        Multi-n combined dataset with w_marg_surf and dwdtau_max_surf.
-    psi_pedestal_cutoff : float
-        Exclude modes with psi_n_rational above this value from ranking.
+    eq_filename : str
+        Path to MHD equilibrium file.
+    nn : int
+        Toroidal mode number.
+    ni_spline, ne_spline, te_keV_spline, ti_keV_spline : 1DSpline
+        Density (m^-3) and temperature (keV) profiles as functions of normalised poloidal flux.
 
     Returns
     -------
-    xr.Dataset
-        Input dataset with min_w_marg_allsurf, max_dwdtau_allsurf,
-        min_w_marg_rank, and max_dwdtau_rank variables added.
-    """
-    # Min w_marg_surf over all m, n
-    # Max dwdtau over all m, n
-    min_w_marg = combined_xr.w_marg_surf.min(dim=['r', 'nn'])
-    max_dwdtau = combined_xr.dwdtau_max_surf.max(dim=['r', 'nn'])
-    # Add these to combined_xr:
-    combined_xr = combined_xr.assign(
-        min_w_marg_allsurf=min_w_marg,
-        max_dwdtau_allsurf=max_dwdtau
-    )
-    # For each Delta_prime_type, code, we want to rank the modes by min_w_marg and max_dwdtau over all r, nn:
-    w_marg_rank = xr.full_like(combined_xr.w_marg_surf, np.nan)
-    dwdtau_rank = xr.full_like(combined_xr.dwdtau_max_surf, np.nan)
-    assert combined_xr.w_marg_surf.dims == combined_xr.dwdtau_max_surf.dims, "Dimensions of w_marg_surf and dwdtau_max_surf do not match"
-    
-    #########################################################################################################
-    # Applying psi_n_rational mask 
-    #########################################################################################################
-    psi_n_rational_like_surfaces = combined_xr.psi_n_rational+0.0*combined_xr['Delta_prime_surf'] 
-    # Set psi_n_rational_like_surfaces.loc[code='pest3'] equal to psi_n_rational_like_surfaces.loc[code='rdcon'] (since pest3 doesn't compute psi_n_rational)
-    if 'rdcon' in combined_xr.code.values and 'pest3' in combined_xr.code.values:
-        psi_n_rational_like_surfaces.loc[dict(code='pest3')] = psi_n_rational_like_surfaces.loc[dict(code='rdcon')]
+    combined_xr : xr.Dataset
+        Combined xarray containing Delta primes, MRE terms, and island width analysis.
+    pest3_xr : xr.Dataset or None
+        Separate PEST3 output if it could not be merged into combined_xr.
+    input_dict : dict
+        Dictionary of all input parameters used in the calculation.
+    """ 
+
+    # Check that either energy_confinement_time or chi_perp_spline is defined:
+    assert not (chi_perp_spline is None and energy_confinement_time is None), "Must either define energy_confinement_time or chi_perp_spline for MRE analysis."
 
     #########################################################################################################
-    # Loop over all Delta_prime_type, code combinations to make local rankings
+    # Run resistive delta prime calculation: 
     #########################################################################################################
-    for dpt in combined_xr.Delta_prime_type.values:
-        for code in combined_xr.code.values:
-            # Select the subset of combined_xr corresponding to this Delta_prime_type and code:
-            subset = combined_xr.sel(Delta_prime_type=dpt, code=code)
-            psi_n_rational_like_surfaces_subset = psi_n_rational_like_surfaces.sel(Delta_prime_type=dpt, code=code)
-            assert subset.w_marg_surf.dims == subset.dwdtau_max_surf.dims == psi_n_rational_like_surfaces_subset.dims, "Dimensions of w_marg_surf, dwdtau_max_surf, and psi_n_rational_like_surfaces do not match"
+    rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict = run_resistive_calculation(eq_filename,nn,**kwargs)
 
-            # Skip if no valid data:
-            if subset.w_marg_surf.count() == 0 or subset.dwdtau_max_surf.count() == 0:
-                continue
+    # Combine input dictionaries:
+    if not (rdcon_stride_input_dict is None): #RDCON dict present
+        if not (pest3_input_dict is None): # PEST3 dict present
+            rdcon_stride_input_dict.update(pest3_input_dict)
+        input_dict = rdcon_stride_input_dict
+    elif not (pest3_input_dict is None):
+        input_dict = pest3_input_dict
+    else:
+        input_dict = {}
+
+    # Add wd_static, energy_confinement_time, k0, k1, C0, wd_static to input_dict:
+    input_dict['wd_static'] = wd_static
+    input_dict['energy_confinement_time'] = energy_confinement_time
+    input_dict['k0'] = k0
+    input_dict['k1'] = k1
+    input_dict['C0'] = C0
 
     #########################################################################################################
-    # Rank w_marg_surf (smallest to largest):
+    # Fill out rdcon_xr with important MRE terms:
     #########################################################################################################
-            w_marg_surf_vals = subset.w_marg_surf.where(psi_n_rational_like_surfaces_subset < psi_pedestal_cutoff).values
-            w_marg_ranks = np.argsort(np.argsort(w_marg_surf_vals, axis=None)) + 1 # +1 to make ranks start from 1
-            w_marg_ranks = np.array(w_marg_ranks.reshape(w_marg_surf_vals.shape)).astype(float) # Convert to float to allow for NaNs
-            # Make w_marg_ranks nan where w_marg_surf is nan:
-            w_marg_ranks[np.isnan(w_marg_surf_vals)] = np.nan
-            # Turn w_marg_ranks into a DataArray with the same coords as subset.w_marg_surf:
-            w_marg_ranks_da = xr.DataArray(w_marg_ranks, coords=subset.w_marg_surf.coords, dims=subset.w_marg_surf.dims)
-            # Put w_marg_ranks_da into combined_xr:
-            w_marg_rank.loc[dict(Delta_prime_type=dpt, code=code)] = w_marg_ranks_da
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
+    rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
+    rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
+    rdcon_xr = chi_para_smfp_on_modes(rdcon_xr)
+    rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
+    rdcon_xr = deltaprime_crit_on_modes(rdcon_xr, force_lmfp=force_lmfp)
+
+    if debug_mre_terms:
+        return rdcon_xr, None, None
+
+    # Combine xarrays:
+    xarrays = []
+
+    #########################################################################################################
+    # RDCON delta xarray, delta prime and MRE calculation
+    #########################################################################################################
+    if not (rdcon_xr is None): 
+        # Turn all attributes into variables:
+        for attr_key in rdcon_xr.attrs.keys():
+            rdcon_xr[attr_key] = rdcon_xr.attrs[attr_key]
+        if delete_attrs:
+            rdcon_xr.attrs = {}
+        # Add new dimension for code to rdcon_xr
+        rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
+        rdcon_xr_expanded['code'] = ['rdcon']
+        if 'Delta_prime' in rdcon_xr_expanded:
+            rdcon_xr_expanded = extract_delta_primes(rdcon_xr_expanded)
+            rdcon_xr_expanded = extract_critical_mre_factors_on_modes(rdcon_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
+        # Add to xarrays list
+        xarrays.append(rdcon_xr_expanded)
+
+    #########################################################################################################
+    # STRIDE delta xarray, delta prime and MRE calculation
+    #########################################################################################################
+    if not (stride_xr is None):
+        # Turn all attributes into variables:
+        for attr_key in stride_xr.attrs.keys():
+            stride_xr[attr_key] = stride_xr.attrs[attr_key]
+        if delete_attrs:
+            stride_xr.attrs = {}
+        # Add new dimension for code to stride_xr
+        stride_xr_expanded = stride_xr.expand_dims(dim='code', axis=0)
+        stride_xr_expanded['code'] = ['stride']
+        if 'Delta_prime' in stride_xr_expanded:
+            # Calculate delta' values for stride_xr
+            stride_xr_expanded = extract_delta_primes(stride_xr_expanded)
+            stride_xr_expanded = extract_critical_mre_factors_on_modes(stride_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
+        xarrays.append(stride_xr_expanded)
             
     #########################################################################################################
-    # Rank dwdtau_max_surf (largest to smallest):
+    # PEST3 delta xarray and delta prime calculation
     #########################################################################################################
-            dwdtau_surf_vals = subset.dwdtau_max_surf.where(psi_n_rational_like_surfaces_subset < psi_pedestal_cutoff).values
-            dwdtau_ranks = np.argsort(np.argsort(-dwdtau_surf_vals, axis=None)) + 1 # +1 to make ranks start from 1
-            dwdtau_ranks = np.array(dwdtau_ranks.reshape(dwdtau_surf_vals.shape)).astype(float) # Convert to float to allow for NaNs
-            # Make dwdtau_ranks nan where dwdtau_max_surf is nan:
-            dwdtau_ranks[np.isnan(dwdtau_surf_vals)] = np.nan
-            # Turn dwdtau_ranks into a DataArray with the same coords as subset.dwdtau_max_surf:
-            dwdtau_ranks_da = xr.DataArray(dwdtau_ranks, coords=subset.dwdtau_max_surf.coords, dims=subset.dwdtau_max_surf.dims)
-            # Put dwdtau_ranks_da into combined_xr:
-            dwdtau_rank.loc[dict(Delta_prime_type=dpt, code=code)] = dwdtau_ranks_da
-    
-    combined_xr = combined_xr.assign(
-        min_w_marg_rank=w_marg_rank,
-        max_dwdtau_rank=dwdtau_rank
-    )
+    pest3_xr_expanded = None
+    if not (pest3_xr is None):
+        # Turn all attributes into variables:
+        for attr_key in pest3_xr.attrs.keys():
+            pest3_xr[attr_key] = pest3_xr.attrs[attr_key]
+        if delete_attrs:
+            pest3_xr.attrs = {}
+        # Add new dimension for code to pest3_xr
+        pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
+        pest3_xr_expanded['code'] = ['pest3']
+        if 'Delta_prime' in pest3_xr_expanded:
+            assert 'Delta_prime_perr' in pest3_xr_expanded, "Current version of extract_delta_primes assumes this."
+            pest3_xr_expanded = extract_delta_primes(pest3_xr_expanded)
+            pest3_xr_expanded = extract_critical_mre_factors_on_modes(pest3_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
+        xarrays.append(pest3_xr_expanded)
 
-    return combined_xr
-
-def delta_prime_variability(xarray,comparison_var='code',
-        run_bool_check=False,
-        abs_threshold=0.05,
-        rel_threshold=0.05
-        #abs_PEST_threshold=0.3,
-        #rel_PEST_threshold=0.1
-        ):
-    """Compare Delta_prime_surf across a dimension (e.g. 'code') for all modes.
-
-    Records absolute and relative differences. Handles special comparisons:
-    STRIDE vs RDCON ('GPEC') and GPEC vs PEST3 ('GPECvsPEST').
-
-    Boolean True False values are generated to check whether the differences in Delta_prime_surf lie within the bounds 
-    set by abs_threshold, rel_threshold, abs_PEST_threshold, and rel_PEST_threshold.
-
-    Parameters
-    ----------
-    xarray : xr.Dataset or xr.xarray.DataArray
-        If xr.Dataset, must contain Delta_prime_surf. Must have comparison_var as a dimension.
-    comparison_var : str
-        Dimension along which to compare (default 'code').
-    run_bool_check : bool
-        If True, also checks whether differences exceed thresholds.
-    abs_threshold, rel_threshold : float
-        Thresholds for the boolean checks.
-
-    Returns
-    -------
-    xr.Dataset
-        Dataset with Delta_prime_diff_across_* and Delta_prime_reldiff_across_* added.
-        If run_bool_check, also returns four boolean scalars.
-    """
-
-    # Convert xarray into Dataset if it isn't already one:
-    if isinstance(xarray, xr.DataArray):
-        xarray = xarray.to_dataset(name='Delta_prime_surf')
+    # Combine all xarrays into one xarray:
+    # Breaks if different number of rational surfaces across different codes at the axis
+    #   - beware psilow =/= 0 while also running pest3 (pest3 has no psilow truncation)
+    #   - for this reason, we also output pest3_xr_out separately if something goes wrong
+    pest3_xr_out = None
+    combined_xr = None
 
     #########################################################################################################
-    # check xarray has comparison_var in it
+    # Concatenating xarrays
     #########################################################################################################
-
-    assert comparison_var in xarray.dims, f"'{comparison_var}' not found in xarray dimensions: {list(xarray.dims.keys())}"
-
-    if len(xarray[comparison_var]) == 0:
-        print(f"Only one value of {comparison_var}' found, cross-variable comparisons not carried out.")
-        return xarray
-
-    #########################################################################################################
-    # Record the maximum range of variation in Delta_prime_surf across comparison_var 
-    #########################################################################################################
-
-    xarray = add_comparison_across_var(xarray,xarray.Delta_prime_surf,comparison_var)
-    if run_bool_check: # This is used specifically for input scans.
-        xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere = add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold)
+    if len(xarrays) > 0:
+        pest3_xr_out = pest3_xr_expanded
+        try:
+            combined_xr = xr.concat(xarrays, dim='code', coords='all')
+            pest3_xr_out = None
+        except Exception as e:
+            if not (pest3_xr is None): #We remove pest3_xr_expanded from xarrays and retry
+                xarrays = xarrays[:-1]  # Remove the last element (pest3_xr_expanded)
+                combined_xr = xr.concat(xarrays, dim='code', coords='all')
+            print("Error combining xarrays:", e)
+            if debug:
+                raise e
 
     #########################################################################################################
-    # Special case: comparison_var = 'code', just compare stride and rdcon
-    #   Will overlap with code case if only STRIDE and RDCON were ran
+    # Adding nn to combined_xr:
     #########################################################################################################
+    if combined_xr is not None:
+        # Check nn isn't already defined:
+        assert not 'nn' in combined_xr, 'nn already defined, debug this function.'
+        # We expand dims to add nn:
+        combined_xr = combined_xr.expand_dims(dim='nn', axis=0)
+        combined_xr['nn'] = [input_dict['nn']]
 
-    if comparison_var == 'code' and 'stride' in xarray.Delta_prime_surf.code and 'rdcon' in xarray.Delta_prime_surf.code: 
-        Delta_prime_surf_stride_and_rdcon = xarray.Delta_prime_surf.sel(code=xarray.Delta_prime_surf.code.isin(['stride', 'rdcon']))
-        xarray = add_comparison_across_var(xarray,Delta_prime_surf_stride_and_rdcon,comparison_var,override_name='GPEC')
-
-    #########################################################################################################
-    # Special case: comparison_var = 'code', just compare stride, rdcon, and pest3 (no cylindrical)
-    #   Will overlap with code case if only STRIDE and RDCON were ran
-    #########################################################################################################
-
-    if comparison_var == 'code' and 'pest3' in xarray.Delta_prime_surf.code and ('rdcon' in xarray.Delta_prime_surf.code or 'stride' in xarray.Delta_prime_surf.code): 
-        Delta_prime_surf_pest3_stride_andor_rdcon = xarray.Delta_prime_surf.sel(code=xarray.Delta_prime_surf.code.isin(['stride', 'rdcon','pest3']))
-        xarray = add_comparison_across_var(xarray,Delta_prime_surf_pest3_stride_andor_rdcon,comparison_var,override_name='GPECvsPEST')
-
-    if run_bool_check:
-        return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
-    return xarray
-
-def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_name=''):
-    """Compute absolute and relative Delta' differences across comparison_var.
-
-    Adds Delta_prime_diff_across_{name}, Delta_prime_reldiff_across_{name} to xarray.
-
-    Parameters
-    ----------
-    xarray : xr.Dataset
-        Target dataset.
-    Delta_prime_surf : xr.DataArray
-        Delta' values to compare. Must have comparison_var as a dimension.
-    comparison_var : str
-        Dimension along which to compute max - min.
-    override_name : str
-        If non-empty, used in output variable names instead of comparison_var.
-
-    Returns
-    -------
-    xr.Dataset
-        Input dataset with difference variables added.
-    """
-
-    Delta_prime_diffs_across_var = np.abs(Delta_prime_surf.max(dim=comparison_var)-Delta_prime_surf.min(dim=comparison_var))
-    Delta_prime_reldiffs_across_var = Delta_prime_diffs_across_var / np.abs(Delta_prime_surf).mean(dim=comparison_var)
-    Delta_prime_reldiffs_across_var2 = Delta_prime_diffs_across_var / Delta_prime_surf.mean(dim=comparison_var)
-
-    if len(override_name) == 0: 
-        override_name = comparison_var
-
-    # Add Delta_prime_diffs_across_var to xarray, with str(comparison_var) included in name:
-    xarray = xarray.assign({
-        f'Delta_prime_diff_across_{override_name}': Delta_prime_diffs_across_var,
-        f'Delta_prime_reldiff_across_{override_name}': Delta_prime_reldiffs_across_var,
-        f'Delta_prime_reldiff_across_{override_name}_2': Delta_prime_reldiffs_across_var2
-    })
-
-    return xarray
-
-def add_bool_checks(xarray, comparison_var, abs_threshold, rel_threshold, Delta_prime_type='single helicity',drop_pest=False):
-    """Check whether Delta' differences across comparison_var exceed thresholds.
-
-    Tests both all modes and modes within psi_n < 0.95.
-
-    Returns
-    -------
-    xr.Dataset
-        Updated dataset with *_thresh_exceeded variables.
-    abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere : xr.DataArray
-        Whether absolute / relative thresholds are exceeded for any (r, n).
-    abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere : xr.DataArray
-        Same, restricted to modes within psi_n < 0.95.
-    """
-
-    absdiffs_name = f'Delta_prime_diff_across_{comparison_var}'
-    reldiffs_name = f'Delta_prime_reldiff_across_{comparison_var}'
-
-    xarray = xarray.assign({
-        f'{absdiffs_name}_thresh_exceeded': xarray[absdiffs_name] > abs_threshold,
-        f'{reldiffs_name}_thresh_exceeded': xarray[reldiffs_name] > rel_threshold
-    })
-
-    abs_thresh_exceeded_da = xarray[f'{absdiffs_name}_thresh_exceeded']
-    rel_thresh_exceeded_da = xarray[f'{reldiffs_name}_thresh_exceeded']
-
-    #########################################################################################################
-    # Applying psi_n_rational mask to check if thresh exceeded within the q95 window
-    #########################################################################################################
-    psi_n_rational_copy = xarray.psi_n_rational.mean(dim=comparison_var)
-    psi_n_rational_like_absdiffs = psi_n_rational_copy.broadcast_like(xarray[f'{absdiffs_name}_thresh_exceeded'])
-
-    abs_thresh_exceeded_within_q95 = xarray[f'{absdiffs_name}_thresh_exceeded'].where(psi_n_rational_like_absdiffs < 0.95, drop=True)
-    rel_thresh_exceeded_within_q95 = xarray[f'{reldiffs_name}_thresh_exceeded'].where(psi_n_rational_like_absdiffs < 0.95, drop=True)
-
-    #########################################################################################################
-    # Optional: drop pest3 from the boolean checks, since it's expected to differ more and is less relevant for input scans.
-    #########################################################################################################
-
-    if drop_pest and 'pest3' in xarray.code.values:
-        abs_thresh_exceeded_da = abs_thresh_exceeded_da.where(xarray.code != 'pest3', drop=True)
-        rel_thresh_exceeded_da = rel_thresh_exceeded_da.where(xarray.code != 'pest3', drop=True)
-        abs_thresh_exceeded_within_q95 = abs_thresh_exceeded_within_q95.where(xarray.code != 'pest3', drop=True)
-        rel_thresh_exceeded_within_q95 = rel_thresh_exceeded_within_q95.where(xarray.code != 'pest3', drop=True)
-
-    #########################################################################################################
-    # Cycling over all m,n
-    #########################################################################################################
-
-    # Check if absdiffs_name has dims "nn" in them:
-    if "nn" in xarray[absdiffs_name].dims:
-        reduce_dims = ["r", "nn"]
-    else:
-        reduce_dims = ["r"]
-
-    abs_thresh_exceeded_anywhere_da = abs_thresh_exceeded_da.any(dim=reduce_dims)
-    rel_thresh_exceeded_anywhere_da = rel_thresh_exceeded_da.any(dim=reduce_dims)
-
-    abs_thresh_exceeded_psi95_anywhere_da = abs_thresh_exceeded_within_q95.any(dim=reduce_dims)
-    rel_thresh_exceeded_psi95_anywhere_da = rel_thresh_exceeded_within_q95.any(dim=reduce_dims)
-
-    #########################################################################################################
-    # Choosing a specific type of Delta prime for the comparison:
-    #########################################################################################################
-
-    abs_thresh_exceeded_anywhere = abs_thresh_exceeded_anywhere_da.sel(Delta_prime_type=Delta_prime_type)
-    rel_thresh_exceeded_anywhere = rel_thresh_exceeded_anywhere_da.sel(Delta_prime_type=Delta_prime_type)
-    abs_thresh_exceeded_psi95_anywhere = abs_thresh_exceeded_psi95_anywhere_da.sel(Delta_prime_type=Delta_prime_type)
-    rel_thresh_exceeded_psi95_anywhere = rel_thresh_exceeded_psi95_anywhere_da.sel(Delta_prime_type=Delta_prime_type)
-
-    return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
-
-def _uniquify_r(ds):
-    """
-    Make degenerate dims 'r'/'r_prime' concatenable by replacing each with a
-    UNIQUE INTEGER-VALUED FLOAT index, while preserving the real values and the
-    (from-the-right) occurrence pattern as plain coordinates.
-
-    Using float indices (0.0, 1.0, ...) instead of ints leaves room to insert
-    NaN sentinels into the 'r'/'r_prime' coordinates in later steps.
-    """
-    def _occ_from_right(vals):
-        seen = {}
-        occ = np.empty(len(vals), dtype=int)
-        for i in range(len(vals) - 1, -1, -1):
-            v = vals[i]
-            occ[i] = seen.get(v, 0)
-            seen[v] = occ[i] + 1
-        return occ
-    
-    def _unique_flag(vals):
-        # True where this value occurs exactly once in `vals`; False if it is
-        # part of a degenerate group (i.e. will be collapsed later).
-        _, inverse, counts = np.unique(
-            vals, return_inverse=True, return_counts=True)
-        return counts[inverse] == 1
-
-    has_r  = "r" in ds.dims
-    has_rp = "r_prime" in ds.dims
-
-    # r_prime is a copy of r -> compute the occurrence pattern once.
-    ref_vals = ds["r"].values if has_r else ds["r_prime"].values
-    occ = _occ_from_right(ref_vals)
-    unique = _unique_flag(ref_vals)
-
-    if has_r and has_rp:
-        if not np.array_equal(ds["r"].values, ds["r_prime"].values):
-            raise ValueError("r and r_prime differ in values; cannot share the occurrence pattern.")
-
-    def _apply(ds, dim, vals, occ, unique):
-        ds = ds.assign({
-            f"{dim}_value":  (dim, vals),    # real (degenerate) values
-            f"{dim}_occ":    (dim, occ),     # occurrence-from-right
-            f"{dim}_unique": (dim, unique),  # True if value occurs exactly once
-        })
-        # Replace the dim's index with unique integer-VALUED FLOATS 0.0..N-1.0
-        ds = ds.assign_coords({dim: np.arange(len(vals), dtype=float)})
-        return ds
-
-    if has_r:
-        ds = _apply(ds, "r", ref_vals, occ, unique)
-    if has_rp:
-        ds = _apply(ds, "r_prime", ds["r_prime"].values, occ,
-                    _unique_flag(ds["r_prime"].values))
-    return ds
-
-def add_unique_label(combined_xr, dims=("r", "r_prime")):
-    """Add {dim}_unique to datasets made before it existed ({dim}_value, {dim}_occ must be present)."""
-
-    out = combined_xr
-    for dim in dims:
-        occ_name    = f"{dim}_occ"
-        value_name  = f"{dim}_value"
-        unique_name = f"{dim}_unique"
-        if occ_name not in out.data_vars:
-            raise ValueError(f"Cannot collapse, '{occ_name}' not found in dataset data_vars")
-        if value_name not in out.data_vars:
-            raise ValueError(f"Cannot collapse, '{value_name}' not found in dataset data_vars")
-
-        # Per-slice occurrence counts along `dim` -> per-slice uniqueness flag.
-        # counts comes back in (dim, *val_other) order.
-        counts, val_other = _counts_along_dim(out[value_name], dim)
-        unique = counts == 1                        # shape (dim, *val_other)
-
-        # {dim}_unique lives on the SAME domain as {dim}_value, and should
-        # share its dimension ORDER too.
-        out = out.assign({unique_name: ((dim, *val_other), unique)})
-        out[unique_name] = out[unique_name].transpose(*out[value_name].dims)
-    return out
-
-def _counts_along_dim(da, dim):
-    """
-    Occurrence count of each value along `dim`, computed INDEPENDENTLY for
-    every combination of the other dimensions `da` lives on.
-    Returns (counts_ndarray shaped (dim, *other), other_dim_names).
-    np.unique groups exactly (no tolerance), matching the degenerate-surface
-    model where duplicates are the identical value repeated.
-    """
-    other = [d for d in da.dims if d != dim]
-    da = da.transpose(dim, *other)
-    arr = da.values
-    n = arr.shape[0]
-    flat = arr.reshape(n, -1)                       # (n, M) — M = prod(other)
-    counts = np.empty_like(flat, dtype=int)
-    for j in range(flat.shape[1]):
-        _, inv, c = np.unique(flat[:, j], return_inverse=True,
-                              return_counts=True)
-        counts[:, j] = c[inv]
-    return counts.reshape(arr.shape), other
-
-# Rational-surface access after _uniquify_r ('r'/'r_prime' are positional indices):
-#   positional pick:         combined_xr.isel(r=0)
-#   real values:             combined_xr.r_value (may vary along nn / run_idx)
-#   select by real value:    sel_rational(combined_xr, 2.0)
-#   real-valued r restored:  collapse_to_primary(combined_xr).sel(r=2.0)
-
-def collapse_to_primary(ds, dims=("r", "r_prime")):
-    """Restore real-valued 'r'/'r_prime' coordinates, undoing _uniquify_r.
-
-    Keeps the occ==0 (outermost) occurrence of each degenerate value and drops
-    NaN padding. If {dim}_value varies along other dims (e.g. nn, run_idx), each
-    slice is collapsed separately and re-concatenated with an outer join on the
-    real values. {dim}_unique is kept to flag surfaces that were degenerate.
-    """
-    present = [d for d in dims if d in ds.dims and f"{d}_value" in ds and f"{d}_occ" in ds]
-    if not present:
-        return ds
-
-    other = [o for d in present for o in ds[f"{d}_value"].dims
-             if o not in dims and ds.sizes[o] > 1]
-    if other:
-        o = other[0]
-        parts = [collapse_to_primary(ds.isel({o: [i]}), dims) for i in range(ds.sizes[o])]
-        return xr.concat(parts, dim=o, data_vars="minimal", coords="minimal",
-                         join="outer", compat="override")
-
-    for d in present:
-        # Remaining non-d dims have size 1, so these flatten to 1D along d.
-        vals = ds[f"{d}_value"].transpose(..., d).values.astype(float).reshape(-1)
-        occ = ds[f"{d}_occ"].transpose(..., d).values.astype(float).reshape(-1)
-        keep = np.where((occ == 0) & np.isfinite(vals))[0]
-        ds = ds.isel({d: keep})
-        ds = ds.drop_vars([f"{d}_value", f"{d}_occ"]).assign_coords({d: vals[keep]})
-    return ds
-
-def sel_rational(ds, value, dim="r", atol=1e-8):
-    """Select rational surface(s) by real value of 'r' (or 'r_prime'); see collapse_to_primary."""
-    collapsed = collapse_to_primary(ds)
-    idx = np.where(np.isclose(collapsed[dim].values, value, atol=atol))[0]
-    return collapsed.isel({dim: idx})
+    return combined_xr, pest3_xr_out, input_dict

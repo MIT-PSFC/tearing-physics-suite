@@ -15,7 +15,7 @@ import numpy as np
 
 from tearing_physics_suite.utils import create_dense_log_paramvals
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.input_scans import scan_1D_input
+from tearing_physics_suite.drivers.input_scans import scan_1D_input
 
 #########################################################################################################
 # NUMERICAL STABILITY TESTS:

@@ -14,7 +14,14 @@ These scripts package and compute toroidal 𝚫’ values using pre-existing for
 
 ![workflow diagram](workflow_diagram.svg)
 
-Warning: tearing-physics-suite makes its own working directories to read & write fortran input & output files. These directories will be spawned inside the tests/ directory, unless the user specifies otherwise.
+Warning: tearing-physics-suite makes its own working directories to read & write fortran input & output files. These directories will be spawned inside working_dir/ at the repository root, unless the user specifies otherwise.
+
+# Package layout
+
+- `tearing_physics_suite/physics/`: analysis and physics (Delta' coupling, MRE terms, rotation, global quantities, dataset combination). Never runs or imports the Fortran wrappers.
+- `tearing_physics_suite/wrappers/`: input writing, running and reading of RDCON, STRIDE and PEST3; `wrappers/build/` builds them and their libraries.
+- `tearing_physics_suite/drivers/`: the run pipeline (`pipeline.py`), parallel runs and zarr compilation, profile readers, input scans and the input test suite.
+- `tearing_physics_suite/utils.py`: small shared helpers.
 
 # Development
 
@@ -27,7 +34,7 @@ System agnostic but requires uv, gcc, openmpi, cmake and make.
 ``` 
 git clone https://github.com/MIT-PSFC/tearing-physics-suite.git
 uv sync
-uv run tearing_physics_suite/build_tearing_physics_suite.py  
+uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py  
 source tearing_physics_suite_env.sh
 uv run tests/run_tests.py  
 ```
@@ -42,7 +49,7 @@ module load gcc/11.x
 git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
 curl -LsSf https://astral.sh/uv/install.sh | sh 
 uv sync 
-uv run tearing_physics_suite/build_tearing_physics_suite.py
+uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py
 source tearing_physics_suite_env.sh
 uv run tests/run_tests.py 
 ```
@@ -53,7 +60,7 @@ module load gcc/12.2.0 openmpi/4.1.4
 git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
 curl -LsSf https://astral.sh/uv/install.sh | sh 
 uv sync 
-uv run tearing_physics_suite/build_tearing_physics_suite.py
+uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py
 source tearing_physics_suite_env.sh
 uv run tests/run_tests.py
 ```
@@ -92,7 +99,7 @@ uv sync
 4. Build external fortran packages:
    
 ``` 
-uv run path/to/tearing-physics-suite/tearing_physics_suite/build_tearing_physics_suite.py
+uv run path/to/tearing-physics-suite/tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py
 ```
 &emsp;&emsp;will slowly download the following codes from the following links:     
 &emsp;&emsp;&emsp;lapack - https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz    
@@ -117,7 +124,7 @@ source path/to/tearing-physics-suite/tearing_physics_suite_env.sh
 
 6. Run tests:
 ```
-uv run path/to/tearing-physics-suite/tests/unit_test_suite.py
+uv run path/to/tearing-physics-suite/tests/run_tests.py
 ```
 &emsp;&emsp;will test the package's core functionalities. These tests include the examples listed below.    
 
@@ -146,7 +153,7 @@ uv run tests/input_test_runner_test.py
 ```
 If you are in a multi-CPU computational environment, you can run multiple input sensitivity scans in parallel by setting run_parallel_tests to True in that file.
 
-Remaining tests ```tests/delta_prime_extraction_tests.py```, ```tests/fortran_wrapper_test.py```, ```tests/mre_analysis_tests.py``` function as unit tests.
+Remaining tests ```tests/delta_prime_extraction_tests.py```, ```tests/fortran_wrappers_tests.py```, ```tests/mre_analysis_tests.py``` function as unit tests.
 
 # Licensing
 

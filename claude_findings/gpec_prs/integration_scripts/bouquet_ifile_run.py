@@ -6,8 +6,8 @@ GPECf_interface on PYTHONPATH, and TPS importable.
 """
 import os, sys, json
 import bouquet as bq
-from tearing_physics_suite.profile_read import read_bouquet_archive
-from tearing_physics_suite import fortran_wrappers as tfw
+from tearing_physics_suite.drivers.profile_read import read_bouquet_archive
+from tearing_physics_suite.wrappers import run_codes as tfw
 
 out, gpec_dir = sys.argv[1], sys.argv[2]
 n = int(sys.argv[3]) if len(sys.argv) > 3 else 2

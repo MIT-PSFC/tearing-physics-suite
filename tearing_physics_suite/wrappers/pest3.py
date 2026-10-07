@@ -1,26 +1,15 @@
 # Utilities for running PEST3 and reading the results
 
 import os 
-import sys
 import shutil
-import subprocess
-import pandas as pd
 import xarray as xr
 import numpy as np
 from scipy.interpolate import Akima1DInterpolator
 import pickle as pkl
 import copy
-import math
+from tearing_physics_suite.utils import eq_stem
 
-_EQ_SUFFIXES = ('.geqdsk', '.eqdsk', '.gfile', '.ifile')
 
-def eq_stem(eq_filename):
-    """Basename of eq_filename with a known equilibrium suffix removed (other dots kept)."""
-    name = os.path.basename(eq_filename)
-    for suffix in _EQ_SUFFIXES:
-        if name.endswith(suffix):
-            return name[:-len(suffix)]
-    return name
 
 home_dir = os.environ['TPSHOME']
 

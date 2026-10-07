@@ -7,7 +7,7 @@ picked up as eq_type 'ldp_i' from its extension. psihigh is set for the same tru
 """
 import os, sys, json
 import numpy as np
-from tearing_physics_suite import fortran_wrappers as tfw
+from tearing_physics_suite.wrappers import run_codes as tfw
 
 gpec_dir, truth, out = sys.argv[1:4]
 pad_g = json.load(open(os.path.join(truth, 'truth_meta.json')))['psi_pad']

@@ -6,9 +6,7 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
-from tearing_physics_suite.compiler_utils import (
-    detect_compilers, get_cmake_fortran_flags, get_cmake_c_flags,
-)
+from tearing_physics_suite.wrappers.build.compiler_utils import detect_compilers, get_cmake_fortran_flags, get_cmake_c_flags
 
 home_dir = os.environ['TPSHOME']
 

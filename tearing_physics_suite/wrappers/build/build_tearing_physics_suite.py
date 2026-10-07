@@ -11,7 +11,7 @@ Orchestrates the full build by calling:
      the same libraries, linking GPEC's VACUUM (so GPEC comes first).
 
 Usage (from the repository root):
-    uv run tearing_physics_suite/build_tearing_physics_suite.py [options]
+    uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py [options]
 
 See README.md for prerequisite system packages (gcc, openmpi, cmake, make).
 """
@@ -23,11 +23,10 @@ from pathlib import Path
 
 # Ensure the package is importable when running as a script.
 # When Python (or uv) runs this file directly it inserts the script's directory
-# (.../tearing_physics_suite/) at sys.path[0].  That directory contains
-# tearing_physics_suite.py which shadows the actual tearing_physics_suite
-# *package*, so we must remove the script dir and promote the repo root.
+# (.../tearing_physics_suite/wrappers/build/) at sys.path[0], so we remove the
+# script dir and promote the repo root.
 _script_dir = Path(__file__).resolve().parent
-_repo_dir = _script_dir.parent
+_repo_dir = _script_dir.parents[2]
 
 # Strip the script directory from sys.path (it will shadow the package)
 while str(_script_dir) in sys.path:
@@ -45,8 +44,8 @@ if 'TPSHOME' in os.environ and os.environ['TPSHOME'] != str(_repo_dir):
           "Overriding TPSHOME to repository root for this build.")
 os.environ['TPSHOME'] = str(_repo_dir)
 
-from tearing_physics_suite.build_netcdf_lapack import build_libraries
-from tearing_physics_suite.build_GPEC_PEST3 import build_PEST3, build_GPEC
+from tearing_physics_suite.wrappers.build.build_netcdf_lapack import build_libraries
+from tearing_physics_suite.wrappers.build.build_GPEC_PEST3 import build_PEST3, build_GPEC
 
 
 def write_env_file(lib_paths, repo_root, out_path=None):
@@ -75,7 +74,7 @@ def write_env_file(lib_paths, repo_root, out_path=None):
     out_path = Path(out_path)
 
     # Detect compilers and get appropriate flags
-    from tearing_physics_suite.compiler_utils import detect_compilers
+    from tearing_physics_suite.wrappers.build.compiler_utils import detect_compilers
     compiler_info = detect_compilers(mpi=False)
 
     # Collect unique LD_LIBRARY_PATH entries in order
@@ -268,12 +267,7 @@ def build_all(
         print("\nSkipping dependency library builds (--skip-libs).")
         # Construct lib_paths from existing install_dir so PEST3/GPEC can
         # still find the previously built libraries.
-        from tearing_physics_suite.build_netcdf_lapack import (
-            LAPACKBuilder,
-            HDF5Builder,
-            NetCDFBuilder,
-            NetCDFFortranBuilder,
-        )
+        from tearing_physics_suite.wrappers.build.build_netcdf_lapack import LAPACKBuilder, HDF5Builder, NetCDFBuilder, NetCDFFortranBuilder
 
         common = {"install_dir": install_dir, "build_dir": build_dir, "verbose": verbose}
         lib_paths = {}

@@ -3,9 +3,9 @@
 import os 
 
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.input_test_suite import *
-from tearing_physics_suite.input_test_runner import run_multiple_scans, run_multiple_scans_parallel
-from tearing_physics_suite.multi_run import _get_num_cpus
+from tearing_physics_suite.drivers.input_test_suite import *
+from tearing_physics_suite.drivers.input_test_runner import run_multiple_scans, run_multiple_scans_parallel
+from tearing_physics_suite.utils import _get_num_cpus
 
 #########################################################################################################
 # load equilibrium:

@@ -1,8 +1,8 @@
 # Utilities for tearing physics suite 
 
 import math
-import xarray as xr
 import numpy as np
+import os 
 
 def trim_nans(delta_primes,delta_prime_errs=None):
     """Remove trailing NaN rows/columns from a square Delta' matrix.
@@ -107,3 +107,25 @@ def create_dense_log_paramvals(start=1e-1, end=1e-7, points_per_decade=10, extra
     paramvals_sorted = sorted(paramvals_unique, reverse=True)
     
     return paramvals_sorted
+
+
+_EQ_SUFFIXES = ('.geqdsk', '.eqdsk', '.gfile', '.ifile')
+
+
+def eq_stem(eq_filename):
+    """Basename of eq_filename with a known equilibrium suffix removed (other dots kept)."""
+    name = os.path.basename(eq_filename)
+    for suffix in _EQ_SUFFIXES:
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
+def _get_num_cpus():
+    """Get the number of available CPUs. Default is to use SLURM environment variables."""
+    for var in ['SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_JOB_CPUS_PER_NODE']:
+        val = os.environ.get(var)
+        if val is not None:
+            return int(val)
+    # Fallback to OS-reported CPU count
+    return len(os.sched_getaffinity(0))

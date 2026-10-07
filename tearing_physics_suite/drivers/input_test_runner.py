@@ -8,8 +8,8 @@ import xarray as xr
 import numpy as np
 
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.input_test_suite import *
-from tearing_physics_suite.multi_run import _get_num_cpus
+from tearing_physics_suite.drivers.input_test_suite import *
+from tearing_physics_suite.utils import _get_num_cpus
 
 # Module-level map so it is picklable for multiprocessing workers
 _SCAN_FUNCTION_MAP = {

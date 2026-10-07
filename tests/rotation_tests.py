@@ -15,13 +15,13 @@ import pickle as pkl
 home_dir = os.environ['TPSHOME']
 os.chdir(home_dir)
 
-from tearing_physics_suite.fortran_wrappers import run_resistive_calculation
-from tearing_physics_suite.fortran_wrappers import compile_xarrays
+from tearing_physics_suite.wrappers.run_codes import run_resistive_calculation
+from tearing_physics_suite.physics.combine import compile_xarrays
 from tearing_physics_suite.utils import trim_nans
-from tearing_physics_suite.delta_prime_extraction import extract_delta_primes_, extract_delta_primes, delta_prime_no_couple, delta_prime_full_couple, delta_prime_nn_couple, delta_prime_2nn_couple, get_delta_prime_divisors,extract_variances
-from tearing_physics_suite.tearing_physics_suite import linear_resistive_calculation, nonlinear_resistive_calculation
-from tearing_physics_suite.mre_analysis import analyse_with_mre
-from tearing_physics_suite.profile_read import read_IDA_lite, read_kin_file
+from tearing_physics_suite.physics.delta_prime_extraction import extract_delta_primes_, extract_delta_primes, delta_prime_no_couple, delta_prime_full_couple, delta_prime_nn_couple, delta_prime_2nn_couple, get_delta_prime_divisors, extract_variances
+from tearing_physics_suite.drivers.pipeline import linear_resistive_calculation, nonlinear_resistive_calculation
+from tearing_physics_suite.drivers.pipeline import analyse_with_mre
+from tearing_physics_suite.drivers.profile_read import read_IDA_lite, read_kin_file
 
 
 os.chdir(home_dir)

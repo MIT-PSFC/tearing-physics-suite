@@ -25,6 +25,9 @@ dependencies = [
     "zarr>=3.1.6",
 ]
 
+[project.scripts]
+tps-build = "tearing_physics_suite.wrappers.build.build_tearing_physics_suite:main"
+
 [dependency-groups]
 dev = [
     "black>=25.1.0",

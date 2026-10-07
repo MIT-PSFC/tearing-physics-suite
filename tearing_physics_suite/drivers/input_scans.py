@@ -7,9 +7,9 @@ import os
 from collections import Counter
 
 home_dir = os.environ['TPSHOME']
-import tearing_physics_suite.fortran_wrappers as tfw
-from tearing_physics_suite.fortran_wrappers import compile_xarrays
-from tearing_physics_suite.tearing_physics_suite import delta_prime_variability
+import tearing_physics_suite.wrappers.run_codes as tfw
+from tearing_physics_suite.physics.combine import compile_xarrays
+from tearing_physics_suite.physics.global_quantities import delta_prime_variability
 
 def scan_1D_input(input_name,input_values,eq_filename,
         nn,

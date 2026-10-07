@@ -1,7 +1,7 @@
-# Scripts to parallelise tearing_physics_suite.py
+# Scripts to parallelise drivers/pipeline.py
 
 ### Structure:
-## For a given type of input file, create a function that can read the input and generate the necessary splines and input dict for the main function in mre_analysis.py,
+## For a given type of input file, create a function that can read the input and generate the necessary splines and input dict for the main function in drivers/pipeline.py,
 ## Pass a list of equilibrium file names, and corresponding profile file names, as well as that function, to the multi_run function. It then actively
 ## distributes the runs across available CPU cores, and collects the outputs into a list of xarrays and a list of input dicts.
 
@@ -17,8 +17,9 @@ import numpy as np
 import zarr
 from scipy.interpolate import Akima1DInterpolator, PPoly
 
-from tearing_physics_suite.tearing_physics_suite import nonlinear_resistive_calculation
-from tearing_physics_suite.dataset_utils import add_to_zarr_store, zarr_chunk
+from tearing_physics_suite.drivers.pipeline import nonlinear_resistive_calculation
+from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, zarr_chunk
+from tearing_physics_suite.utils import _get_num_cpus
 
 
 def multi_run(eq_filenames, profile_filenames, read_profile_function, master_working_dir, verbose=False, cluster_manager='slurm', return_lists=False, fail_fast=False, **kwargs):
@@ -194,14 +195,6 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
     else:
         return None, None, errors
 
-def _get_num_cpus():
-    """Get the number of available CPUs. Default is to use SLURM environment variables."""
-    for var in ['SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_JOB_CPUS_PER_NODE']:
-        val = os.environ.get(var)
-        if val is not None:
-            return int(val)
-    # Fallback to OS-reported CPU count
-    return len(os.sched_getaffinity(0))
 
 def _init_multi_run_worker(worker_id_queue, master_working_dir):
     """Pool initialiser: claim a unique worker ID and set up its private dir.

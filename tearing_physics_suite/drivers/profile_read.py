@@ -1,4 +1,4 @@
-# Set of modular functions that take a filename as input, read the file, and generate kinetic spline inputs for tearing_physics_suite.py
+# Set of modular functions that take a filename as input, read the file, and generate kinetic spline inputs for drivers/pipeline.py
 
 import os
 import warnings

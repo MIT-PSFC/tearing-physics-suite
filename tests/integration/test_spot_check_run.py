@@ -39,4 +39,5 @@ def test_spot_check_run(eq_file, tmp_path):
     assert (tmp_path / 'spot' / 'spot_checks' / 'report.txt').exists()
     flag = spot_ds.spot_check_flag.sel(code=['rdcon', 'stride'])
     assert np.isin(flag.values, [0, 1]).all()
-    xr.testing.assert_identical(spot_ds.drop_vars('spot_check_flag'), plain_ds)
+    timing = ['cpu_time', 'wall_time']
+    xr.testing.assert_identical(spot_ds.drop_vars(['spot_check_flag'] + timing), plain_ds.drop_vars(timing))

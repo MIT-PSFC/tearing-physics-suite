@@ -94,6 +94,7 @@ def parse_pest3_flags(hh_path):
 
 
 def _git_describe(path):
+    """git describe of a source tree, or "unknown"."""
     try:
         return subprocess.run(['git', '-C', str(path), 'describe', '--tags', '--always', '--dirty'],
                               capture_output=True, text=True, timeout=20).stdout.strip() or 'unknown'
@@ -216,6 +217,7 @@ def check_namelists(codes=('rdcon', 'stride', 'pest3'), gpec_dir=None, pest3_dir
 
 
 def format_reports(reports, versions, show_missing=True):
+    """Text table of the reports (names left at code defaults shown if show_missing)."""
     lines = ['Sources: ' + ', '.join(f'{k} {v}' for k, v in versions.items())]
     for r in reports:
         if r.unread_group:
@@ -233,6 +235,7 @@ def format_reports(reports, versions, show_missing=True):
 
 
 def main(argv=None):
+    """Command-line entry; exit code 1 if any input is unknown to its code."""
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--codes', nargs='*', default=['rdcon', 'stride', 'pest3'])
     ap.add_argument('--gpec-dir')

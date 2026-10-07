@@ -1452,7 +1452,7 @@ def PEST3_install_test(build_dir=None, lib_paths=None, install_dir=None):
 
     Notes
     -----
-    Expected reference values (from ``tests/fortran_default_tests.py``):
+    Expected reference values (from ``tests/integration/test_fortran_wrappers.py``):
 
     =========  ============  ==========  =======
     Test       Input file    dprim_re    tol
@@ -1556,7 +1556,7 @@ def PEST3_install_test(build_dir=None, lib_paths=None, install_dir=None):
 
     # ------------------------------------------------------------------
     # Define the three test cases with expected dprim_re values
-    # (reference values from tests/fortran_default_tests.py)
+    # (reference values from tests/integration/test_fortran_wrappers.py)
     # ------------------------------------------------------------------
     tests = [
         {

@@ -1015,12 +1015,14 @@ class _GridRegistry:
                     self.from_ds.add(dim)
 
     def match(self, x, rtol=1e-9, atol=1e-12):
+        """Dim name of a registered grid matching x, else None."""
         for dim, gx in self.grids.items():
             if _grids_close(x, gx, rtol, atol):
                 return dim
         return None
 
     def register(self, x, preferred):
+        """Register x under a new dim name based on preferred; returns the name."""
         dim, base, i = preferred, preferred, 1
         while dim in self.grids:
             dim, i = f"{base}_{i}", i + 1
@@ -1034,16 +1036,19 @@ DROP_KEYS = {
 }
 
 def _sanitize(name: str) -> str:
+    """Make a meta-dict key safe as a Dataset variable name."""
     for a, b in [("(", "_"), (")", ""), (" ", "_"), ("[", ""), ("]", ""),
                  ("^", ""), ("-", "m"), ("/", "_"), (",", "_")]:
         name = name.replace(a, b)
     return name.strip("_")
 
 def _spline_xy(spl):
+    """Knot positions and values of a 1D spline."""
     x = np.asarray(spl.x, dtype="float64")
     return x, np.asarray(spl(x), dtype="float64")     # exact for Akima
 
 def _grids_close(a, b, rtol=1e-9, atol=1e-12):
+    """True if two x-grids have the same shape and values (within rtol/atol)."""
     a = np.asarray(a, float)
     b = np.asarray(b, float)
     if a.shape != b.shape:

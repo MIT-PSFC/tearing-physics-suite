@@ -2,6 +2,8 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import Akima1DInterpolator, PchipInterpolator
 
+from tearing_physics_suite.physics.xr_utils import interp_to_surfaces, like
+
 
 def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_charge=None, dont_override_omega_ExB=True):
     """Compute ion and electron diamagnetic rotation frequencies at all psi_n values.
@@ -57,8 +59,8 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
 
     # Save values onto xarray:
     rdcon_xarray = rdcon_xarray.assign(
-        omega_i=omega_i_values+0.0*rdcon_xarray['psi_n'],       # Units rad/s
-        omega_e=omega_e_values+0.0*rdcon_xarray['psi_n']        # Units rad/s
+        omega_i=like(omega_i_values, rdcon_xarray['psi_n']),       # Units rad/s
+        omega_e=like(omega_e_values, rdcon_xarray['psi_n'])        # Units rad/s
     )
 
     # Calculate ExB rotation if Er_spline is provided, and omega_ExB is not already in rdcon_xarray:
@@ -66,8 +68,8 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
         Er_values = np.array(Er_spline(rdcon_xarray.psi_n.values))
         omega_ExB_values = Er_values/(psio*avg_nablapsi_values) # Units rad/s: Er units V/m, avg_nablapsi units 1/m, psio units Weber/rad = (V*s)/rad
         rdcon_xarray = rdcon_xarray.assign(
-            Er=Er_values+0.0*rdcon_xarray['psi_n'],                 # Units V/m (assuming Er_spline is in V/m)
-            omega_ExB=omega_ExB_values+0.0*rdcon_xarray['psi_n']    # Units rad/s
+            Er=like(Er_values, rdcon_xarray['psi_n']),                 # Units V/m (assuming Er_spline is in V/m)
+            omega_ExB=like(omega_ExB_values, rdcon_xarray['psi_n'])    # Units rad/s
         )
 
     # Calculate total rotation frequencies if omega_ExB is present:
@@ -80,6 +82,12 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     rdcon_xarray = put_drift_rotation_on_surfaces(rdcon_xarray)
 
     return rdcon_xarray
+
+
+def _akima_deriv_on_surfaces(rdcon_xarray, name):
+    """d(name)/dpsi_n at the rational surfaces, from an Akima spline of name on psi_n."""
+    spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray[name].values, extrapolate=False)
+    return like(np.array(spline(rdcon_xarray.psi_n_rational.values, 1)), rdcon_xarray['psi_n_rational'])
 
 
 def put_drift_rotation_on_surfaces(rdcon_xarray):
@@ -99,41 +107,14 @@ def put_drift_rotation_on_surfaces(rdcon_xarray):
         Input dataset with rotation _surf and _1_surf variables added.
     """
 
+    names = ['omega_i', 'omega_e']
+    if 'omega_ExB' in rdcon_xarray:
+        names += ['omega_ExB', 'omega_ExB_plus_omega_e', 'omega_ExB_plus_omega_i']
     # Adding values at surfaces
-    rdcon_xarray = rdcon_xarray.assign(
-        omega_i_surf = np.array(rdcon_xarray.omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
-        omega_e_surf = np.array(rdcon_xarray.omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
-    )
-    if 'omega_ExB' in rdcon_xarray:
-        rdcon_xarray = rdcon_xarray.assign(
-            omega_ExB_surf = np.array(rdcon_xarray.omega_ExB.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
-            omega_ExB_plus_omega_e_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_e.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational'],
-            omega_ExB_plus_omega_i_surf = np.array(rdcon_xarray.omega_ExB_plus_omega_i.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
-        )
-    if 'Er' in rdcon_xarray:
-        rdcon_xarray = rdcon_xarray.assign(
-            Er_surf = np.array(rdcon_xarray.Er.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values)+0.0*rdcon_xarray['psi_n_rational']
-        )
-
+    surf = interp_to_surfaces(rdcon_xarray, names + (['Er'] if 'Er' in rdcon_xarray else []))
+    rdcon_xarray = rdcon_xarray.assign(**{f'{k}_surf': v for k, v in surf.items()})
     # Adding derivatives as surfaces:
-    omega_i_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_i.values,extrapolate=False)
-    omega_e_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_e.values,extrapolate=False)
-
-    rdcon_xarray = rdcon_xarray.assign(
-        omega_i1_surf = np.array(omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
-        omega_e1_surf = np.array(omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
-    )
-
-    if 'omega_ExB' in rdcon_xarray:
-        omega_ExB_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB.values,extrapolate=False)
-        omega_ExB_plus_omega_e_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_e.values,extrapolate=False)
-        omega_ExB_plus_omega_i_spline = Akima1DInterpolator(rdcon_xarray.psi_n.values, rdcon_xarray.omega_ExB_plus_omega_i.values,extrapolate=False)
-        rdcon_xarray = rdcon_xarray.assign(
-            omega_ExB1_surf = np.array(omega_ExB_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
-            omega_ExB_plus_omega_e1_surf = np.array(omega_ExB_plus_omega_e_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational'],
-            omega_ExB_plus_omega_i1_surf = np.array(omega_ExB_plus_omega_i_spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']
-        )
-
+    rdcon_xarray = rdcon_xarray.assign(**{f'{k}1_surf': _akima_deriv_on_surfaces(rdcon_xarray, k) for k in names})
     return rdcon_xarray
 
 
@@ -156,19 +137,13 @@ def add_rotation(rdcon_xarray,omega_splines=None):
         Input dataset with {key}, {key}_surf, and {key}1_surf variables added for each spline.
     """
 
-    for key in omega_splines:
-        spline = omega_splines[key]
-        rdcon_xarray = rdcon_xarray.assign(
-            **{key: np.array(spline(rdcon_xarray.psi_n.values))+0.0*rdcon_xarray['psi_n']}
-        )
-        # Put on surfaces:
-        rdcon_xarray = rdcon_xarray.assign(
-            **{f"{key}_surf": np.array(spline(rdcon_xarray.psi_n_rational.values))+0.0*rdcon_xarray['psi_n_rational']}
-        )
-        # Put derivatives on surfaces:
-        rdcon_xarray = rdcon_xarray.assign(
-            **{f"{key}1_surf": np.array(spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']}
-        )
+    psi, psi_rat = rdcon_xarray['psi_n'], rdcon_xarray['psi_n_rational']
+    for key, spline in omega_splines.items():
+        rdcon_xarray = rdcon_xarray.assign(**{
+            key: like(np.array(spline(psi.values)), psi),
+            f"{key}_surf": like(np.array(spline(psi_rat.values)), psi_rat),  # on surfaces
+            f"{key}1_surf": like(np.array(spline(psi_rat.values, 1)), psi_rat),  # derivatives on surfaces
+        })
 
     return rdcon_xarray
 
@@ -269,76 +244,39 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=None,psi_surfs_of_
         psi_n_at_q_surfs_of_interest.append(psi_n_at_q_root)
 
     #########################################################################################################
+    # Check psi_n_of_interest values are in the range of psi_n values in rdcon_xarray:
+    for psi_n_of_interest in psi_surfs_of_interest:
+        if psi_n_of_interest < rdcon_xarray.psi_n.min() or psi_n_of_interest > rdcon_xarray.psi_n.max():
+            print(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Must be between {rdcon_xarray.psi_n.min()} and {rdcon_xarray.psi_n.max()}.")
+            raise ValueError(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Please check your input to decorrelation_timescales.")
+
+    def _tdecorr(key, ref_psi, dim, coords):
+        """2*pi/(omega_surf - omega(ref_psi)): decorrelation timescale (s) to each reference surface, along dim.
+
+        Assumes an entire 2pi rotation = decorrelation. NaN reference surfaces give NaN, so the dim
+        stays the same size across all timeslices in a shot.
+        """
+        ref_psi = np.asarray(ref_psi, dtype=float)
+        freq = np.full(ref_psi.shape, np.nan)
+        ok = np.isfinite(ref_psi)
+        if ok.any():
+            freq[ok] = rdcon_xarray[key[:-5]].interp(psi_n=ref_psi[ok], method="cubic").values
+        freq = xr.DataArray(freq, dims=dim, coords={dim: coords})
+        return (np.pi*2/(rdcon_xarray[key] - freq)).transpose(dim, ...)
+
     # Cycle through keys and calculate decorrelation timescales
-    #########################################################################################################
     for key in rotation_keys:
         key_no_suffix = key[:-5] # Remove '_surf' suffix to get the key without it
-        decorellation_data_arrays_qsurf = []    # List to store the decorrelation data arrays for each q surface of interest for this key
-        decorellation_data_arrays_psisurf = []  # List to store the decorrelation data arrays for each psi surface of interest for this key
-
-        #########################################################################################################
-        # q_surfs_of_interest loop:
-        #########################################################################################################
-        for psi_n_at_q_root in psi_n_at_q_surfs_of_interest:
-            # If nans, just make an array of nans for this surface of interest and move on to the next one:
-            # Important because we want the dimension of q_surfs_of_interest to be consistent across all timeslices in a shot...
-            if np.isnan(psi_n_at_q_root):
-                decorellation_data_array = xr.full_like(rdcon_xarray[key], np.nan)
-                decorellation_data_arrays_qsurf.append(decorellation_data_array)
-                continue
-
-            rotation_freq_at_surf_of_interest = rdcon_xarray[key_no_suffix].interp(psi_n=psi_n_at_q_root,method="cubic").values
-
-            # Double check rotation_freq_at_surf_of_interest is a scalar:
-            if np.ndim(rotation_freq_at_surf_of_interest) != 0:
-                print(f"Rotation frequency at surface of interest for key {key} is not a scalar. Value: {rotation_freq_at_surf_of_interest}")
-                raise ValueError(f"Rotation frequency at surface of interest for key {key} is not a scalar. Please debug decorrelation_timescales.")
-
-            # Differences for rotation key:
-            decorellation_data_array = rdcon_xarray[key]-rotation_freq_at_surf_of_interest # Frequency difference (in rad/s)
-            decorellation_data_array = np.pi*2/decorellation_data_array # Convert to decorrelation timescale in seconds (assuming an entire 2pi rotation = decorrelation)
-            decorellation_data_arrays_qsurf.append(decorellation_data_array)
-
-        # Stack the decorrelation data arrays for each surface of interest into a single xarray DataArray with a new dimension 'q_surfs_of_interest':
+        new_vars = {}
         if len(psi_n_at_q_surfs_of_interest) > 0:
-            decorellation_data_arrays_qsurf = xr.concat(decorellation_data_arrays_qsurf, dim='q_surfs_of_interest')
-            decorellation_data_arrays_qsurf = decorellation_data_arrays_qsurf.assign_coords(q_surfs_of_interest=q_surfs_of_interest) # Assign the q values of interest as coordinates for this new dimension
-
-        # Check you get what you're expecting:
-        if debug:
-            return decorellation_data_arrays_qsurf
-
-        #########################################################################################################
-        # psi_surfs_of_interest loop:
-        #########################################################################################################
-        for psi_n_of_interest in psi_surfs_of_interest:
-            # Check if psi_n_of_interest is in the range of psi_n values in rdcon_xarray:
-            if psi_n_of_interest < rdcon_xarray.psi_n.min() or psi_n_of_interest > rdcon_xarray.psi_n.max():
-                print(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Must be between {rdcon_xarray.psi_n.min()} and {rdcon_xarray.psi_n.max()}.")
-                raise ValueError(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Please check your input to decorrelation_timescales.")
-
-            rotation_freq_at_surf_of_interest = rdcon_xarray[key_no_suffix].interp(psi_n=psi_n_of_interest,method="cubic").values
-
-            # Double check rotation_freq_at_surf_of_interest is a scalar:
-            if np.ndim(rotation_freq_at_surf_of_interest) != 0:
-                print(f"Rotation frequency at surface of interest for key {key} is not a scalar. Value: {rotation_freq_at_surf_of_interest}")
-                raise ValueError(f"Rotation frequency at surface of interest for key {key} is not a scalar. Please debug decorrelation_timescales.")
-
-            decorellation_data_array = rdcon_xarray[key]-rotation_freq_at_surf_of_interest # Frequency difference (in rad/s)
-            decorellation_data_array = np.pi*2/decorellation_data_array # Convert to decorrelation timescale in seconds (assuming an entire 2pi rotation = decorrelation)
-            decorellation_data_arrays_psisurf.append(decorellation_data_array)
-
-        # Stack the decorrelation data arrays for each surface of interest into a single xarray DataArray with a new dimension 'psi_surf_of_interest':
+            new_vars[f"{key_no_suffix}_tdecorr_qsurf"] = _tdecorr(
+                key, psi_n_at_q_surfs_of_interest, 'q_surfs_of_interest', q_surfs_of_interest)
+            if debug:  # Check you get what you're expecting
+                return new_vars[f"{key_no_suffix}_tdecorr_qsurf"]
         if len(psi_surfs_of_interest) > 0:
-            decorellation_data_arrays_psisurf = xr.concat(decorellation_data_arrays_psisurf, dim='psi_surf_of_interest')
-            decorellation_data_arrays_psisurf = decorellation_data_arrays_psisurf.assign_coords(psi_surf_of_interest=psi_surfs_of_interest) # Assign the psi_n values of interest as coordinates for this new dimension
-
-        # Now we have two xarray DataArrays for this key: one with decorrelation timescales to rational surfaces of interest, and one with decorrelation timescales to psi surfaces of interest. We can save these onto rdcon_xarray with new keys:
-        if len(psi_n_at_q_surfs_of_interest) > 0:
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf": decorellation_data_arrays_qsurf})
-        if len(psi_surfs_of_interest) > 0:
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf": decorellation_data_arrays_psisurf})
-
+            new_vars[f"{key_no_suffix}_tdecorr_psisurf"] = _tdecorr(
+                key, psi_surfs_of_interest, 'psi_surf_of_interest', psi_surfs_of_interest)
+        rdcon_xarray = rdcon_xarray.assign(**new_vars)
     # Save rotation keys onto xarray for later reference:
     rdcon_xarray = rdcon_xarray.assign(rotation_keys=rotation_keys)
 
@@ -364,24 +302,11 @@ def decorrelation_ratios(rdcon_xarray):
 
     for key in rdcon_xarray.rotation_keys.values:
         key_no_suffix = key[:-5] # Remove '_surf' suffix to get the key without it
-
-        if f"{key_no_suffix}_tdecorr_qsurf" in rdcon_xarray:
-            taua_surf___ = rdcon_xarray['taua_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
-            taur_surf___ = rdcon_xarray['taur_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
-            Q0_surf___ = rdcon_xarray['Q0_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"])
-
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_on_taua": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]/taua_surf___})
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_on_taur": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]/taur_surf___})
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf_Q0": rdcon_xarray[f"{key_no_suffix}_tdecorr_qsurf"]*Q0_surf___})
-
-        if f"{key_no_suffix}_tdecorr_psisurf" in rdcon_xarray:
-            taua_surf____ = rdcon_xarray['taua_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
-            taur_surf____ = rdcon_xarray['taur_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
-            Q0_surf____ = rdcon_xarray['Q0_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
-
-
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taua": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taua_surf____})
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taur": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taur_surf____})
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_Q0": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]*Q0_surf____})
-
+        for ref in ('qsurf', 'psisurf'):
+            name = f"{key_no_suffix}_tdecorr_{ref}"
+            if name in rdcon_xarray:
+                t = rdcon_xarray[name]
+                rdcon_xarray = rdcon_xarray.assign(**{f"{name}_on_taua": t/rdcon_xarray['taua_surf'],
+                                                      f"{name}_on_taur": t/rdcon_xarray['taur_surf'],
+                                                      f"{name}_Q0": t*rdcon_xarray['Q0_surf']})
     return rdcon_xarray

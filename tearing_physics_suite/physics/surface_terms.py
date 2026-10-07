@@ -8,6 +8,18 @@ from tearing_physics_suite.physics.rotation import (
     decorrelation_ratios,
     decorrelation_timescales,
 )
+from tearing_physics_suite.physics.xr_utils import interp_to_surfaces, like
+
+# RDCON profile (on psi_n) -> its value on the rational surfaces (mre_raw_interp)
+_RAW_TO_SURF = {
+    'dvdpsi': 'dvdpsi_n_surf', 'di': 'Di_surf', 'dr': 'Dr_surf', 'h': 'H_surf', 'Hbs_prefac': 'Hbs_prefac_surf',
+    'tau_a': 'taua_prefac_surf', 'tau_r': 'taur_prefac_surf', 'ftr': 'ftr_surf', 'mufrac': 'mufrac_surf',
+    'avg_nabla_psi': 'avg_nabla_psi_surf', 'Dnc': 'Dnc_surf', 'Wc': 'Wc_prefac_surf',
+    'avg_mu0Jpara': 'avg_mu0Jpara_surf', 'avg_B': 'avg_B_surf', 'avg_Bt': 'avg_Bt_surf', 'avg_Bp': 'avg_Bp_surf',
+    'avg_r': 'avg_r_surf', 'avg_R': 'avg_R_surf', 'avg_inv_R': 'avg_inv_R_surf', 'overbar_Rsq': 'overbar_Rsq_surf',
+    'avg_Rsq': 'avg_Rsq_surf', 'avg_1': 'avg_Bsq_on_nabla_psisq_surf', 'avg_5': 'avg_Bsq_surf',
+    'avg_7': 'avg_dpsisq_surf',
+}
 
 
 def mre_raw_interp(rdcon_xarray):
@@ -30,30 +42,7 @@ def mre_raw_interp(rdcon_xarray):
     #########################################################################################################
     # Put mre terms onto surfaces:
     #########################################################################################################
-    dvdpsi_n_surf = rdcon_xarray.dvdpsi.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    Di_surf = rdcon_xarray.di.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    Dr_surf = rdcon_xarray.dr.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    H_surf = rdcon_xarray.h.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    Hbs_prefac_surf = rdcon_xarray.Hbs_prefac.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    taua_prefac_surf = rdcon_xarray.tau_a.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    taur_prefac_surf = rdcon_xarray.tau_r.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    ftr_surf = rdcon_xarray.ftr.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    mufrac_surf = rdcon_xarray.mufrac.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_nabla_psi_surf = rdcon_xarray.avg_nabla_psi.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    Dnc_surf = rdcon_xarray.Dnc.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    Wc_prefac_surf = rdcon_xarray.Wc.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_mu0Jpara_surf = rdcon_xarray.avg_mu0Jpara.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_B_surf = rdcon_xarray.avg_B.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_Bt_surf = rdcon_xarray.avg_Bt.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_Bp_surf = rdcon_xarray.avg_Bp.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_r_surf = rdcon_xarray.avg_r.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_R_surf = rdcon_xarray.avg_R.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_inv_R_surf = rdcon_xarray.avg_inv_R.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    overbar_Rsq_surf = rdcon_xarray.overbar_Rsq.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_Rsq_surf = rdcon_xarray.avg_Rsq.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_Bsq_on_nabla_psisq_surf = rdcon_xarray.avg_1.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_Bsq_surf = rdcon_xarray.avg_5.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
-    avg_dpsisq_surf = rdcon_xarray.avg_7.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
+    surf = interp_to_surfaces(rdcon_xarray, _RAW_TO_SURF)
     # Zeff gets special treatment:
     # Handle Zeff - it may be a DataArray or already a numpy array
     psi_N_Zeff_vals = rdcon_xarray.psi_N_Zeff.values if hasattr(rdcon_xarray.psi_N_Zeff, 'values') else rdcon_xarray.psi_N_Zeff
@@ -63,32 +52,8 @@ def mre_raw_interp(rdcon_xarray):
     #########################################################################################################
     # Load these surface values into the xarray:
     #########################################################################################################
-    rdcon_xarray = rdcon_xarray.assign(dvdpsi_n_surf = dvdpsi_n_surf+0.0*rdcon_xarray['psi_n_rational'],
-        Di_surf =Di_surf+0.0*rdcon_xarray['psi_n_rational'],
-        Dr_surf =Dr_surf+0.0*rdcon_xarray['psi_n_rational'],
-        H_surf =H_surf+0.0*rdcon_xarray['psi_n_rational'],
-        Hbs_prefac_surf =Hbs_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
-        taua_prefac_surf =taua_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
-        taur_prefac_surf =taur_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
-        ftr_surf =ftr_surf+0.0*rdcon_xarray['psi_n_rational'],
-        mufrac_surf =mufrac_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_nabla_psi_surf =avg_nabla_psi_surf+0.0*rdcon_xarray['psi_n_rational'],
-        Dnc_surf =Dnc_surf+0.0*rdcon_xarray['psi_n_rational'],
-        Wc_prefac_surf =Wc_prefac_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_mu0Jpara_surf =avg_mu0Jpara_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_B_surf =avg_B_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Bt_surf =avg_Bt_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Bp_surf =avg_Bp_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_r_surf =avg_r_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_R_surf =avg_R_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_inv_R_surf =avg_inv_R_surf+0.0*rdcon_xarray['psi_n_rational'],
-        overbar_Rsq_surf =overbar_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Rsq_surf =avg_Rsq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Bsq_on_nabla_psisq_surf = avg_Bsq_on_nabla_psisq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_Bsq_surf = avg_Bsq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        avg_dpsisq_surf = avg_dpsisq_surf+0.0*rdcon_xarray['psi_n_rational'],
-        Zeff_surf = Zeff_surf+0.0*rdcon_xarray['psi_n_rational']
-    )
+    rdcon_xarray = rdcon_xarray.assign(**{_RAW_TO_SURF[k]: v for k, v in surf.items()},
+                                       Zeff_surf=like(Zeff_surf, rdcon_xarray['psi_n_rational']))
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray
 
@@ -166,8 +131,8 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
         )
     else:
         rdcon_xarray = rdcon_xarray.assign(
-            lnLamb_ei_surf = Coulomb_logarithm+0.0*rdcon_xarray['psi_n_rational'], # Dimless
-            lnLamb_ei = Coulomb_logarithm+0.0*rdcon_xarray['psi_n']                # Dimless
+            lnLamb_ei_surf = like(Coulomb_logarithm, rdcon_xarray['psi_n_rational']), # Dimless
+            lnLamb_ei = like(Coulomb_logarithm, rdcon_xarray['psi_n'])                # Dimless
         )
     # Resistivity in Ohm m from Wesson Tokamaks
     rdcon_xarray = rdcon_xarray.assign(
@@ -224,23 +189,23 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     te_keV = te_spline(rdcon_xarray['psi_n'].values) # Electron temperature in KeV
 
     rdcon_xarray = rdcon_xarray.assign(
-        ni_m3=ni_m3+0.0*rdcon_xarray['psi_n'],
-        ne_m3=ne_m3+0.0*rdcon_xarray['psi_n'],
-        ti_keV=ti_keV+0.0*rdcon_xarray['psi_n'],
-        te_keV=te_keV+0.0*rdcon_xarray['psi_n']
+        ni_m3=like(ni_m3, rdcon_xarray['psi_n']),
+        ne_m3=like(ne_m3, rdcon_xarray['psi_n']),
+        ti_keV=like(ti_keV, rdcon_xarray['psi_n']),
+        te_keV=like(te_keV, rdcon_xarray['psi_n'])
     )
 
     # Put kinetic information onto surfaces:
-    rdcon_xarray = rdcon_xarray.assign(ni_m3_surf =np.array(ni_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'],
-                                        ne_m3_surf =np.array(ne_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'],
-                                        ti_keV_surf =np.array(ti_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'],
-                                        te_keV_surf =np.array(te_spline(rdcon_xarray['psi_n_rational'].values))+0.0*rdcon_xarray['psi_n_rational'])
+    rdcon_xarray = rdcon_xarray.assign(ni_m3_surf =like(np.array(ni_spline(rdcon_xarray['psi_n_rational'].values)), rdcon_xarray['psi_n_rational']),
+                                        ne_m3_surf =like(np.array(ne_spline(rdcon_xarray['psi_n_rational'].values)), rdcon_xarray['psi_n_rational']),
+                                        ti_keV_surf =like(np.array(ti_spline(rdcon_xarray['psi_n_rational'].values)), rdcon_xarray['psi_n_rational']),
+                                        te_keV_surf =like(np.array(te_spline(rdcon_xarray['psi_n_rational'].values)), rdcon_xarray['psi_n_rational']))
 
     # Put gradients of kinetic information onto surfaces:
-    rdcon_xarray = rdcon_xarray.assign(ni1_m3_surf = np.array(ni_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
-                                        ne1_m3_surf = np.array(ne_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
-                                        ti1_keV_surf = np.array(ti_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
-                                        te1_keV_surf = np.array(te_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'])
+    rdcon_xarray = rdcon_xarray.assign(ni1_m3_surf = like(np.array(ni_spline(rdcon_xarray['psi_n_rational'].values,1)), rdcon_xarray['psi_n_rational']),
+                                        ne1_m3_surf = like(np.array(ne_spline(rdcon_xarray['psi_n_rational'].values,1)), rdcon_xarray['psi_n_rational']),
+                                        ti1_keV_surf = like(np.array(ti_spline(rdcon_xarray['psi_n_rational'].values,1)), rdcon_xarray['psi_n_rational']),
+                                        te1_keV_surf = like(np.array(te_spline(rdcon_xarray['psi_n_rational'].values,1)), rdcon_xarray['psi_n_rational']))
 
     # Check if average_ion_mass is in rdcon_xarray:
     if 'average_ion_mass' not in rdcon_xarray:
@@ -300,7 +265,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
 
     # Add mode number m for rational surfaces:
     m_ints = np.round(rdcon_xarray.n*rdcon_xarray['q_rational'].values).astype(int)
-    rdcon_xarray = rdcon_xarray.assign(m_rational = m_ints + 0.0*rdcon_xarray['psi_n_rational'])
+    rdcon_xarray = rdcon_xarray.assign(m_rational = like(m_ints, rdcon_xarray['psi_n_rational']))
 
     # Add mode number m to Wc_prefacs
     # To get wd, just multiply Wc_prefac_m_surf by chi frac, then take to power (1/4):
@@ -375,8 +340,8 @@ def mre_flux_gradients(rdcon_xarray):
 
     # Put these gradients into the xarray:
     rdcon_xarray = rdcon_xarray.assign(
-        dq_dpsi_n=dq_dpsi_n+0.0*rdcon_xarray['psi_n'],
-        dmu0p_dpsi_n=dmu0p_dpsi_n+0.0*rdcon_xarray['psi_n']
+        dq_dpsi_n=like(dq_dpsi_n, rdcon_xarray['psi_n']),
+        dmu0p_dpsi_n=like(dmu0p_dpsi_n, rdcon_xarray['psi_n'])
     )
 
     # Put these gradients onto surfaces:
@@ -384,8 +349,8 @@ def mre_flux_gradients(rdcon_xarray):
     dmu0p_dpsi_n_surf = rdcon_xarray.dmu0p_dpsi_n.interp(psi_n=rdcon_xarray.psi_n_rational.values,method="cubic").values
 
     rdcon_xarray = rdcon_xarray.assign(
-        dq_dpsi_n_surf =dq_dpsi_n_surf+0.0*rdcon_xarray['psi_n_rational'],
-        dmu0p_dpsi_n_surf =dmu0p_dpsi_n_surf+0.0*rdcon_xarray['psi_n_rational']
+        dq_dpsi_n_surf =like(dq_dpsi_n_surf, rdcon_xarray['psi_n_rational']),
+        dmu0p_dpsi_n_surf =like(dmu0p_dpsi_n_surf, rdcon_xarray['psi_n_rational'])
     )
 
     # Calculate the dimensionless flux shear factor (s in Fitz.)
@@ -398,7 +363,7 @@ def mre_flux_gradients(rdcon_xarray):
     min_psi_n = rdcon_xarray.psi_n.values.min()
     V_surf = [dVdpsi_spline.integrate(min_psi_n, i) for i in rdcon_xarray.psi_n_rational.values]
     rdcon_xarray = rdcon_xarray.assign(
-        V_surf = np.array(V_surf)+0.0*rdcon_xarray['psi_n_rational']
+        V_surf = like(np.array(V_surf), rdcon_xarray['psi_n_rational'])
     )
     return rdcon_xarray
 
@@ -480,11 +445,11 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
         DeltaPrimeCrits15_no_chifrac[i] = DeltaPrimeCrits15[i]/(chi_frac_noisland**(1/4))
 
     rdcon_xarray = rdcon_xarray.assign(
-        Qcrit_surf = Qcrits+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 110.
-        Delta_prime_crit = DeltaPrimeCrits75+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 111.
-        DeltaPrime_crit_no_X0 = DeltaPrimeCrits75_no_X0+0.0*rdcon_xarray['psi_n_rational'], # Multiply by (1/X0)^(1-2Hs) to get Delta_prime_crit if you are modifying resistivity and/or mass density.
-        Delta_prime_tcrit = DeltaPrimeCrits15+0.0*rdcon_xarray['psi_n_rational'],  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025).
-        Delta_prime_tcrit_no_chifrac = DeltaPrimeCrits15_no_chifrac+0.0*rdcon_xarray['psi_n_rational']  # Multiply by (chi_para/chi_perp)^(1/4) to get DeltaPrime_crit2 if you are modifying transport coefficients.
+        Qcrit_surf = like(Qcrits, rdcon_xarray['psi_n_rational']), # Glasser et al. Phys. Fluids 1975, Eq 110.
+        Delta_prime_crit = like(DeltaPrimeCrits75, rdcon_xarray['psi_n_rational']), # Glasser et al. Phys. Fluids 1975, Eq 111.
+        DeltaPrime_crit_no_X0 = like(DeltaPrimeCrits75_no_X0, rdcon_xarray['psi_n_rational']), # Multiply by (1/X0)^(1-2Hs) to get Delta_prime_crit if you are modifying resistivity and/or mass density.
+        Delta_prime_tcrit = like(DeltaPrimeCrits15, rdcon_xarray['psi_n_rational']),  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025).
+        Delta_prime_tcrit_no_chifrac = like(DeltaPrimeCrits15_no_chifrac, rdcon_xarray['psi_n_rational'])  # Multiply by (chi_para/chi_perp)^(1/4) to get DeltaPrime_crit2 if you are modifying transport coefficients.
     )
 
     # All we need for S, X0, and Delta_prime_crit, in m3dc1 is n, eta(spitz or otherwise), and mass density (ni, ion mass, ne - see mre_terms_on_modes for formula.)

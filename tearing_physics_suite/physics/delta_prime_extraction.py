@@ -6,6 +6,7 @@ import numpy as np
 import xarray as xr
 from jax import jacfwd
 
+from tearing_physics_suite.physics.xr_utils import like
 from tearing_physics_suite.utils import trim_nans
 
 
@@ -77,101 +78,26 @@ def extract_delta_primes(inputxr,debug=False, couple_reals=True):
     #########################################################################################################
     # Split complex delta primes into real and imaginary parts, put them into the xarray using coordinate Delta_prime_type
     #########################################################################################################
+    types = ['single helicity', 'nn coupled', '2nn coupled', 'full coupled']
 
-    Dprime_1 = (delta_prime_single_helicity.real + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-    Dprime_2 = (delta_prime_nn_eff.real + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-    Dprime_3 = (delta_prime_2nn_eff.real + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-    Dprime_4 = (delta_prime_eff.real + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
+    def _by_type(vals):
+        """The four coupling results stacked on a leading Delta_prime_type dim, on copy_da's dims."""
+        return xr.concat([like(v, copy_da) for v in vals], dim='Delta_prime_type').assign_coords(Delta_prime_type=types)
 
-    ImDprime_1 = (delta_prime_single_helicity.imag + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-    ImDprime_2 = (delta_prime_nn_eff.imag + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-    ImDprime_3 = (delta_prime_2nn_eff.imag + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-    ImDprime_4 = (delta_prime_eff.imag + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-
-    Dprime_1['Delta_prime_type'] = ['single helicity']
-    Dprime_2['Delta_prime_type'] = ['nn coupled']
-    Dprime_3['Delta_prime_type'] = ['2nn coupled']
-    Dprime_4['Delta_prime_type'] = ['full coupled']
-
-    ImDprime_1['Delta_prime_type'] = ['single helicity']
-    ImDprime_2['Delta_prime_type'] = ['nn coupled']
-    ImDprime_3['Delta_prime_type'] = ['2nn coupled']
-    ImDprime_4['Delta_prime_type'] = ['full coupled']
-
-    # Combine into one DataArray using coordinate Delta_prime_type
-    Dprime_all_da = xr.concat(
-        [Dprime_1, Dprime_2, Dprime_3, Dprime_4],
-        dim='Delta_prime_type'
-    )
-    Dprime_all_da = Dprime_all_da.assign_coords(Delta_prime_type=['single helicity', 'nn coupled', '2nn coupled', 'full coupled'])
-
-    Im_Dprime_all_da = xr.concat(
-        [ImDprime_1, ImDprime_2, ImDprime_3, ImDprime_4],
-        dim='Delta_prime_type'
-    )
-    Im_Dprime_all_da = Im_Dprime_all_da.assign_coords(Delta_prime_type=['single helicity', 'nn coupled', '2nn coupled', 'full coupled'])
-
-    # Add these data arrays to the dataset that is inputxr:
+    dps = (delta_prime_single_helicity, delta_prime_nn_eff, delta_prime_2nn_eff, delta_prime_eff)
     inputxr = inputxr.assign(
-        Delta_prime_surf=Dprime_all_da,
-        Im_Delta_prime_surf=Im_Dprime_all_da
+        Delta_prime_surf=_by_type([d.real for d in dps]),
+        Im_Delta_prime_surf=_by_type([d.imag for d in dps])
     )
     inputxr = inputxr.assign(Delta_prime_ImRatio=np.abs(inputxr['Im_Delta_prime_surf']/inputxr['Delta_prime_surf']))
 
-    #########################################################################################################
-    # Put (real) delta prime errors into the xarray using coordinate Delta_prime_type
-    #########################################################################################################
-
+    # Put (real) delta prime errors, and PEST3 errors, into the xarray using coordinate Delta_prime_type
     if delta_prime_single_helicity_err is not None:
-        Dprime_err_1 = (delta_prime_single_helicity_err + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-        Dprime_err_2 = (delta_prime_nn_eff_err + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-        Dprime_err_3 = (delta_prime_2nn_eff_err + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-        Dprime_err_4 = (delta_prime_eff_err + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-
-
-        Dprime_err_1['Delta_prime_type'] = ['single helicity']
-        Dprime_err_2['Delta_prime_type'] = ['nn coupled']
-        Dprime_err_3['Delta_prime_type'] = ['2nn coupled']
-        Dprime_err_4['Delta_prime_type'] = ['full coupled']
-
-        Dprime_err_all_da = xr.concat(
-            [Dprime_err_1, Dprime_err_2, Dprime_err_3, Dprime_err_4],
-            dim='Delta_prime_type'
-        )
-        Dprime_err_all_da = Dprime_err_all_da.assign_coords(Delta_prime_type=['single helicity', 'nn coupled', '2nn coupled', 'full coupled'])
-
-        # Add these data arrays to the dataset that is inputxr:
-        inputxr = inputxr.assign(
-            Delta_prime_err_surf=Dprime_err_all_da
-        )
-
-    #########################################################################################################
-    # Put (real) delta prime pest3 errors into the xarray using coordinate Delta_prime_type
-    #########################################################################################################
-
+        inputxr = inputxr.assign(Delta_prime_err_surf=_by_type(
+            [delta_prime_single_helicity_err, delta_prime_nn_eff_err, delta_prime_2nn_eff_err, delta_prime_eff_err]))
     if delta_prime_single_helicity_perr is not None:
-        Dprime_perr_1 = (delta_prime_single_helicity_perr + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-        Dprime_perr_2 = (delta_prime_nn_eff_perr + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-        Dprime_perr_3 = (delta_prime_2nn_eff_perr + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-        Dprime_perr_4 = (delta_prime_eff_perr + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
-
-
-        Dprime_perr_1['Delta_prime_type'] = ['single helicity']
-        Dprime_perr_2['Delta_prime_type'] = ['nn coupled']
-        Dprime_perr_3['Delta_prime_type'] = ['2nn coupled']
-        Dprime_perr_4['Delta_prime_type'] = ['full coupled']
-
-
-        Dprime_perr_all_da = xr.concat(
-            [Dprime_perr_1, Dprime_perr_2, Dprime_perr_3, Dprime_perr_4],
-            dim='Delta_prime_type'
-        )
-        Dprime_perr_all_da = Dprime_perr_all_da.assign_coords(Delta_prime_type=['single helicity', 'nn coupled', '2nn coupled', 'full coupled'])
-
-        # Add these data arrays to the dataset that is inputxr:
-        inputxr = inputxr.assign(
-            Delta_prime_perr_surf=Dprime_perr_all_da
-        )
+        inputxr = inputxr.assign(Delta_prime_perr_surf=_by_type(
+            [delta_prime_single_helicity_perr, delta_prime_nn_eff_perr, delta_prime_2nn_eff_perr, delta_prime_eff_perr]))
 
     return inputxr
 

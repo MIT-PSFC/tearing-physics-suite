@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from tearing_physics_suite.physics.xr_utils import like
+
 
 # Checked
 def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
@@ -66,7 +68,7 @@ def chi_para_lmfp_noisland_on_modes(rdcon_xarray):
 
     # Add connection length to rdcon_xarray:
     rdcon_xarray = rdcon_xarray.assign(
-        helical_correction_length_surf = Lc_surf+0.0*rdcon_xarray['psi_n_rational']
+        helical_correction_length_surf = like(Lc_surf, rdcon_xarray['psi_n_rational'])
     )
 
     # Using Fitzpatrick 1995 equation 132, and dividing by electron density.
@@ -150,7 +152,7 @@ def chi_perp_on_modes(rdcon_xarray,
     else:
         raise ValueError("Incorrect entries to chi_perp function.")
 
-    rdcon_xarray = rdcon_xarray.assign(chi_perp_surf=chi_perp_on_modes+0.0*rdcon_xarray['psi_n_rational'])
+    rdcon_xarray = rdcon_xarray.assign(chi_perp_surf=like(chi_perp_on_modes, rdcon_xarray['psi_n_rational']))
 
     if chi_perp_spline is None:
         # Add energy_confinement_time to rdcon_xarray:

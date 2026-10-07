@@ -291,11 +291,15 @@ def _check_same(pest3_file, drop_soln_info=True, **surf):
     return new
 
 
-P985 = os.path.join(PEST3_RAW, 'p985_nowall_gpec_pest3.nc')  # 3 surfaces (m=2-4), GPEC vacuum fields
+# 3 surfaces (m=2-4), GPEC vacuum fields; 3 MB, kept outside the repo (TPS_PEST3_RAW, else the Group 1 work dir)
+P985 = os.path.join(os.environ.get('TPS_PEST3_RAW', '/fusion/projects/tmdb/src/tps_G1_work/test_data'),
+                    'p985_nowall_gpec_pest3.nc')
+needs_p985 = pytest.mark.skipif(not os.path.exists(P985), reason=f'no raw PEST3 file {P985}')
 P985_RDCON = os.path.join(PEST3_RAW, 'p985_nowall_gpec_rdcon_n1.nc')  # same case, m=2-4
 FULL_RDCON = 'g147131.02300_DIIID_KEFIT_rdcon_n1.nc'  # same equilibrium, untruncated: m=2-6
 
 
+@needs_p985
 @pytest.mark.parametrize('drop_soln_info', [True, False])
 @pytest.mark.parametrize('case', ['own_rdcon', 'missing_m_from_pest', 'missing_m_from_gpec', 'no_rdcon'])
 def test_clean_netcdf_identical_to_old(case, drop_soln_info):
@@ -313,6 +317,7 @@ def test_clean_netcdf_no_surfaces_raises_as_old(drop_soln_info):
     assert _check_same(os.path.join(PEST3_RAW, 'no_surfaces_pest3.nc'), drop_soln_info) is None
 
 
+@needs_p985
 def test_clean_netcdf_does_not_mutate_input():
     ps3 = xr.open_dataset(P985)
     p3w.pest3_clean_netcdf(ps3, debug=False, **_surfaces(P985_RDCON))

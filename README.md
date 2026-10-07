@@ -11,6 +11,8 @@ Core capabilities:
 - (parallelizable) input sensitivity scans 
 
 These scripts package and compute toroidal 𝚫’ values using pre-existing fortran codes RDCON [1], STRIDE [2] and PEST3 [3].
+Optionally (`run_jgpec=True`, `jgpec_solvers=('galerkin', 'riccati')`), 𝚫’ also comes from jGPEC, the Julia GPEC
+(`$JGPEC_HOME`, default `/fusion/projects/tmdb/src/GPEC`), as codes `jGPEC_galerkin` / `jGPEC_riccati`.
 
 ![workflow diagram](workflow_diagram.svg)
 
@@ -19,7 +21,7 @@ Warning: tearing-physics-suite makes its own working directories to read & write
 # Package layout
 
 - `tearing_physics_suite/physics/`: analysis and physics (Delta' coupling, MRE terms, rotation, global quantities, dataset combination). Never runs or imports the Fortran wrappers.
-- `tearing_physics_suite/wrappers/`: input writing, running and reading of RDCON, STRIDE and PEST3; `wrappers/build/` builds them and their libraries.
+- `tearing_physics_suite/wrappers/`: input writing, running and reading of RDCON, STRIDE, PEST3 and jGPEC; `wrappers/build/` builds them and their libraries.
 - `tearing_physics_suite/drivers/`: the run pipeline (`pipeline.py`), parallel runs and zarr compilation, profile readers, input scans and the input test suite.
 - `tearing_physics_suite/utils.py`: small shared helpers.
 
@@ -128,6 +130,7 @@ cd path/to/tearing-physics-suite
 uv run pytest                                   # fast unit tests (no Fortran)
 uv run pytest -m "fortran and not slow"         # RDCON/STRIDE/PEST3 runs and golden comparisons
 uv run pytest -m "parallel or slow"             # multi_run (>= 2 CPUs) and input scans
+uv run pytest -m julia                          # jGPEC runs (first run in a process compiles, a few minutes)
 ```
 &emsp;&emsp;Markers: `fortran`, `julia`, `parallel`, `slow` (see `pyproject.toml`). Run the marked tests on a compute node.    
 &emsp;&emsp;The golden comparisons need a reference made by `tests/golden/cases.py` (set `TPS_GOLDEN_DIR`, or symlink `tests/data/golden`).

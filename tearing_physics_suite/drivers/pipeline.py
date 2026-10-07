@@ -40,7 +40,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     nvec = None,
     energy_confinement_time = None,
     chi_perp_spline=None,
-    k0=0.8227,
+    k0=0.8227, # MRE constants k0, k1, C0: scalars, or 1D lists for a grid (see extract_critical_mre_factors_on_modes)
     k1=1.7,
     C0=0.6,
     wd_static=False, # Set true to ignore the variation in the ratio of perpendicular to parallel transport across the island, as island width varies
@@ -180,6 +180,10 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     if combined_xr is not None:
         combined_xr = global_mre_quantities(combined_xr,psi_pedestal_cutoff=psi_pedestal_cutoff)
+        # Settings the MRE outputs were computed with, so they can be recomputed from the dataset (drivers/mre_recompute.py)
+        combined_xr = combined_xr.assign(
+            wd_static=wd_static, force_lmfp=force_lmfp, psi_pedestal_cutoff=psi_pedestal_cutoff,
+            dwdt_k0=float(np.atleast_1d(k0)[0]), dwdt_k1=float(np.atleast_1d(k1)[0]), dwdt_C0=float(np.atleast_1d(C0)[0]))
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 

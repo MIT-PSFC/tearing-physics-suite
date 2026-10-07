@@ -16,8 +16,28 @@ import xarray as xr
 IGNORE = {'cpu_time', 'wall_time'}  # run timings, never reproducible
 
 
-def diff_ds(a, b, where, rtol, atol, out):
+NORMALIZE = {}  # name -> function(Dataset) -> Dataset, applied to both sides before comparing
+
+
+def _c2(ds):
+    """Compare a post-C2 dataset with a pre-C2 reference: size-1 k dims squeezed, new setting
+    variables dropped, and the X0_on_* ratios (now filled for every code) kept on rdcon only."""
+    ds = ds.squeeze([d for d in ('k0', 'k1', 'C0') if d in ds.dims and ds.sizes[d] == 1], drop=True)
+    ds = ds.drop_vars(['wd_static', 'force_lmfp', 'psi_pedestal_cutoff', 'dwdt_k0', 'dwdt_k1', 'dwdt_C0'],
+                      errors='ignore')
+    for v in ('X0_on_w_marg_surf', 'X0_on_wd_at_marg_surf'):
+        if v in ds and 'code' in ds[v].dims:
+            ds[v] = ds[v].where(ds.code == 'rdcon')
+    return ds
+
+
+NORMALIZE['c2'] = _c2
+
+
+def diff_ds(a, b, where, rtol, atol, out, normalize=None):
     """Compare two Datasets variable by variable (NaNs equal)."""
+    if normalize:
+        a, b = NORMALIZE[normalize](a), NORMALIZE[normalize](b)
     va, vb = set(a.variables), set(b.variables)
     for v in sorted(va - vb):
         out.append(f'{where}: var only in ref: {v}')
@@ -41,20 +61,20 @@ def diff_ds(a, b, where, rtol, atol, out):
             out.append(f'{where}:{v}: values differ ({xv.dtype})')
 
 
-def diff_obj(a, b, where, rtol, atol, out):
+def diff_obj(a, b, where, rtol, atol, out, normalize=None):
     if isinstance(a, xr.DataArray):
         a, b = a.to_dataset(name='_'), b.to_dataset(name='_')
     if isinstance(a, xr.Dataset):
         if not isinstance(b, xr.Dataset):
             out.append(f'{where}: type {type(a)} vs {type(b)}')
         else:
-            diff_ds(a, b, where, rtol, atol, out)
+            diff_ds(a, b, where, rtol, atol, out, normalize)
     elif isinstance(a, (list, tuple)):
         if not isinstance(b, (list, tuple)) or len(a) != len(b):
             out.append(f'{where}: length/type differs')
             return
         for i, (x, y) in enumerate(zip(a, b)):
-            diff_obj(x, y, f'{where}[{i}]', rtol, atol, out)
+            diff_obj(x, y, f'{where}[{i}]', rtol, atol, out, normalize)
     elif isinstance(a, dict):
         if not isinstance(b, dict):
             out.append(f'{where}: type {type(a)} vs {type(b)}')
@@ -62,7 +82,7 @@ def diff_obj(a, b, where, rtol, atol, out):
         for k in sorted(set(a) ^ set(b), key=str):
             out.append(f'{where}: key only in {"ref" if k in a else "new"}: {k}')
         for k in sorted(set(a) & set(b), key=str):
-            diff_obj(a[k], b[k], f'{where}[{k!r}]', rtol, atol, out)
+            diff_obj(a[k], b[k], f'{where}[{k!r}]', rtol, atol, out, normalize)
     elif isinstance(a, (np.ndarray, float, int, np.number)) and not isinstance(a, bool):
         try:
             if not np.allclose(a, b, rtol=rtol, atol=atol, equal_nan=True):
@@ -78,7 +98,7 @@ def diff_obj(a, b, where, rtol, atol, out):
     # Splines and other objects are skipped.
 
 
-def compare_dirs(ref, new, rtol=0.0, atol=0.0, names=None):
+def compare_dirs(ref, new, rtol=0.0, atol=0.0, names=None, normalize=None):
     """Return a list of differences between two golden dirs (empty if identical).
 
     names: limit to these case names (files named <case>*.pkl/.nc); None = all.
@@ -99,7 +119,7 @@ def compare_dirs(ref, new, rtol=0.0, atol=0.0, names=None):
             out.append(f'missing in new: {os.path.basename(f)}')
             continue
         with open(f, 'rb') as fa, open(g, 'rb') as fb:
-            diff_obj(pkl.load(fa), pkl.load(fb), os.path.basename(f), rtol, atol, out)
+            diff_obj(pkl.load(fa), pkl.load(fb), os.path.basename(f), rtol, atol, out, normalize)
     for f in sorted(glob.glob(os.path.join(ref, '*.nc'))):
         if not wanted(f):
             continue
@@ -108,14 +128,14 @@ def compare_dirs(ref, new, rtol=0.0, atol=0.0, names=None):
             out.append(f'missing in new: {os.path.basename(f)}')
             continue
         with xr.open_dataset(f) as x, xr.open_dataset(g) as y:
-            diff_ds(x.load(), y.load(), os.path.basename(f), rtol, atol, out)
+            diff_ds(x.load(), y.load(), os.path.basename(f), rtol, atol, out, normalize)
     z = 'work/multi_run_zarr/compiled_combined_xr.zarr'
     if os.path.exists(os.path.join(ref, z)) and (names is None or 'multi_run_zarr' in names):
         if not os.path.exists(os.path.join(new, z)):
             out.append('missing in new: ' + z)
         else:
             diff_ds(xr.open_zarr(os.path.join(ref, z)).load(),
-                    xr.open_zarr(os.path.join(new, z)).load(), 'zarr', rtol, atol, out)
+                    xr.open_zarr(os.path.join(new, z)).load(), 'zarr', rtol, atol, out, normalize)
     return out
 
 
@@ -125,8 +145,9 @@ def main():
     ap.add_argument('new')
     ap.add_argument('--rtol', type=float, default=0.0)
     ap.add_argument('--atol', type=float, default=0.0)
+    ap.add_argument('--normalize', choices=sorted(NORMALIZE))
     a = ap.parse_args()
-    out = compare_dirs(a.ref, a.new, a.rtol, a.atol)
+    out = compare_dirs(a.ref, a.new, a.rtol, a.atol, normalize=a.normalize)
     print('\n'.join(out) if out else 'IDENTICAL')
     sys.exit(1 if out else 0)
 

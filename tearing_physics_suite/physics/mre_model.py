@@ -24,10 +24,14 @@ def extract_critical_mre_factors_on_modes(
     k0 = 0.8227 comes from private communication w. Eric Howell, but is near identical to LaHaye 2017 10.1051/epjconf/201715703027 Eq. 1.
     k1 = 1.7 comes from Chang et al. PRL 1995
     C0 = 0.6 comes from Schlutt and Hegna PoP 2012
+    k0, k1, C0 may also be 1D sequences: outputs that depend on them get dims 'k0' (prefac_surf) or 'k1', 'C0'
+    (w_marg_surf, w_sat_surf, w_max_loc_surf, dwdtau_max_surf, wd_at_marg_surf, X0_on_w_marg_surf,
+    X0_on_wd_at_marg_surf). dwdt_surf is only computed for the first k0, k1, C0.
     Returns:
     code_xarray : xarray.DataSet
     The updated xarray with critical MRE terms calculated.
     """
+    k0s, k1s, C0s = (np.atleast_1d(np.asarray(k, dtype=float)) for k in (k0, k1, C0))
     # Check if Delta_prime_varname is in code_xarray:
     assert 'Delta_prime_surf' in code_xarray.data_vars, "Can't run MRE analysis on code_xarray if Delta_prime_surf isn't present..."
     DP_da = code_xarray.Delta_prime_surf
@@ -41,24 +45,16 @@ def extract_critical_mre_factors_on_modes(
     w_vec = np.logspace(-8,0,num=1000)
     w_vec_lowres = np.logspace(-5,0,num=200)
 
-    # Defining output structures:
-    tempda = xr.full_like(code_xarray.Delta_prime_surf, np.nan)
-    tempda2 = xr.full_like(rdcon_xarray.psi_n_rational, np.nan)
-    tempda3 = xr.DataArray(
-        np.full(code_xarray.Delta_prime_surf.shape + (len(w_vec_lowres),), np.nan),
-        dims=code_xarray.Delta_prime_surf.dims + ('w_bar',),
-        coords={**code_xarray.Delta_prime_surf.coords, 'w_bar': w_vec_lowres}
+    # Defining output structures (k1, C0 dims last; prefac_surf gets k0):
+    per_k = xr.full_like(DP_da, np.nan).expand_dims(k1=k1s, C0=C0s, axis=[-2, -1])
+    w_margs, w_sats, w_max_locs, dwdtau_maxs, wd_at_margs = (per_k.copy(deep=True) for _ in range(5))
+    prefacs = xr.full_like(rdcon_xarray.psi_n_rational, np.nan).expand_dims(k0=k0s, axis=-1).copy(deep=True)
+    wd_at_X0s = xr.full_like(rdcon_xarray.psi_n_rational, np.nan)
+    dwdt_lowres_da = xr.DataArray(
+        np.full(DP_da.shape + (len(w_vec_lowres),), np.nan),
+        dims=DP_da.dims + ('w_bar',),
+        coords={**DP_da.coords, 'w_bar': w_vec_lowres}
     )
-
-    w_margs = tempda.copy(deep=True)
-    w_sats = tempda.copy(deep=True)
-    w_max_locs = tempda.copy(deep=True)
-    dwdtau_maxs = tempda.copy(deep=True)
-    wd_at_margs = tempda.copy(deep=True)
-
-    prefacs = tempda2.copy(deep=True)
-    wd_at_X0s = tempda2.copy(deep=True)
-    dwdt_lowres_da = tempda3.copy(deep=True)
 
     # Start surface by surface
     for ri in range(rdcon_xarray.sizes["r"]):
@@ -72,35 +68,33 @@ def extract_critical_mre_factors_on_modes(
         Dnc = rdcon_surf['Dnc_surf'].values
         H = rdcon_surf['H_surf'].values
 
-        # Things that we will output using the structure: tempda2
-        prefac = rdcon_surf['eta_star_surf'].values/k0
-        wd_at_X0 = wd_function(rdcon_surf['X0_surf'].values)
-
-        # Update prefacs and wd_at_X0s  (POSITIONAL assignment)
-        prefacs[dict(r=ri)]   = prefac
-        wd_at_X0s[dict(r=ri)] = wd_at_X0
+        # Things that we will output using the rdcon surface structure (POSITIONAL assignment)
+        eta_star = rdcon_surf['eta_star_surf'].values
+        prefacs[dict(r=ri)] = eta_star[..., None]/k0s
+        wd_at_X0s[dict(r=ri)] = wd_function(rdcon_surf['X0_surf'].values)
 
         # Check improper inputs:
         if np.isnan(Dr) or np.isnan(Di) or np.isnan(Dnc) or np.isnan(H) or Di > 0:
             continue
 
-        # Generate DP_to_MRE function
-        DP_to_MRE = mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_vec_lowres)
+        for i1, kk1 in enumerate(k1s):
+            for iC, cc0 in enumerate(C0s):
+                # Generate DP_to_MRE function (dwdt is only kept for the first k values)
+                DP_to_MRE = mre_combination_wrap(wd_function, Dr, Di, Dnc, H, kk1, cc0, eta_star/k0s[0], w_vec, w_vec_lowres)
 
-        # Apply DP_to_MRE across all delta prime types, record results
-        for dpi, Dp_type in enumerate(DP_da.Delta_prime_type):
-            DP_val = DP_da.isel(r=ri, Delta_prime_type=dpi).values
-            (dwdt_low_res, w_marg, w_sat,
-             w_max_loc, dwdtau_max, wd_at_marg) = DP_to_MRE(DP_val)
-
-            # POSITIONAL assignment on both r and Delta_prime_type
-            idx = dict(r=ri, Delta_prime_type=dpi)
-            w_margs[idx]        = w_marg
-            w_sats[idx]         = w_sat
-            w_max_locs[idx]     = w_max_loc
-            dwdtau_maxs[idx]    = dwdtau_max
-            wd_at_margs[idx]    = wd_at_marg
-            dwdt_lowres_da[idx] = dwdt_low_res
+                # Apply DP_to_MRE across all delta prime types, record results (POSITIONAL assignment)
+                for dpi in range(DP_da.sizes['Delta_prime_type']):
+                    DP_val = DP_da.isel(r=ri, Delta_prime_type=dpi).values
+                    (dwdt_low_res, w_marg, w_sat,
+                     w_max_loc, dwdtau_max, wd_at_marg) = DP_to_MRE(DP_val)
+                    idx = dict(r=ri, Delta_prime_type=dpi, k1=i1, C0=iC)
+                    w_margs[idx]        = w_marg
+                    w_sats[idx]         = w_sat
+                    w_max_locs[idx]     = w_max_loc
+                    dwdtau_maxs[idx]    = dwdtau_max
+                    wd_at_margs[idx]    = wd_at_marg
+                    if i1 == 0 and iC == 0:
+                        dwdt_lowres_da[dict(r=ri, Delta_prime_type=dpi)] = dwdt_low_res
 
     # Now we store these data arrays in code_xarray
     code_xarray = code_xarray.assign(
@@ -115,10 +109,14 @@ def extract_critical_mre_factors_on_modes(
     )
 
     # Want X0_on_w_marg_surf and X0_on_wd_at_marg_surf to be less than 0 for MRE analysis to be valid!
+    # X0 comes from the RDCON surface terms but these ratios are per code, so X0 is used without its code label.
+    X0 = rdcon_xarray['X0_surf']
+    X0_any_code = X0.isel(code=0, drop=True) if 'code' in X0.dims else X0
+    lead = [d for d in ('code', 'r') if d in code_xarray.dims]
     code_xarray = code_xarray.assign(
-        X0_on_w_marg_surf = rdcon_xarray['X0_surf']/code_xarray['w_marg_surf'],
-        X0_on_wd_at_marg_surf = rdcon_xarray['X0_surf']/code_xarray['wd_at_marg_surf'],
-        X0_on_wd_at_X0_surf = rdcon_xarray['X0_surf']/code_xarray['wd_at_X0_surf'])
+        X0_on_w_marg_surf = (X0_any_code/code_xarray['w_marg_surf']).transpose(*lead, ...),
+        X0_on_wd_at_marg_surf = (X0_any_code/code_xarray['wd_at_marg_surf']).transpose(*lead, ...),
+        X0_on_wd_at_X0_surf = X0/code_xarray['wd_at_X0_surf'])
 
     return code_xarray
 
@@ -151,10 +149,8 @@ def mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_v
         dwdtau_max = np.nan
         wd_at_marg = np.nan
         if not np.isnan(delta_prime_surf):
-            dwdtau_loc = lambda w_in: dwdtau(w_in, wd_function, delta_prime_surf,
-                                            Dr, Di,
-                                            Dnc, H,
-                                            k1, C0)
+            def dwdtau_loc(w_in):
+                return dwdtau(w_in, wd_function, delta_prime_surf, Dr, Di, Dnc, H, k1, C0)
             dwdtau_vec = dwdtau_loc(w_vec)
             dwdt_vec_low_res = prefac*dwdtau_loc(w_vec_lowres)
             w_marg, w_sat, w_max_loc, dwdtau_max = extract_mre_factors(dwdtau_vec, w_vec)

@@ -7,7 +7,7 @@ def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
 
     Computes least-stable-mode metrics: largest nondimensional island growth rate
     (max_dwdtau) and smallest seed island needed to initiate NTM onset (min_w_marg). Rankings
-    are computed per (Delta_prime_type, code) combination within psi_pedestal_cutoff.
+    are computed per (Delta_prime_type, code, k1, C0) combination within psi_pedestal_cutoff.
 
     Parameters
     ----------
@@ -31,9 +31,7 @@ def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
         min_w_marg_allsurf=min_w_marg,
         max_dwdtau_allsurf=max_dwdtau
     )
-    # For each Delta_prime_type, code, we want to rank the modes by min_w_marg and max_dwdtau over all r, nn:
-    w_marg_rank = xr.full_like(combined_xr.w_marg_surf, np.nan)
-    dwdtau_rank = xr.full_like(combined_xr.dwdtau_max_surf, np.nan)
+    # For each Delta_prime_type, code (and k1, C0), we want to rank the modes by min_w_marg and max_dwdtau over all r, nn:
     assert combined_xr.w_marg_surf.dims == combined_xr.dwdtau_max_surf.dims, "Dimensions of w_marg_surf and dwdtau_max_surf do not match"
 
     #########################################################################################################
@@ -43,46 +41,27 @@ def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
     # Set psi_n_rational_like_surfaces.loc[code='pest3'] equal to psi_n_rational_like_surfaces.loc[code='rdcon'] (since pest3 doesn't compute psi_n_rational)
     if 'rdcon' in combined_xr.code.values and 'pest3' in combined_xr.code.values:
         psi_n_rational_like_surfaces.loc[dict(code='pest3')] = psi_n_rational_like_surfaces.loc[dict(code='rdcon')]
+    inside = psi_n_rational_like_surfaces < psi_pedestal_cutoff
 
     #########################################################################################################
-    # Loop over all Delta_prime_type, code combinations to make local rankings
+    # Rank w_marg_surf (smallest to largest) and dwdtau_max_surf (largest to smallest) over (nn, r).
+    # Combinations with no valid w_marg_surf or dwdtau_max_surf are left NaN.
     #########################################################################################################
-    for dpt in combined_xr.Delta_prime_type.values:
-        for code in combined_xr.code.values:
-            # Select the subset of combined_xr corresponding to this Delta_prime_type and code:
-            subset = combined_xr.sel(Delta_prime_type=dpt, code=code)
-            psi_n_rational_like_surfaces_subset = psi_n_rational_like_surfaces.sel(Delta_prime_type=dpt, code=code)
-            assert subset.w_marg_surf.dims == subset.dwdtau_max_surf.dims == psi_n_rational_like_surfaces_subset.dims, "Dimensions of w_marg_surf, dwdtau_max_surf, and psi_n_rational_like_surfaces do not match"
+    def _ranks(vals, descending):
+        """1-based ranks of vals over all its elements (NaN stays NaN)."""
+        ranks = np.argsort(np.argsort(-vals if descending else vals, axis=None)) + 1 # +1 to make ranks start from 1
+        ranks = ranks.reshape(vals.shape).astype(float) # Convert to float to allow for NaNs
+        ranks[np.isnan(vals)] = np.nan
+        return ranks
 
-            # Skip if no valid data:
-            if subset.w_marg_surf.count() == 0 or subset.dwdtau_max_surf.count() == 0:
-                continue
+    def _rank_da(da, descending):
+        r = xr.apply_ufunc(_ranks, da.where(inside), kwargs={'descending': descending},
+                           input_core_dims=[['nn', 'r']], output_core_dims=[['nn', 'r']], vectorize=True)
+        return da.copy(data=r.transpose(*da.dims).values)
 
-    #########################################################################################################
-    # Rank w_marg_surf (smallest to largest):
-    #########################################################################################################
-            w_marg_surf_vals = subset.w_marg_surf.where(psi_n_rational_like_surfaces_subset < psi_pedestal_cutoff).values
-            w_marg_ranks = np.argsort(np.argsort(w_marg_surf_vals, axis=None)) + 1 # +1 to make ranks start from 1
-            w_marg_ranks = np.array(w_marg_ranks.reshape(w_marg_surf_vals.shape)).astype(float) # Convert to float to allow for NaNs
-            # Make w_marg_ranks nan where w_marg_surf is nan:
-            w_marg_ranks[np.isnan(w_marg_surf_vals)] = np.nan
-            # Turn w_marg_ranks into a DataArray with the same coords as subset.w_marg_surf:
-            w_marg_ranks_da = xr.DataArray(w_marg_ranks, coords=subset.w_marg_surf.coords, dims=subset.w_marg_surf.dims)
-            # Put w_marg_ranks_da into combined_xr:
-            w_marg_rank.loc[dict(Delta_prime_type=dpt, code=code)] = w_marg_ranks_da
-
-    #########################################################################################################
-    # Rank dwdtau_max_surf (largest to smallest):
-    #########################################################################################################
-            dwdtau_surf_vals = subset.dwdtau_max_surf.where(psi_n_rational_like_surfaces_subset < psi_pedestal_cutoff).values
-            dwdtau_ranks = np.argsort(np.argsort(-dwdtau_surf_vals, axis=None)) + 1 # +1 to make ranks start from 1
-            dwdtau_ranks = np.array(dwdtau_ranks.reshape(dwdtau_surf_vals.shape)).astype(float) # Convert to float to allow for NaNs
-            # Make dwdtau_ranks nan where dwdtau_max_surf is nan:
-            dwdtau_ranks[np.isnan(dwdtau_surf_vals)] = np.nan
-            # Turn dwdtau_ranks into a DataArray with the same coords as subset.dwdtau_max_surf:
-            dwdtau_ranks_da = xr.DataArray(dwdtau_ranks, coords=subset.dwdtau_max_surf.coords, dims=subset.dwdtau_max_surf.dims)
-            # Put dwdtau_ranks_da into combined_xr:
-            dwdtau_rank.loc[dict(Delta_prime_type=dpt, code=code)] = dwdtau_ranks_da
+    has_data = (combined_xr.w_marg_surf.count(['nn', 'r']) > 0) & (combined_xr.dwdtau_max_surf.count(['nn', 'r']) > 0)
+    w_marg_rank = _rank_da(combined_xr.w_marg_surf, descending=False).where(has_data)
+    dwdtau_rank = _rank_da(combined_xr.dwdtau_max_surf, descending=True).where(has_data)
 
     combined_xr = combined_xr.assign(
         min_w_marg_rank=w_marg_rank,

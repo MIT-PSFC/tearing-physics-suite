@@ -49,10 +49,8 @@ def test_orientation_matches_rdcon(nowall):
             assert abs(jg[a, b] - rd[a, b]) < abs(jg[b, a] - rd[a, b]), (code, a, b)
 
 
-@pytest.mark.xfail(strict=True, reason="jGPEC Galerkin, no wall: the 4/1 row (psi_n 0.93) differs from RDCON and "
-                                       "Riccati (e.g. [4/1, 2/1] -12.9 vs 3.6 and 3.2). Cause: unscaled banded LU in "
-                                       "jGPEC galerkin_solve (diagonal spans ~1e-15..1e10); see META_PLAN 5")
 def test_galerkin_nowall_41_row(nowall):
+    """4/1 row agrees with RDCON (needs jGPEC bugfix/galerkin-scaled-lu: scaled banded LU)."""
     rd = nowall.rdcon_xr.Delta_prime.sel(i=0).values
     jg = nowall.jgpec_xrs['jGPEC_galerkin'].Delta_prime.sel(i=0).values
     assert np.allclose(jg[2, :3], rd[2, :3], rtol=0.3)

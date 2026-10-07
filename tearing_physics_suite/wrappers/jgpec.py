@@ -180,6 +180,7 @@ class JuliaServer:
                     raise TimeoutError(f'jGPEC server: no {prefix} within {timeout} s (log {self.log_path})')
                 line = self.proc.stdout.readline()
                 if not line:
+                    self.close(kill=True)
                     raise RuntimeError(f'jGPEC server exited (log {self.log_path})')
                 if line.startswith(prefix):
                     return line.strip()
@@ -190,8 +191,12 @@ class JuliaServer:
         """Run jGPEC in run_dir; returns (ok, message). Restarts the server if it died."""
         if not self.alive():
             self.start()
-        self.proc.stdin.write(str(run_dir) + '\n')
-        self.proc.stdin.flush()
+        try:
+            self.proc.stdin.write(str(run_dir) + '\n')
+            self.proc.stdin.flush()
+        except BrokenPipeError:  # died since the last run
+            self.close(kill=True)
+            return self.run(run_dir, timeout)
         reply = self._readline_until('TPS_DONE', timeout).split(' ', 2)
         return reply[1] == 'ok', (reply[2] if len(reply) > 2 else '')
 

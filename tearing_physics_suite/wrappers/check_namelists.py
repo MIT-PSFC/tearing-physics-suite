@@ -4,11 +4,16 @@ For every input file (and PEST3's command-line flags) it reports:
   missing in TPS   - declared by the code, never set by TPS (the code default applies);
   UNKNOWN to code  - set by TPS, not declared by the code (error: the namelist read fails);
   wrong group      - set by TPS in a namelist group the code does not declare it in (error);
+  deprecated       - set by TPS, dropped with a warning by the code (jGPEC);
   note             - a group TPS writes that the code never declares (skipped when read).
-Nothing is compiled or run: the Fortran/C sources are parsed, and the TPS writers write into a
+Nothing is compiled or run: the Fortran/C/Julia sources are parsed, and the TPS writers write into a
 temporary directory.
 
-    python -m tearing_physics_suite.wrappers.check_namelists [--codes rdcon stride pest3] [--all-paths]
+jGPEC (--codes jgpec, not in the default set): gpec.toml sections are checked against the field names
+of the @kwdef structs they are splatted into (JGPEC_SECTIONS). An unknown key in [ForceFreeStates] or
+[Wall] makes jGPEC raise (unsupported keyword); in [Equilibrium] it is warned about and ignored.
+
+    python -m tearing_physics_suite.wrappers.check_namelists [--codes rdcon stride pest3 jgpec] [--all-paths]
 """
 import argparse
 import os
@@ -33,6 +38,12 @@ CODE_FILES = {'rdcon': ('rdcon.in', 'equil.in', 'vac.in'), 'stride': ('stride.in
 # Extra write configurations that switch on optional branches (--all-paths)
 ALL_PATH_CONFIGS = [dict(vac_flag='f', ode_flag='f'), dict(dump_MRE_data='t'), dict(eq_type="'ldp_i'"),
                     dict(Zeff={'x': [0.0, 0.5, 1.0], 'y': [1.5, 2.0, 2.5]}), dict(gal_xmin_flag='t')]
+# gpec.toml section -> @kwdef struct it is splatted into (GeneralizedPerturbedEquilibrium.jl)
+JGPEC_SECTIONS = {'Equilibrium': 'EquilibriumConfig', 'Wall': 'WallShapeSettings',
+                  'ForceFreeStates': 'ForceFreeStatesControl'}
+# (solver, write_rdcon_stride_inputs kwargs) for gpec.toml; default: no wall (a_wall=21)
+JGPEC_CONFIGS = [('galerkin', {}), ('riccati', {})]
+JGPEC_PATH_CONFIGS = [('galerkin', dict(a_wall=0.3)), ('riccati', dict(a_wall=0.3)), ('galerkin', dict(vac_flag='f'))]
 
 
 @dataclass
@@ -45,6 +56,7 @@ class GroupReport:
     missing_in_tps: list = field(default_factory=list)
     unknown_to_code: list = field(default_factory=list)
     wrong_group: list = field(default_factory=list)
+    deprecated: list = field(default_factory=list)
     unread_group: bool = False  # group written by TPS but declared nowhere in the code (skipped when read)
 
     @property
@@ -91,6 +103,49 @@ def parse_pest3_flags(hh_path):
     text = Path(hh_path).read_text(errors='replace')
     text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)  # drop commented-out cases
     return set(re.findall(r"case\s+'(\w)'\s*:", text))
+
+
+def _julia_blocks_stripped(text):
+    """Julia source with docstrings, strings, comments and [...] contents removed."""
+    text = re.sub(r'"""[\s\S]*?"""', '""', text)
+    text = re.sub(r'#=[\s\S]*?=#', '', text)
+    text = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', text)
+    text = re.sub(r'#.*', '', text)
+    while re.search(r'\[[^\[\]]*\]', text):
+        text = re.sub(r'\[[^\[\]]*\]', '()', text)
+    return text
+
+
+_JL_OPEN = re.compile(r'\b(function|if|for|while|let|begin|try|do|quote|macro|struct|module)\b')
+
+
+def parse_julia_kwdef_structs(paths):
+    """{struct name: set(field names)} of the `@kwdef [mutable] struct` definitions in the given files."""
+    structs = {}
+    for p in paths:
+        lines = _julia_blocks_stripped(Path(p).read_text(errors='replace')).splitlines()
+        for i, line in enumerate(lines):
+            m = re.match(r'\s*(?:\w+\.)?@kwdef\s+(?:mutable\s+)?struct\s+(\w+)', line)
+            if not m:
+                continue
+            names, depth = structs.setdefault(m.group(1), set()), 0
+            for body in lines[i + 1:]:
+                if depth == 0 and re.match(r'\s*end\b', body):
+                    break
+                if depth == 0:
+                    f = re.match(r'\s*(\w+)\s*(::|=(?!=))', body)  # name::T [= default] | name = default
+                    if f and not _JL_OPEN.match(body.strip()):
+                        names.add(f.group(1))
+                depth += len(_JL_OPEN.findall(body)) - len(re.findall(r'\bend\b', body))
+    return structs
+
+
+def parse_jgpec_deprecated(main_jl):
+    """{section: set(keys)} that jGPEC drops with a warning (`_drop_deprecated_keys!` calls)."""
+    text = Path(main_jl).read_text(errors='replace')
+    consts = {c: set(re.findall(r'"(\w+)"', body)) for c, body in re.findall(r'const\s+(\w+)\s*=\s*\(([^)]*)\)', text)}
+    calls = re.findall(r'_drop_deprecated_keys!\([^,]+,\s*(\w+)\s*,\s*"(\w+)"\s*\)', text)
+    return {sec: consts.get(c, set()) for c, sec in calls}
 
 
 def _git_describe(path):
@@ -153,6 +208,23 @@ def tps_pest3_command(**pest3_kwargs):
                                extra_input_string_pest=k['extra_input_string_pest'])
 
 
+def tps_jgpec_toml(configs=JGPEC_CONFIGS):
+    """{section: set(keys)} in the gpec.toml TPS writes, unioned over (solver, config)."""
+    import tomllib
+
+    from tearing_physics_suite.wrappers.gpec_inputs import write_rdcon_stride_inputs
+    from tearing_physics_suite.wrappers.jgpec import gpec_toml_sections, write_gpec_toml
+    out = {}
+    for solver, cfg in configs:
+        with tempfile.TemporaryDirectory() as d:
+            inputs = write_rdcon_stride_inputs(d, EQ_NAME, verbose=False, **cfg)
+            write_gpec_toml(d, gpec_toml_sections(EQ_NAME, 1, solver, inputs))
+            with open(os.path.join(d, 'gpec.toml'), 'rb') as f:
+                for sec, kv in tomllib.load(f).items():
+                    out.setdefault(sec, set()).update(kv)
+    return out
+
+
 def pest3_command_flags(cmd):
     """Single-letter flags in a pest3x command line (quoted values skipped)."""
     cmd = re.sub(r'"[^"]*"', '""', cmd)
@@ -162,8 +234,12 @@ def pest3_command_flags(cmd):
 # --------------------------------------------------------------------------------------------------
 # Comparison
 # --------------------------------------------------------------------------------------------------
-def compare(code, file, tps_groups, src_groups):
-    """GroupReports for one written file: TPS {group: names} against source {group: names}."""
+def compare(code, file, tps_groups, src_groups, deprecated=None):
+    """GroupReports for one written file: TPS {group: names} against source {group: names}.
+
+    deprecated: {group: names} the code drops with a warning (reported as such, not as matched/unknown).
+    """
+    deprecated = deprecated or {}
     reports = []
     for g in sorted(set(tps_groups) | set(src_groups)):
         if g not in tps_groups:
@@ -172,15 +248,18 @@ def compare(code, file, tps_groups, src_groups):
         if g not in src_groups:
             reports.append(GroupReport(code, file, g, unread_group=True))
             continue
-        r = GroupReport(code, file, g, both=sorted(tps & src), missing_in_tps=sorted(src - tps))
-        for n in sorted(tps - src):
+        dep = deprecated.get(g, set())
+        r = GroupReport(code, file, g, both=sorted((tps & src) - dep), missing_in_tps=sorted(src - tps - dep),
+                        deprecated=sorted(tps & dep))
+        for n in sorted(tps - src - dep):
             elsewhere = [h for h, names in src_groups.items() if n in names]
             (r.wrong_group if elsewhere else r.unknown_to_code).append(n + (f' (in {",".join(elsewhere)})' if elsewhere else ''))
         reports.append(r)
     return reports
 
 
-def check_namelists(codes=('rdcon', 'stride', 'pest3'), gpec_dir=None, pest3_dir=None, all_paths=False):
+def check_namelists(codes=('rdcon', 'stride', 'pest3'), gpec_dir=None, pest3_dir=None, all_paths=False,
+                    jgpec_home=None):
     """Run the comparison. Returns (reports, versions)."""
     home = Path(tps_home())
     gpec_dir = Path(gpec_dir or home / 'submodules/GPEC')
@@ -201,6 +280,17 @@ def check_namelists(codes=('rdcon', 'stride', 'pest3'), gpec_dir=None, pest3_dir
         hh = pest3_dir / 'pest3' / 'pest3.hh'
         flags = pest3_command_flags(tps_pest3_command())
         reports += compare('pest3', 'pest3x command', {'flags': flags}, {'flags': parse_pest3_flags(hh)})
+    if 'jgpec' in codes:
+        from tearing_physics_suite.wrappers import jgpec
+        src = Path(jgpec_home or jgpec.jgpec_home()) / 'src'
+        main_jl = src / 'GeneralizedPerturbedEquilibrium.jl'
+        if not main_jl.is_file():
+            raise FileNotFoundError(f'no jGPEC sources under {src}')
+        versions['jGPEC'] = _git_describe(src)
+        structs = parse_julia_kwdef_structs(sorted(src.rglob('*.jl')))
+        written = tps_jgpec_toml(JGPEC_CONFIGS + (JGPEC_PATH_CONFIGS if all_paths else []))
+        src_groups = {sec: structs.get(name, set()) for sec, name in JGPEC_SECTIONS.items()}
+        reports += compare('jgpec', 'gpec.toml', written, src_groups, parse_jgpec_deprecated(main_jl))
     return reports, versions
 
 
@@ -217,6 +307,8 @@ def format_reports(reports, versions, show_missing=True):
             lines.append(f'    UNKNOWN to code: {n}')
         for n in r.wrong_group:
             lines.append(f'    wrong group:     {n}')
+        if r.deprecated:
+            lines.append('    deprecated:      ' + ', '.join(r.deprecated))
         if show_missing and r.missing_in_tps:
             lines.append('    missing in TPS:  ' + ', '.join(r.missing_in_tps))
     return '\n'.join(lines)
@@ -225,13 +317,15 @@ def format_reports(reports, versions, show_missing=True):
 def main(argv=None):
     """Command-line entry; exit code 1 if any input is unknown to its code."""
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    ap.add_argument('--codes', nargs='*', default=['rdcon', 'stride', 'pest3'])
+    ap.add_argument('--codes', nargs='*', default=['rdcon', 'stride', 'pest3'],
+                    choices=['rdcon', 'stride', 'pest3', 'jgpec'])
     ap.add_argument('--gpec-dir')
     ap.add_argument('--pest3-dir')
+    ap.add_argument('--jgpec-home', help='jGPEC repository (default $JGPEC_HOME, else /fusion/projects/tmdb/src/GPEC)')
     ap.add_argument('--all-paths', action='store_true', help='also write optional branches')
     ap.add_argument('--no-missing', action='store_true', help='hide names TPS leaves at code defaults')
     a = ap.parse_args(argv)
-    reports, versions = check_namelists(a.codes, a.gpec_dir, a.pest3_dir, a.all_paths)
+    reports, versions = check_namelists(a.codes, a.gpec_dir, a.pest3_dir, a.all_paths, a.jgpec_home)
     print(format_reports(reports, versions, not a.no_missing))
     return 0 if all(r.ok for r in reports) else 1
 

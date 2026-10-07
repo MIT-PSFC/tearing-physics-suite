@@ -66,7 +66,7 @@ def test_wall_outputs_round_trip(wall_run, eq_file):
 @pytest.mark.parametrize('code,ref,atol', [
     ('rdcon', 7.36, 0.03), ('stride', 7.3, 0.3),
     pytest.param('pest3', 7.3, 0.03, marks=pytest.mark.xfail(
-        strict=False, reason='PEST3 gives ~2.57 with no wall (ongoing_handoff.md); re-baseline after item D')),
+        strict=False, reason='PEST3 gives ~2.57 with no wall (ongoing_handoff.md); unchanged with the GPEC vacuum (item D: deferred PEST3-vs-GPEC free-boundary problem, plans/D.md)')),
 ])
 def test_nowall_dp21(nowall_run, code, ref, atol):
     ds = dict(zip(('rdcon', 'stride', 'pest3'), nowall_run[1][:3]))[code]

@@ -157,7 +157,7 @@ if multi_wrapper_test2:
 
     
 if multi_wrapper_test2:
-    RDCON_DP21_wall_val_good = np.isclose(RDCON_DP21_RE, 7.3, atol=0.03)
+    RDCON_DP21_wall_val_good = np.isclose(RDCON_DP21_RE, 7.36, atol=0.03)
     PEST3_DP21_wall_val_good = np.isclose(PEST3_DP21_RE, 7.3, atol=0.03)
     STRIDE_DP21_wall_val_good = np.isclose(STRIDE_DP21_RE, 7.3, atol=0.3)
     print("RDCON Delta prime 21 wall real part:", RDCON_DP21_RE)

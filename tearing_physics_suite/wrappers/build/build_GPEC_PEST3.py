@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tearing_physics_suite.utils import tps_home
 from tearing_physics_suite.wrappers.build.compiler_utils import (
+    _is_mpi_wrapper,
     detect_compilers,
     get_cmake_c_flags,
     get_cmake_fortran_flags,
@@ -558,23 +559,29 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         str(pest3_source),
     ]
 
-    # Explicitly set all compilers to the MPI wrappers from the loaded
-    # module environment, avoiding CMake picking up a stale/wrong MPI
-    # (e.g. Intel oneAPI MPI linked against mvapich2).
+    # Use the detected compilers (FC/CC/CXX from the environment first, else the
+    # MPI wrappers on PATH), so the flags above match the compiler CMake gets.
     import shutil as _shutil
-    mpif90_path = _shutil.which("mpif90")
-    mpicc_path = _shutil.which("mpicc")
-    mpicxx_path = _shutil.which("mpicxx") or _shutil.which("mpic++")
-    if mpif90_path:
-        cmake_cmd.insert(-1, f"-DCMAKE_Fortran_COMPILER={mpif90_path}")
-        print(f"Using Fortran compiler: {mpif90_path}")
-    if mpicc_path:
-        cmake_cmd.insert(-1, f"-DCMAKE_C_COMPILER={mpicc_path}")
-        print(f"Using C compiler: {mpicc_path}")
-    if mpicxx_path:
-        cmake_cmd.insert(-1, f"-DCMAKE_CXX_COMPILER={mpicxx_path}")
-        print(f"Using CXX compiler: {mpicxx_path}")
-    cmake_c_flags = get_cmake_c_flags(mpicc_path or compiler_info['cc'])
+    fc_path = _shutil.which(compiler_info['fc']) if compiler_info['fc'] else None
+    cc_path = _shutil.which(compiler_info['cc']) if compiler_info['cc'] else None
+    cxx_path = _shutil.which(os.environ['CXX']) if os.environ.get('CXX') else None
+    if not cxx_path and cc_path:
+        cc_name = Path(cc_path).name
+        sibling = {'gcc': 'g++', 'icc': 'icpc', 'icx': 'icpx', 'mpicc': 'mpicxx', 'clang': 'clang++'}.get(cc_name)
+        if sibling and (Path(cc_path).parent / sibling).exists():
+            cxx_path = str(Path(cc_path).parent / sibling)
+    if not cxx_path and cc_path and _is_mpi_wrapper(cc_path):
+        cxx_path = _shutil.which("mpicxx") or _shutil.which("mpic++")
+    if fc_path:
+        cmake_cmd.insert(-1, f"-DCMAKE_Fortran_COMPILER={fc_path}")
+        print(f"Using Fortran compiler: {fc_path} ({compiler_info['compiler_type']})")
+    if cc_path:
+        cmake_cmd.insert(-1, f"-DCMAKE_C_COMPILER={cc_path}")
+        print(f"Using C compiler: {cc_path}")
+    if cxx_path:
+        cmake_cmd.insert(-1, f"-DCMAKE_CXX_COMPILER={cxx_path}")
+        print(f"Using CXX compiler: {cxx_path}")
+    cmake_c_flags = get_cmake_c_flags(cc_path or compiler_info['cc'])
     if cmake_c_flags:
         cmake_cmd.insert(-1, f"-DCMAKE_C_FLAGS={cmake_c_flags}")
         print(f"Using C flags: {cmake_c_flags}")

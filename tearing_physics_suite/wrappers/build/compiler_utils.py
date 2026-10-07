@@ -73,7 +73,7 @@ def detect_compilers(mpi=True):
         # ifort doesn't need -fallow-argument-mismatch
         # Instead, it may need -assume byterecl for some legacy code
         fflags_base = "-O3 -assume byterecl"
-    elif 'gfortran' in fc_basename or 'mpif90' in fc_basename:
+    elif 'gfortran' in fc_basename:  # MPI wrappers are typed by --version below
         compiler_type = 'gfortran'
         # gfortran 10+ needs this flag for legacy Fortran code
         fflags_base = "-O3 -fallow-argument-mismatch"
@@ -96,16 +96,17 @@ def detect_compilers(mpi=True):
                 text=True,
                 timeout=5
             )
-            version_output = result.stdout + result.stderr
-            if 'gfortran' in version_output.lower():
-                compiler_type = 'gfortran'
-                fflags_base = "-O3 -fallow-argument-mismatch"
-            elif 'ifort' in version_output.lower():
-                compiler_type = 'ifort'
-                fflags_base = "-O3 -assume byterecl"
-            elif 'pgfortran' in version_output.lower() or 'pgi' in version_output.lower():
+            version_output = (result.stdout + result.stderr).lower()
+            # PGI/NVHPC first: "pgfortran" contains "gfortran".
+            if any(k in version_output for k in ('pgfortran', 'pgi', 'nvfortran', 'nvhpc')):
                 compiler_type = 'pgfortran'
                 fflags_base = "-O3 -Mrecursive"
+            elif 'gfortran' in version_output or 'gnu fortran' in version_output:
+                compiler_type = 'gfortran'
+                fflags_base = "-O3 -fallow-argument-mismatch"
+            elif 'ifort' in version_output:
+                compiler_type = 'ifort'
+                fflags_base = "-O3 -assume byterecl"
         except Exception:
             pass  # Continue with defaults
 

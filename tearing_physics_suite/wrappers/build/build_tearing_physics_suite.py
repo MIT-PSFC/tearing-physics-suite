@@ -44,8 +44,11 @@ if 'TPSHOME' in os.environ and os.environ['TPSHOME'] != str(_repo_dir):
           "Overriding TPSHOME to repository root for this build.")
 os.environ['TPSHOME'] = str(_repo_dir)
 
-from tearing_physics_suite.wrappers.build.build_GPEC_PEST3 import build_GPEC, build_PEST3
-from tearing_physics_suite.wrappers.build.build_netcdf_lapack import build_libraries
+from tearing_physics_suite.wrappers.build.build_GPEC_PEST3 import (  # noqa: E402 (after the sys.path fix)
+    build_GPEC,
+    build_PEST3,
+)
+from tearing_physics_suite.wrappers.build.build_netcdf_lapack import build_libraries  # noqa: E402
 
 
 def write_env_file(lib_paths, repo_root, out_path=None):

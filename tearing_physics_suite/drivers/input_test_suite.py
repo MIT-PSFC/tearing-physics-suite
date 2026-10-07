@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from tearing_physics_suite.drivers.input_scans import scan_1D_input
-from tearing_physics_suite.utils import create_dense_log_paramvals
+from tearing_physics_suite.utils import create_dense_log_paramvals, tps_home
 
 BANNER = "#" * 105
 
@@ -192,7 +192,7 @@ def run_scan(name, eq_filename, results_dir=None, quick_test=True, verbose=True,
     """
     spec = SCANS[name]
     if results_dir is None:
-        results_dir = os.path.join(os.environ['TPSHOME'], 'tests/test_results')
+        results_dir = os.path.join(tps_home(), 'tests/test_results')
     superquick = kwargs.pop('superquick', False) if spec.superquick_vals is not None else False
     debug = kwargs.pop('debug', False) if spec.debug_fixed is not None else False
     scan_vals = kwargs.pop('scan_vals', None)

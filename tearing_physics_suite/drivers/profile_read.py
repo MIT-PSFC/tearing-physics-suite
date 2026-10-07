@@ -343,7 +343,8 @@ def _scan_time(key):
 def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu):
     """Build one multi_run_ profile dict from a bouquet draw."""
     psi_k = prof.get('psi_N_kinetic', prof['psi_N'])
-    spl = lambda y: PchipInterpolator(psi_k, y, extrapolate=False)
+    def spl(y):
+        return PchipInterpolator(psi_k, y, extrapolate=False)
     out = {
         'ne_spline': spl(prof['n_e']),
         'ni_spline': spl(prof['n_i']),
@@ -388,7 +389,7 @@ def _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, tol_ms, verbose):
     if ida_path is None:
         return {}
     if not os.path.exists(ida_path):
-        warnings.warn(f"IDA file {ida_path} not found; skipping IDA extras for scan {key}.")
+        warnings.warn(f"IDA file {ida_path} not found; skipping IDA extras for scan {key}.", stacklevel=2)
         return {}
 
     # Scan time [ms]: the source's IDA/scan time if set, else the scan key itself
@@ -402,7 +403,7 @@ def _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, tol_ms, verbose):
         available = set(ida.variables)
     time_idx = int(np.argmin(np.abs(times - t_ms)))
     if abs(times[time_idx] - t_ms) > tol_ms:
-        warnings.warn(f"No IDA time within {tol_ms} ms of scan {key} ({t_ms} ms); skipping IDA extras.")
+        warnings.warn(f"No IDA time within {tol_ms} ms of scan {key} ({t_ms} ms); skipping IDA extras.", stacklevel=2)
         return {}
 
     keys = [k for k in ('tau_e_basic', 'tau_th_basic') if k in available] + list(ida_extra_keys or [])

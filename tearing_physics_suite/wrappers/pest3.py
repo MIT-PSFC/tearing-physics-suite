@@ -9,9 +9,7 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import Akima1DInterpolator
 
-from tearing_physics_suite.utils import eq_stem
-
-home_dir = os.environ['TPSHOME']
+from tearing_physics_suite.utils import eq_stem, tps_home
 
 _GPEC_VAC_SYMBOL = b'vacuum_mod_MOD_mscvac'
 _gpec_vac_built = {}
@@ -26,8 +24,8 @@ def pest3_has_gpec_vacuum(pest3_executable):
 
 
 def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_results_dir=True,
-        working_dir=os.path.join(home_dir, 'working_dir'),
-        pest3_dir=os.path.join(home_dir, 'submodules/PEST3/cmake_build/pest3'),
+        working_dir=None,
+        pest3_dir=None,
         verbose=True,
         debug=False,
         fresh_start=True,
@@ -95,6 +93,10 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
     pest3_input_dict : dict
         Input parameters used for the calculation.
     """
+    if pest3_dir is None:
+        pest3_dir = os.path.join(tps_home(), 'submodules/PEST3/cmake_build/pest3')
+    if working_dir is None:
+        working_dir = os.path.join(tps_home(), 'working_dir')
 
     #########################################################################################################
     # Set up the working directory and executables:

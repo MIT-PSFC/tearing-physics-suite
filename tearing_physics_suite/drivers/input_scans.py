@@ -1,12 +1,10 @@
 # Python functions to scan input parameters during the resistive calculation, testing numerical and physics sensitivities
 
-import os
 from collections import Counter
 
 import numpy as np
 import xarray as xr
 
-home_dir = os.environ['TPSHOME']
 import tearing_physics_suite.wrappers.run_codes as tfw
 from tearing_physics_suite.physics.combine import compile_xarrays
 from tearing_physics_suite.physics.global_quantities import delta_prime_variability

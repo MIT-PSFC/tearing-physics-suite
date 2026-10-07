@@ -131,3 +131,11 @@ def _get_num_cpus():
             return int(val)
     # Fallback to OS-reported CPU count
     return len(os.sched_getaffinity(0))
+
+
+def tps_home():
+    """TPS repository root, from $TPSHOME (set by tearing_physics_suite_env.sh)."""
+    try:
+        return os.environ['TPSHOME']
+    except KeyError:
+        raise KeyError('TPSHOME is not set; source tearing_physics_suite_env.sh first.') from None

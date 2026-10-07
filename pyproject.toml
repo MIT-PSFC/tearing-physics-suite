@@ -52,7 +52,8 @@ extend-exclude = ["claude_findings", "submodules"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "NPY"]
 # E501: long lines left as written for now; E701: one-line `if verbose: print(...)` is the house style.
-ignore = ["E501", "E701"]
+# B905: zip(strict=True) would raise where code now silently truncates; not a lint-only change.
+ignore = ["E501", "E701", "B905"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["tearing_physics_suite"]

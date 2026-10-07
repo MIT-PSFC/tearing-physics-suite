@@ -1,5 +1,7 @@
 # Python functions to construct and analyse the modified Rutherford equation on modes
 
+from collections.abc import Callable
+
 import numpy as np
 import xarray as xr
 from scipy.interpolate import Akima1DInterpolator
@@ -331,7 +333,7 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
             (Fitzpatrick island width in normalised poloidal flux).
             """
             wd_bar4=X0**4
-            for i in range(10): #Iterate to convergence
+            for _ in range(10): #Iterate to convergence
                 chi_para_lmfp = chi_para_lmfp_no_w/(wd_bar4**(1/4))
                 if force_lmfp:
                     chi_para=chi_para_lmfp
@@ -345,7 +347,7 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
             return wd_bar4**(1/4)
     return wd_function
 
-def dwdtau(w_bar: float, wd_function: 'function', DeltaPrimeGPEC: float, Dr: float, Di: float, Dnc: float, H: float, k1: float, C0: float):
+def dwdtau(w_bar: float, wd_function: Callable, DeltaPrimeGPEC: float, Dr: float, Di: float, Dnc: float, H: float, k1: float, C0: float):
     """Evaluate the right-hand side of the Modified Rutherford Equation.
 
     Combines Delta' drive, GGJ curvature stabilisation, and neoclassical bootstrap terms.
@@ -368,7 +370,6 @@ def Delta_GGJ(w_bar: float, wd_bar: float, Dr: float, Di: float, H: float, k1: f
     Converted to normalised poloidal flux space. Note typo in that paper; to agree with Hegna 1999 in
     the toroidal limit, we use k1 instead of k0. Units: psi_norm^(-1).
     """
-    alpha_l=0.5-np.sqrt(-Di)
     alpha_s=0.5+np.sqrt(-Di)
     Dh = Dr/(alpha_s-H)
     denom = w_bar + (2*k1*wd_bar)/(C0*(1+alpha_s))

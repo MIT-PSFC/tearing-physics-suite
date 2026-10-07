@@ -173,7 +173,7 @@ def add_rotation(rdcon_xarray,omega_splines=None):
     return rdcon_xarray
 
 
-def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_interest=[0.95],omega_splines=None,verbose=True, debug=False):
+def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=None,psi_surfs_of_interest=None,omega_splines=None,verbose=True, debug=False):
     """Calculate decorrelation timescales between all m,n surfaces and selected reference surfaces.
 
     For each rotation quantity, computes 2*pi / delta_omega to get the decorrelation
@@ -202,6 +202,10 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_i
         Input dataset with {key}_tdecorr_qsurf and {key}_tdecorr_psisurf variables added,
         plus rotation_keys coordinate.
     """
+    if psi_surfs_of_interest is None:
+        psi_surfs_of_interest = [0.95]
+    if q_surfs_of_interest is None:
+        q_surfs_of_interest = [1]
     #########################################################################################################
     # Defining a short-list of all terms to calculate decorrelation timescales for.
     #########################################################################################################

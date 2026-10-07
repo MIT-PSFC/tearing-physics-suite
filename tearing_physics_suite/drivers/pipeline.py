@@ -1,12 +1,10 @@
 # This contains the core functionalities of tearing physics suite
 
 import copy
-import os
 
 import numpy as np
 import xarray as xr
 
-home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.physics.combine import (
     _uniquify_r,
     add_code_dim,
@@ -35,11 +33,11 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     # Rotation splines
     Er_spline=None, # Assuming input units of V/m
     omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
-    q_surfs_of_interest=[1.0],
-    psi_surfs_of_interest=[0.95],
+    q_surfs_of_interest=None,
+    psi_surfs_of_interest=None,
     Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces, to match M3DC1 simulations for example.
     eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
-    nvec = [1],
+    nvec = None,
     energy_confinement_time = None,
     chi_perp_spline=None,
     k0=0.8227,
@@ -87,6 +85,12 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     xarray_vec : list of xr.Dataset
         Per-n combined xarray datasets before concatenation.
     """
+    if nvec is None:
+        nvec = [1]
+    if psi_surfs_of_interest is None:
+        psi_surfs_of_interest = [0.95]
+    if q_surfs_of_interest is None:
+        q_surfs_of_interest = [1.0]
 
     if Zeff is None:
         raise ValueError("Zeff must be provided for nonlinear resistive calculation.")
@@ -230,7 +234,7 @@ def clean_multi_n_dictionaries(input_dict_vec):
     for key in first_dict_keys:
         first_value = input_dict_vec2[0][key]
         all_same = True
-        for i, d in enumerate(input_dict_vec2[1:], 1):
+        for _i, d in enumerate(input_dict_vec2[1:], 1):
             if key not in d:
                 all_same = False
             else:
@@ -282,7 +286,7 @@ def compare_dicts(d1,d2):
             diff_vals=True
     return not diff_vals
 
-def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stability=False,  debug=True, **kwargs):
+def linear_resistive_calculation(eq_filename, nvec = None, test_numerical_stability=False,  debug=True, **kwargs):
     """ Runs linear tearing analysis on an equilibrium over a range
     of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
     setting the operational parameters of STRIDE, RDCON and PEST3.
@@ -298,6 +302,8 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     xarray_vec : list of xr.Dataset
         Per-n combined xarray datasets.
     """
+    if nvec is None:
+        nvec = [1]
 
     xarray_vec = []
     pest3_xr_vec = []
@@ -369,8 +375,8 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         # Rotation splines
         Er_spline=None, # Assuming input units of V/m
         omega_splines=None, # Dictionary of splines for rotation frequencies in rad/s.
-        q_surfs_of_interest=[1.0],
-        psi_surfs_of_interest=[0.95],
+        q_surfs_of_interest=None,
+        psi_surfs_of_interest=None,
         energy_confinement_time = None,
         chi_perp_spline=None,
         k0=0.8227,
@@ -408,6 +414,10 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     input_dict : dict
         Dictionary of all input parameters used in the calculation.
     """
+    if psi_surfs_of_interest is None:
+        psi_surfs_of_interest = [0.95]
+    if q_surfs_of_interest is None:
+        q_surfs_of_interest = [1.0]
 
     # Check that either energy_confinement_time or chi_perp_spline is defined:
     assert not (chi_perp_spline is None and energy_confinement_time is None), "Must either define energy_confinement_time or chi_perp_spline for MRE analysis."

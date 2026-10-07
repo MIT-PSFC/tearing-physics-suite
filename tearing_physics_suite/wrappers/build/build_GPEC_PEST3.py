@@ -7,13 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tearing_physics_suite.utils import tps_home
 from tearing_physics_suite.wrappers.build.compiler_utils import (
     detect_compilers,
     get_cmake_c_flags,
     get_cmake_fortran_flags,
 )
-
-home_dir = os.environ['TPSHOME']
 
 # ----------------------------------------------------------------------
 # GPEC install-test reference values: example -> (Delta_prime, tol).
@@ -121,6 +120,7 @@ def prepare_GPEC_legacy_examples(gpec_dir=None, work_root=None):
     Copy the GPEC test examples to *work_root* and apply GPEC_LEGACY_RECIPE,
     so the upstream tree is left untouched. Returns the new examples root.
     """
+    home_dir = tps_home()
     gpec_dir = Path(gpec_dir) if gpec_dir else Path(home_dir) / "submodules" / "GPEC"
     work_root = Path(work_root) if work_root else Path(home_dir) / "build" / "gpec_legacy_examples"
     src_root = gpec_dir / "docs" / "examples"
@@ -164,6 +164,7 @@ def is_pest3_built(build_dir=None, gpec_vacuum=None):
     bool
         True if ``pest3x`` is found; False otherwise.
     """
+    home_dir = tps_home()
     if build_dir is None:
         build_dir = Path(home_dir) / "submodules" / "PEST3"
     else:
@@ -199,6 +200,7 @@ def is_gpec_built(gpec_dir=None):
     bool
         True if both ``rdcon`` and ``stride`` are found; False otherwise.
     """
+    home_dir = tps_home()
     if gpec_dir is None:
         gpec_dir = Path(home_dir) / "submodules" / "GPEC"
     else:
@@ -303,6 +305,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     bool
         True if build (and, when run_tests=True, tests) succeeded, False otherwise
     """
+    home_dir = tps_home()
     os.chdir(home_dir)
 
     # Set default build directory
@@ -728,6 +731,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         True if the build (and, when run_tests=True, tests) succeeded,
         False otherwise.
     """
+    home_dir = tps_home()
     os.chdir(home_dir)
 
     if build_dir is not None:
@@ -1058,6 +1062,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=Fa
         ``True`` if all tests run and all ``Delta_prime`` values are within
         tolerance; ``False`` otherwise.
     """
+    home_dir = tps_home()
     import shutil as _shutil
 
     import xarray as xr
@@ -1457,6 +1462,7 @@ def PEST3_install_test(build_dir=None, lib_paths=None, install_dir=None):
     3          inp1.cdf      -0.00356    ±0.001
     =========  ============  ==========  =======
     """
+    home_dir = tps_home()
     import shutil as _shutil
 
     os.chdir(home_dir)

@@ -177,7 +177,7 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     return rdcon_xarray
 
 
-def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=[1.0],psi_surfs_of_interest=[0.95],diamagnetic_rotation_ion_charge=None):
+def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=None,psi_surfs_of_interest=None,diamagnetic_rotation_ion_charge=None):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just
     deals with values out of rdcon_xarray, and natural flux coordinates. Requires mre_flag & geom_flag='t' (as per default)
@@ -199,6 +199,10 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     rdcon_xarray : xarray.DataArray
         The updated xarray with MRE terms calculated.
     """
+    if psi_surfs_of_interest is None:
+        psi_surfs_of_interest = [0.95]
+    if q_surfs_of_interest is None:
+        q_surfs_of_interest = [1.0]
 
     rdcon_xarray = mre_raw_interp(rdcon_xarray)
     rdcon_xarray = mre_flux_gradients(rdcon_xarray)
@@ -427,7 +431,6 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     Hs = rdcon_xarray['H_surf'].values
     Drs = rdcon_xarray['Dr_surf'].values
     X0s = rdcon_xarray['X0_surf'].values
-    psi_rationals = rdcon_xarray['psi_n_rational'].values
     v_rationals = rdcon_xarray['V_surf'].values
     v1_rationals = rdcon_xarray['dvdpsi_n_surf'].values
     q1_rationals = rdcon_xarray['dq_dpsi_n_surf'].values

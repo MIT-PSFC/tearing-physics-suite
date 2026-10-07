@@ -105,7 +105,7 @@ def test_combine_codes_drops_failing_code_by_name(bad):
 
 
 def test_combine_codes_debug_raises():
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         combine_codes({'rdcon': _code_ds('rdcon'), 'pest3': _code_ds('pest3', bad=True)}, nn=1, debug=True)
 
 

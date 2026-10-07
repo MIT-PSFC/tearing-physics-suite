@@ -19,7 +19,7 @@ def zeff_dict(Zeff):
     try:
         Zeff = float(Zeff)
     except (TypeError, ValueError):
-        raise ValueError("Zeff must be a scalar number or a dict with 'x' and 'y' keys.")
+        raise ValueError("Zeff must be a scalar number or a dict with 'x' and 'y' keys.") from None
     return {'x': [0.0, 1.0], 'y': [Zeff, Zeff]}
 
 # Called from within write_rdcon_stride_inputs
@@ -299,7 +299,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             sing_order_ceiling='f', # Auto detect the minium order to be retained in power series...
 
             regrid_flag='f',        # Redo the grid generation for galerkin method
-            Zeff={'x':[0.0,1.0],'y':[1.52,1.52]}, # Plasma Z effective dict, 'x' is psi_n, 'y' is Zeff
+            Zeff={'x':[0.0,1.0],'y':[1.52,1.52]}, # Plasma Z effective dict, 'x' is psi_n, 'y' is Zeff  # noqa: B006 (never mutated)
 
             #RDCON_OUTPUT
             crit_break='t',         # Color of the crit curve changes when crossing a singular surface
@@ -545,7 +545,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    ode_flag='+ode_flag +'\n') #Integrate ODEs for determining stability of internal long-wavelength mode (must be true for GPEC)
         f.write('    vac_flag='+vac_flag +'\n') #Compute plasma, vacuum, and total energies for free-boundary modes
         f.write('    gal_flag='+gal_flag +'\n') #Compute outer regime using resonant Galerkin method
-        if not dump_MRE_data==False:
+        if not dump_MRE_data==False:  # noqa: E712 (dump_MRE_data may be a string)
             f.write('    dump_MRE_data='+dump_MRE_data +'\n') #Dump MRE data, exits before gal_flag can run
 
         f.write('    sas_flag='+sas_flag +'\n') #Safety factor (q) limit determined as q_ir+dmlim where q_ir is the equil outermost rational

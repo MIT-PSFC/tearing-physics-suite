@@ -4,7 +4,7 @@ import os
 
 import numpy as np
 
-home_dir = os.environ['TPSHOME']
+from tearing_physics_suite.utils import tps_home
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation, _default_eq_type
 from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, pest3_special_truncation_loop
 
@@ -12,9 +12,9 @@ from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, pe
 def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, run_pest3=True,
         make_working_dir=True,
         make_results_dir=True,
-        working_dir=os.path.join(home_dir, 'working_dir'),
-        gpec_dir=os.path.join(home_dir, 'submodules/GPEC'),
-        pest3_dir=os.path.join(home_dir, 'submodules/PEST3/cmake_build/pest3'),
+        working_dir=None,
+        gpec_dir=None,
+        pest3_dir=None,
         verbose=True,
         fresh_start=True,
         output_location=None,
@@ -64,6 +64,12 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     rdcon_stride_input_dict, pest3_input_dict : dict or None
         Input parameters used for each calculation.
     """
+    if pest3_dir is None:
+        pest3_dir = os.path.join(tps_home(), 'submodules/PEST3/cmake_build/pest3')
+    if gpec_dir is None:
+        gpec_dir = os.path.join(tps_home(), 'submodules/GPEC')
+    if working_dir is None:
+        working_dir = os.path.join(tps_home(), 'working_dir')
 
     #Extract keyword arguments for PEST3
     pest3_kwargs_dict = {k: v for k, v in kwargs.items() if k.endswith('_pest')}

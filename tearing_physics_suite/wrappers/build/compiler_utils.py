@@ -66,7 +66,6 @@ def detect_compilers(mpi=True):
 
     # Extract base name from full path or wrapped command
     fc_basename = Path(fc).name if fc else ''
-    cc_basename = Path(cc).name if cc else ''
 
     # Detect compiler type from executable name
     if 'ifort' in fc_basename or 'ifx' in fc_basename:

@@ -4,12 +4,11 @@ import multiprocessing
 import os
 import pickle as pkl
 
-home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.drivers.input_test_suite import SCANS, run_scan, scan_functions
-from tearing_physics_suite.utils import _get_num_cpus
+from tearing_physics_suite.utils import _get_num_cpus, tps_home
 
 
-def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=os.path.join(home_dir, 'tests/test_results'), quick_test=True, verbose=True, debug=False, hotstart=''):
+def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=None, quick_test=True, verbose=True, debug=False, hotstart=''):
     """
     Runs multiple scan functions consecutively based on a list of scan names.
 
@@ -33,6 +32,8 @@ def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=o
     scan_namelist : list
         The input scan name list
     """
+    if results_dir is None:
+        results_dir = os.path.join(tps_home(), 'tests/test_results')
     if len(hotstart) > 0:
         # Check if hotstart is in scan_namelist
         if hotstart not in scan_namelist:
@@ -95,7 +96,7 @@ def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=o
     return results, messages, scan_namelist, failed_cases
 
 def run_multiple_scans_parallel(eq_filename, master_working_dir, scan_namelist=scan_functions,
-        results_dir=os.path.join(home_dir, 'tests/test_results'),
+        results_dir=None,
         quick_test=True, verbose=True, debug=False, **kwargs):
     """Distribute all scans in scan_namelist across available CPU cores and run in parallel.
 
@@ -133,6 +134,8 @@ def run_multiple_scans_parallel(eq_filename, master_working_dir, scan_namelist=s
     failed_cases : list of str
         Names of scans that raised exceptions.
     """
+    if results_dir is None:
+        results_dir = os.path.join(tps_home(), 'tests/test_results')
     valid_scans = [(i, name) for i, name in enumerate(scan_namelist) if name in SCANS]
     skipped = [name for name in scan_namelist if name not in SCANS]
     if skipped:
@@ -206,7 +209,7 @@ def _scan_worker_batch(args):
     os.makedirs(working_dir, exist_ok=True)
 
     run_results = []
-    for idx, scan_name in batch:
+    for _idx, scan_name in batch:
         try:
             result, message = run_scan(
                 scan_name,

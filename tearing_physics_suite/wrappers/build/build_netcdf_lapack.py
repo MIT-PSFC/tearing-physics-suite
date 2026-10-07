@@ -246,7 +246,6 @@ class LibraryBuilder:
         """
         # Check for lib and lib64 - prefer the one with more .so files
         lib_dir = None
-        lib64_dir = None
 
         lib_candidate = self.install_dir / 'lib'
         lib64_candidate = self.install_dir / 'lib64'
@@ -960,7 +959,6 @@ def build_libraries(install_dir=None, build_dir=None, lapack_version="3.12.0", h
     }
 
     # Determine directories
-    build_dir_path = Path(build_dir) if build_dir else Path.cwd() / "build"
     install_dir_path = Path(install_dir) if install_dir else Path.cwd() / "install"
 
     library_paths = {}

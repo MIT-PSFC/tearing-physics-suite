@@ -5,8 +5,7 @@ import subprocess
 
 import xarray as xr
 
-home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.utils import eq_stem
+from tearing_physics_suite.utils import eq_stem, tps_home
 from tearing_physics_suite.wrappers.gpec_inputs import write_rdcon_stride_inputs
 
 
@@ -19,8 +18,8 @@ def _default_eq_type(eq_filename, kwargs):
 def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False,
         make_working_dir=True,
         make_results_dir=True,
-        working_dir=os.path.join(home_dir, 'working_dir'),
-        gpec_dir=os.path.join(home_dir, 'submodules/GPEC'),
+        working_dir=None,
+        gpec_dir=None,
         verbose=False,
         fresh_start=True,
         output_location=None,
@@ -63,6 +62,10 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
     rdcon_stride_input_dict : dict or None
         Input parameters used for the calculations.
     """
+    if gpec_dir is None:
+        gpec_dir = os.path.join(tps_home(), 'submodules/GPEC')
+    if working_dir is None:
+        working_dir = os.path.join(tps_home(), 'working_dir')
 
     if not (run_rdcon or run_stride): # set warning if both are False
         print("Warning: Neither rdcon nor stride will be run. No calculations will be performed.")

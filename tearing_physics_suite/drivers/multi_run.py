@@ -481,7 +481,6 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
 
     for i in range(n_runs):
         result_path = os.path.join(master_working_dir, f'result_{i}.pkl')
-        xarray_path = os.path.join(master_working_dir, f'combined_xr_{i}.nc')
         if not os.path.exists(result_path):
             print(f"[multi_compile] WARNING: Result file not found for run {i}, skipping.")
             continue
@@ -904,7 +903,7 @@ def meta_dict_to_dataset(meta, ds=None, episode_dim="run_idx",
 
     # --- Phase 1: ds-coord match, or new cluster (unchanged) -----------------
     assigned, clusters = {}, []
-    for idx, (name, x, y) in enumerate(xy_entries):
+    for idx, (name, x, _y) in enumerate(xy_entries):
         dim = reg.match(x, rtol, atol)
         if dim is not None:
             assigned[idx] = dim
@@ -914,7 +913,8 @@ def meta_dict_to_dataset(meta, ds=None, episode_dim="run_idx",
             continue
         for cl in clusters:
             if _grids_close(x, cl["x"], rtol, atol):
-                cl["members"].append((idx, name)); break
+                cl["members"].append((idx, name))
+                break
         else:
             clusters.append({"x": np.asarray(x, float), "members": [(idx, name)]})
 
@@ -931,7 +931,7 @@ def meta_dict_to_dataset(meta, ds=None, episode_dim="run_idx",
             print(f"[meta] new grid '{dim}' <- {names} (len {len(cl['x'])})")
 
     # --- Phase 3: emit xy y-vars + each new grid's x -------------------------
-    for idx, (name, x, y) in enumerate(xy_entries):
+    for idx, (name, _x, y) in enumerate(xy_entries):
         dv[f"{name}"] = (assigned[idx], np.asarray(y, float))
     for dim, x in new_grid_x.items():
         dv[f"{dim}_x"] = (dim, np.asarray(x, float))
@@ -1044,7 +1044,8 @@ def _spline_xy(spl):
     return x, np.asarray(spl(x), dtype="float64")     # exact for Akima
 
 def _grids_close(a, b, rtol=1e-9, atol=1e-12):
-    a = np.asarray(a, float); b = np.asarray(b, float)
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
     if a.shape != b.shape:
         return False
     return np.allclose(a, b, rtol=rtol, atol=atol, equal_nan=True)

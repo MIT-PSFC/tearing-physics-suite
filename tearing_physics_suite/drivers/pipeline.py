@@ -7,10 +7,9 @@ import os
 home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.wrappers.run_codes import run_resistive_calculation
 from tearing_physics_suite.physics.combine import compile_xarrays
-from tearing_physics_suite.physics.delta_prime_extraction import extract_delta_primes
 from tearing_physics_suite.wrappers.gpec_inputs import zeff_dict
 from tearing_physics_suite.physics.cross_field_transport import chi_para_lmfp_no_w_on_modes, chi_para_smfp_on_modes, chi_para_lmfp_noisland_on_modes, chi_perp_on_modes
-from tearing_physics_suite.physics.combine import _uniquify_r
+from tearing_physics_suite.physics.combine import _uniquify_r, add_code_dim, code_delta_primes, combine_codes, merge_input_dicts
 from tearing_physics_suite.physics.global_quantities import delta_prime_variability, global_mre_quantities
 from tearing_physics_suite.physics.mre_model import extract_critical_mre_factors_on_modes
 from tearing_physics_suite.physics.surface_terms import deltaprime_crit_on_modes, mre_terms_on_modes
@@ -404,15 +403,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict = run_resistive_calculation(eq_filename,nn,**kwargs)
 
-    # Combine input dictionaries:
-    if not (rdcon_stride_input_dict is None): #RDCON dict present
-        if not (pest3_input_dict is None): # PEST3 dict present
-            rdcon_stride_input_dict.update(pest3_input_dict)
-        input_dict = rdcon_stride_input_dict
-    elif not (pest3_input_dict is None):
-        input_dict = pest3_input_dict
-    else:
-        input_dict = {}
+    input_dict = merge_input_dicts(rdcon_stride_input_dict, pest3_input_dict)
 
     # Add wd_static, energy_confinement_time, k0, k1, C0, wd_static to input_dict:
     input_dict['wd_static'] = wd_static
@@ -434,95 +425,22 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     if debug_mre_terms:
         return rdcon_xr, None, None
 
-    # Combine xarrays:
-    xarrays = []
+    #########################################################################################################
+    # Per code: Delta' coupling, then MRE analysis using the RDCON surface terms
+    #########################################################################################################
+    expanded = {}
+    for code, ds in (('rdcon', rdcon_xr), ('stride', stride_xr), ('pest3', pest3_xr)):
+        if ds is None:
+            continue
+        ds = add_code_dim(ds, code, delete_attrs=delete_attrs)
+        if 'Delta_prime' in ds:
+            ds = code_delta_primes(ds, code)
+            surf_xr = ds if code == 'rdcon' else expanded['rdcon']
+            ds = extract_critical_mre_factors_on_modes(ds, surf_xr, k0=k0, k1=k1, C0=C0, iterator=wd_static, force_lmfp=force_lmfp)
+        expanded[code] = ds
 
-    #########################################################################################################
-    # RDCON delta xarray, delta prime and MRE calculation
-    #########################################################################################################
-    if not (rdcon_xr is None): 
-        # Turn all attributes into variables:
-        for attr_key in rdcon_xr.attrs.keys():
-            rdcon_xr[attr_key] = rdcon_xr.attrs[attr_key]
-        if delete_attrs:
-            rdcon_xr.attrs = {}
-        # Add new dimension for code to rdcon_xr
-        rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
-        rdcon_xr_expanded['code'] = ['rdcon']
-        if 'Delta_prime' in rdcon_xr_expanded:
-            rdcon_xr_expanded = extract_delta_primes(rdcon_xr_expanded)
-            rdcon_xr_expanded = extract_critical_mre_factors_on_modes(rdcon_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
-        # Add to xarrays list
-        xarrays.append(rdcon_xr_expanded)
-
-    #########################################################################################################
-    # STRIDE delta xarray, delta prime and MRE calculation
-    #########################################################################################################
-    if not (stride_xr is None):
-        # Turn all attributes into variables:
-        for attr_key in stride_xr.attrs.keys():
-            stride_xr[attr_key] = stride_xr.attrs[attr_key]
-        if delete_attrs:
-            stride_xr.attrs = {}
-        # Add new dimension for code to stride_xr
-        stride_xr_expanded = stride_xr.expand_dims(dim='code', axis=0)
-        stride_xr_expanded['code'] = ['stride']
-        if 'Delta_prime' in stride_xr_expanded:
-            # Calculate delta' values for stride_xr
-            stride_xr_expanded = extract_delta_primes(stride_xr_expanded)
-            stride_xr_expanded = extract_critical_mre_factors_on_modes(stride_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
-        xarrays.append(stride_xr_expanded)
-            
-    #########################################################################################################
-    # PEST3 delta xarray and delta prime calculation
-    #########################################################################################################
-    pest3_xr_expanded = None
-    if not (pest3_xr is None):
-        # Turn all attributes into variables:
-        for attr_key in pest3_xr.attrs.keys():
-            pest3_xr[attr_key] = pest3_xr.attrs[attr_key]
-        if delete_attrs:
-            pest3_xr.attrs = {}
-        # Add new dimension for code to pest3_xr
-        pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
-        pest3_xr_expanded['code'] = ['pest3']
-        if 'Delta_prime' in pest3_xr_expanded:
-            assert 'Delta_prime_perr' in pest3_xr_expanded, "Current version of extract_delta_primes assumes this."
-            pest3_xr_expanded = extract_delta_primes(pest3_xr_expanded)
-            pest3_xr_expanded = extract_critical_mre_factors_on_modes(pest3_xr_expanded,rdcon_xr_expanded,k0=k0,k1=k1,C0=C0,iterator=wd_static, force_lmfp=force_lmfp)
-        xarrays.append(pest3_xr_expanded)
-
-    # Combine all xarrays into one xarray:
-    # Breaks if different number of rational surfaces across different codes at the axis
-    #   - beware psilow =/= 0 while also running pest3 (pest3 has no psilow truncation)
-    #   - for this reason, we also output pest3_xr_out separately if something goes wrong
-    pest3_xr_out = None
-    combined_xr = None
-
-    #########################################################################################################
-    # Concatenating xarrays
-    #########################################################################################################
-    if len(xarrays) > 0:
-        pest3_xr_out = pest3_xr_expanded
-        try:
-            combined_xr = xr.concat(xarrays, dim='code', coords='all')
-            pest3_xr_out = None
-        except Exception as e:
-            if not (pest3_xr is None): #We remove pest3_xr_expanded from xarrays and retry
-                xarrays = xarrays[:-1]  # Remove the last element (pest3_xr_expanded)
-                combined_xr = xr.concat(xarrays, dim='code', coords='all')
-            print("Error combining xarrays:", e)
-            if debug:
-                raise e
-
-    #########################################################################################################
-    # Adding nn to combined_xr:
-    #########################################################################################################
-    if combined_xr is not None:
-        # Check nn isn't already defined:
-        assert not 'nn' in combined_xr, 'nn already defined, debug this function.'
-        # We expand dims to add nn:
-        combined_xr = combined_xr.expand_dims(dim='nn', axis=0)
-        combined_xr['nn'] = [input_dict['nn']]
+    # PEST3 is also returned on its own if it could not be combined (see combine_codes).
+    combined_xr, dropped = combine_codes(expanded, input_dict.get('nn'), debug=debug)
+    pest3_xr_out = dropped.get('pest3')
 
     return combined_xr, pest3_xr_out, input_dict

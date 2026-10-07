@@ -147,6 +147,75 @@ def sel_rational(ds, value, dim="r", atol=1e-8):
     return collapsed.isel({dim: idx})
 
 
+def merge_input_dicts(*dicts):
+    """Merge input dicts left to right, skipping None (later dicts win). Returns a new dict."""
+    out = {}
+    for d in dicts:
+        if d is not None:
+            out.update(d)
+    return out
+
+
+def add_code_dim(ds, code, delete_attrs=True, drop_var_attrs=False):
+    """Copy of ds with its attributes copied into variables and a leading 'code' dim of length 1."""
+    ds = ds.copy()
+    for key, val in ds.attrs.items():
+        ds[key] = val
+    if delete_attrs:
+        ds.attrs = {}
+    if drop_var_attrs:
+        ds = ds.drop_attrs(deep=True)
+    ds = ds.expand_dims(dim='code', axis=0)
+    ds['code'] = [code]
+    return ds
+
+
+def code_delta_primes(ds, code):
+    """Add coupled Delta' values (extract_delta_primes) if ds has Delta_prime."""
+    if 'Delta_prime' not in ds:
+        return ds
+    if code == 'pest3':
+        assert 'Delta_prime_perr' in ds, "Current version of extract_delta_primes assumes this."
+    return extract_delta_primes(ds)
+
+
+def combine_codes(datasets, nn, debug=False, **concat_kwargs):
+    """Concatenate per-code datasets along 'code' (in dict order), then add a leading 'nn' dim.
+
+    datasets: {code: Dataset with a 'code' dim, or None}.
+    If the concat fails, codes are added one at a time and any code that will not concatenate is
+    left out, by name, with a warning. Breaks happen when codes have different rational surfaces at
+    the axis (e.g. psilow != 0 while also running PEST3, which has no psilow truncation).
+    Returns (combined_xr or None, dropped), dropped = {code: dataset left out}.
+    """
+    items = [(code, ds) for code, ds in datasets.items() if ds is not None]
+    combined, dropped = None, {}
+    if items:
+        try:
+            combined = xr.concat([ds for _, ds in items], dim='code', coords='all', **concat_kwargs)
+        except Exception as e:
+            print("Error combining xarrays:", e)
+            if debug:
+                raise
+            kept = []
+            for code, ds in items:
+                try:
+                    combined = xr.concat(kept + [ds], dim='code', coords='all', **concat_kwargs)
+                    kept.append(ds)
+                except Exception as e_code:
+                    print(f"Leaving code '{code}' out of the combined dataset: {e_code}")
+                    dropped[code] = ds
+            if not kept:
+                combined = None
+    if combined is not None:
+        assert 'nn' not in combined, 'nn already defined, debug this function.'
+        if nn is None:
+            raise KeyError('nn')
+        combined = combined.expand_dims(dim='nn', axis=0)
+        combined['nn'] = [nn]
+    return combined, dropped
+
+
 def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict, calc_dps=True, **kwargs):
     """
     Combine rdcon, stride, and pest3 xarrays into a single dataset.
@@ -174,101 +243,12 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
     input_dict : dict
         Combined input parameters.
     """
-    # Combine input dictionaries:
-    if not (rdcon_stride_input_dict is None): #RDCON dict present
-        if not (pest3_input_dict is None): # PEST3 dict present
-            rdcon_stride_input_dict.update(pest3_input_dict)
-        input_dict = rdcon_stride_input_dict
-    elif not (pest3_input_dict is None):
-        input_dict = pest3_input_dict
-    else:
-        input_dict = {}
-    
-    
-    # Combine xarrays:
-    xarrays = []
-    
-    #########################################################################################################
-    # RDCON delta xarray and delta prime calculation
-    #########################################################################################################
-    if not (rdcon_xr is None): 
-        # Turn all attributes into variables:
-        for attr_key in rdcon_xr.attrs.keys():
-            rdcon_xr[attr_key] = rdcon_xr.attrs[attr_key]
-        rdcon_xr.attrs = {}
-        rdcon_xr = rdcon_xr.drop_attrs(deep=True)
-        # Add new dimension for code to rdcon_xr
-        rdcon_xr_expanded = rdcon_xr.expand_dims(dim='code', axis=0)
-        rdcon_xr_expanded['code'] = ['rdcon']
-        if calc_dps and 'Delta_prime' in rdcon_xr_expanded:
-            rdcon_xr_expanded = extract_delta_primes(rdcon_xr_expanded)
-        # Add to xarrays list
-        xarrays.append(rdcon_xr_expanded)
-    
-    #########################################################################################################
-    # STRIDE delta xarray and delta prime calculation
-    #########################################################################################################
-    if not (stride_xr is None):
-        # Turn all attributes into variables:
-        for attr_key in stride_xr.attrs.keys():
-            stride_xr[attr_key] = stride_xr.attrs[attr_key]
-        stride_xr.attrs = {}
-        stride_xr = stride_xr.drop_attrs(deep=True)
-        # Add new dimension for code to stride_xr
-        stride_xr_expanded = stride_xr.expand_dims(dim='code', axis=0)
-        stride_xr_expanded['code'] = ['stride']
-        if calc_dps and 'Delta_prime' in stride_xr_expanded:
-            # Calculate delta' values for stride_xr
-            stride_xr_expanded = extract_delta_primes(stride_xr_expanded)
-        xarrays.append(stride_xr_expanded)
-    
-    #########################################################################################################
-    # PEST3 delta xarray and delta prime calculation
-    #########################################################################################################
-    pest3_xr_expanded = None
-    if not (pest3_xr is None):
-        # Turn all attributes into variables:
-        for attr_key in pest3_xr.attrs.keys():
-            pest3_xr[attr_key] = pest3_xr.attrs[attr_key]
-        pest3_xr.attrs = {}
-        pest3_xr = pest3_xr.drop_attrs(deep=True)
-        # Add new dimension for code to pest3_xr
-        pest3_xr_expanded = pest3_xr.expand_dims(dim='code', axis=0)
-        pest3_xr_expanded['code'] = ['pest3']
-        if calc_dps and 'Delta_prime' in pest3_xr_expanded:
-            assert 'Delta_prime_perr' in pest3_xr_expanded, "Current version of extract_delta_primes assumes this."
-            pest3_xr_expanded = extract_delta_primes(pest3_xr_expanded)
-        xarrays.append(pest3_xr_expanded)
-
-    # Combine all xarrays into one xarray:
-    # Breaks if different number of rational surfaces across different codes at the axis
-    #   - beware psilow =/= 0 while also running pest3 (pest3 has no psilow truncation)
-    #   - for this reason, we also output pest3_xr_out separately if something goes wrong
-    pest3_xr_out = None
-    combined_xr = None
-
-    #########################################################################################################
-    # Concatenating xarrays
-    #########################################################################################################
-    if len(xarrays) > 0:
-        pest3_xr_out = pest3_xr_expanded
-        try:
-            combined_xr = xr.concat(xarrays, dim='code', coords='all', **kwargs)
-            pest3_xr_out = None
-        except Exception as e:
-            if not (pest3_xr is None): #We remove pest3_xr_expanded from xarrays and retry
-                xarrays = xarrays[:-1]  # Remove the last element (pest3_xr_expanded)
-                combined_xr = xr.concat(xarrays, dim='code', coords='all', **kwargs)
-            print("Error combining xarrays:", e)
-
-    #########################################################################################################
-    # Adding nn to combined_xr:
-    #########################################################################################################
-    if combined_xr is not None:
-        # Check nn isn't already defined:
-        assert not 'nn' in combined_xr, 'nn already defined, debug this function.'
-        # We expand dims to add nn:
-        combined_xr = combined_xr.expand_dims(dim='nn', axis=0)
-        combined_xr['nn'] = [input_dict['nn']]
-
-    return combined_xr, pest3_xr_out, input_dict
+    input_dict = merge_input_dicts(rdcon_stride_input_dict, pest3_input_dict)
+    expanded = {}
+    for code, ds in (('rdcon', rdcon_xr), ('stride', stride_xr), ('pest3', pest3_xr)):
+        if ds is not None:
+            ds = add_code_dim(ds, code, drop_var_attrs=True)
+            expanded[code] = code_delta_primes(ds, code) if calc_dps else ds
+    # PEST3 is also returned on its own if it could not be combined (see combine_codes).
+    combined_xr, dropped = combine_codes(expanded, input_dict.get('nn'), **kwargs)
+    return combined_xr, dropped.get('pest3'), input_dict

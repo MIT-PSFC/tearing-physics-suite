@@ -217,6 +217,70 @@ def is_gpec_built(gpec_dir=None):
     return True
 
 
+def _git(args, cwd, timeout=60):
+    """Run ``git <args>`` in cwd; stripped stdout, or None on failure."""
+    try:
+        result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def pinned_sha(source, home_dir=None):
+    """Commit TPS pins for the submodule at source, or None if TPS isn't a git checkout that registers it."""
+    home_dir = Path(home_dir or tps_home())
+    try:
+        rel = Path(source).resolve().relative_to(home_dir.resolve())
+    except ValueError:
+        return None
+    out = _git(["ls-files", "-s", "--", str(rel)], home_dir)
+    if out and out.startswith("160000 "):  # gitlink: "160000 <sha> <stage>\t<path>"
+        return out.split()[1]
+    return None
+
+
+def git_describe(source):
+    """``git describe --always --dirty`` of a code's checkout, or 'unknown'."""
+    if not (Path(source) / ".git").exists():  # else git would describe the enclosing TPS repo
+        return "unknown"
+    return _git(["describe", "--always", "--dirty"], source) or "unknown"
+
+
+def fetch_source(source, url, branch=None, home_dir=None):
+    """
+    Get a code's source into source. An existing checkout is kept as is (e.g. a dev clone on its own
+    branch), with a warning if its HEAD differs from the commit TPS pins. Otherwise
+    ``git submodule update --init`` when TPS registers the submodule, else ``git clone``.
+    Returns True on success.
+    """
+    source = Path(source)
+    home_dir = Path(home_dir or tps_home())
+    sha = pinned_sha(source, home_dir)
+    if source.exists() and any(source.iterdir()):
+        print(f"Using existing source at {source}")
+        head = _git(["rev-parse", "HEAD"], source) if (source / ".git").exists() else None
+        if sha and head and head != sha:
+            print(f"WARNING: {source} is at {head[:10]}, TPS pins {sha[:10]}. "
+                  "Left as is; check it out or bump the pin (see README).")
+        return True
+    if sha:
+        cmd = ["git", "submodule", "update", "--init", "--", str(source.resolve().relative_to(home_dir.resolve()))]
+        cwd = home_dir
+    else:
+        cmd = ["git", "clone"] + (["--branch", branch] if branch else []) + [url, str(source)]
+        cwd = None
+    print(" ".join(cmd))
+    try:
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        print(f"Timed out: {' '.join(cmd)}")
+        return False
+    if result.returncode != 0:
+        print(f"Error fetching {source}: {result.stderr}")
+        return False
+    return True
+
+
 def setup_scimake(pest3_source):
     """
     Download and set up scimake modules required for PEST3 CMake build.
@@ -265,7 +329,8 @@ def setup_scimake(pest3_source):
 def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests=True, work_dir=None,
                 gpec_vacuum=True, gpec_dir=None):
     """
-    Build the PEST3 library by downloading the source code at github url 'https://github.com/MIT-PSFC/PEST3'.
+    Build the PEST3 library from the submodules/PEST3 submodule (cloned from 'https://github.com/MIT-PSFC/PEST3'
+    when TPS is not a git checkout).
     Assumes you have already ran build_netcdf_lapack.py to compile dependencies, and utilizes the paths returned by that function to link against the dependencies.
     Builds the library in the 'submodules/utils/PEST3' directory unless otherwise specified.
     After a successful build, automatically runs PEST3_install_test() to verify the binary
@@ -287,7 +352,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     debug : bool
         Unused; kept for backwards compatibility.
     rebuild : bool
-        If True, remove existing source and rebuild from scratch.
+        If True, remove the build products (cmake_build/) and rebuild; the source is kept.
     run_tests : bool
         If True (default), run PEST3_install_test() after a successful build.
         Set to False to skip post-build verification.
@@ -344,34 +409,14 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             print("Skipping post-build install test (run_tests=False).")
         return True
 
-    # Step 1: Clone PEST3 from GitHub if not already present
+    # Step 1: Get PEST3 (submodule, else clone) if not already present
     print("\nStep 1: Preparing PEST3 source...")
-    pest3_url = "https://github.com/MIT-PSFC/PEST3"
+    if not fetch_source(pest3_source, "https://github.com/MIT-PSFC/PEST3", home_dir=home_dir):
+        return False
 
-    # Force delete existing PEST3 source to ensure clean build
-    if pest3_source.exists() and rebuild:
-        print("Removing existing PEST3 source to ensure clean build...")
-        try:
-            shutil.rmtree(pest3_source)
-            print("Successfully removed PEST3 source")
-        except Exception as e:
-            print(f"Warning: Could not remove PEST3 source: {e}")
-
-    if not pest3_source.exists():
-        print(f"Cloning PEST3 from {pest3_url}...")
-        try:
-            subprocess.run(
-                ["git", "clone", pest3_url, str(pest3_source)],
-                check=True,
-                capture_output=True
-            )
-            print(f"Successfully cloned PEST3 to {pest3_source}")
-        except subprocess.CalledProcessError as e:
-            print(f"Error cloning PEST3: {e}")
-            print(e.stderr.decode() if e.stderr else "")
-            return False
-    else:
-        print(f"Using existing PEST3 source at {pest3_source}")
+    if rebuild:  # clean build products; the source tree is kept
+        print("Removing PEST3 build products (cmake_build/) for a clean rebuild...")
+        shutil.rmtree(build_dir / "cmake_build", ignore_errors=True)
 
     # Step 1b: Set up scimake for CMake build
     print("\nStep 1b: Setting up scimake modules...")
@@ -674,7 +719,8 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
 
 def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="OFT_interface", disable_openmp=False, legacy_test=True, work_dir=None):
     """
-    Build the GPEC code by downloading from GitHub and compiling with make.
+    Build the GPEC code from the submodules/GPEC submodule (cloned from GitHub when TPS
+    is not a git checkout) with make.
     Requires that build_netcdf_lapack.py has already been used to compile
     dependencies (LAPACK, BLAS, NetCDF, NetCDF-Fortran, HDF5).
 
@@ -701,7 +747,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     build_dir : str, optional
         Directory to clone and build GPEC in (default: submodules/GPEC).
     rebuild : bool
-        If True, remove and re-clone the source tree and rebuild from scratch.
+        If True, ``make clean``, remove ``deps/lib/*`` and rebuild; the source is kept.
     remake : bool
         If True, keep the existing source tree but run ``make clean`` + ``make``
         without re-downloading.  Useful when only re-compiling is needed.
@@ -712,7 +758,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         If True (default), run GPEC_install_test() after a successful build.
         Set to False to skip post-build verification.
     branch : str
-        Git branch to clone (default: "OFT_interface").
+        Git branch to clone when not using the submodule (default: "OFT_interface").
     disable_openmp : bool
         If True, pass ``OMPFLAG=`` (empty) to make, omitting the OpenMP
         compiler flag so the compiled executables run single-threaded.
@@ -761,38 +807,13 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         return True
 
     # ------------------------------------------------------------------
-    # Step 1: Clone GPEC (default OFT_interface branch) into submodules/GPEC
+    # Step 1: Get GPEC (submodule, else clone the OFT_interface branch)
     # ------------------------------------------------------------------
     print("\nStep 1: Preparing GPEC source...")
+    if not fetch_source(gpec_source, gpec_url, branch=branch, home_dir=home_dir):
+        return False
 
-    if gpec_source.exists() and rebuild:
-        print("Removing existing GPEC source for clean rebuild...")
-        try:
-            shutil.rmtree(gpec_source)
-            print("Removed old GPEC source.")
-        except Exception as e:
-            print(f"Warning: could not remove GPEC source: {e}")
-
-    if not gpec_source.exists():
-        print(f"Cloning GPEC ({branch} branch) from {gpec_url}...")
-        try:
-            subprocess.run(
-                ["git", "clone", "--branch", branch, gpec_url, str(gpec_source)],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            print(f"Successfully cloned GPEC ({branch} branch) to {gpec_source}")
-        except subprocess.CalledProcessError as e:
-            print(f"Error cloning GPEC: {e.stderr}")
-            return False
-        except subprocess.TimeoutExpired:
-            print("GPEC clone timed out")
-            return False
-    else:
-        print(f"Using existing GPEC source at {gpec_source}")
-
+    make_root = gpec_source
     if work_dir:
         make_root = Path(work_dir) / "GPEC"
         print(f"Syncing GPEC source to work directory {make_root}...")
@@ -895,10 +916,10 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     # ------------------------------------------------------------------
     # Step 3 (optional): Show build configuration in debug mode
     # ------------------------------------------------------------------
-    if debug:
-        print("\nStep 3 (debug): Running 'make v' to show configuration...")
-    else:
+    if not debug:
         print("\nStep 3 (optional): Skipped – pass debug=True to show build configuration.")
+    else:
+        print("\nStep 3 (debug): Running 'make v' to show configuration...")
         try:
             result = subprocess.run(
                 ["make", "v"],
@@ -919,25 +940,9 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     # ------------------------------------------------------------------
     if rebuild or remake:
         print("\nStep 4: Cleaning previous build artifacts...")
+        clean_GPEC(make_root, env, deps=rebuild)
     else:
         print("\nStep 4 (optional): Skipped – pass rebuild=True or remake=True to clean artifacts.")
-        try:
-            result = subprocess.run(
-                ["make", "clean"],
-                cwd=str(gpec_install_dir),
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=120,
-            )
-            if result.returncode == 0:
-                print("Clean completed.")
-            else:
-                print(f"Warning: make clean returned {result.returncode}")
-                if result.stderr:
-                    print(result.stderr[-500:])
-        except Exception as e:
-            print(f"Warning: make clean failed: {e}")
 
     # ------------------------------------------------------------------
     # Step 5: Build GPEC
@@ -1014,6 +1019,26 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         print("Skipping post-build install test (run_tests=False).")
 
     return True
+
+
+def clean_GPEC(gpec_dir, env=None, deps=False):
+    """``make clean`` in gpec_dir/install; with deps, also remove the built libraries in deps/lib."""
+    try:
+        result = subprocess.run(["make", "clean"], cwd=str(Path(gpec_dir) / "install"),
+                                capture_output=True, text=True, env=env, timeout=120)
+        if result.returncode == 0:
+            print("Clean completed.")
+        else:
+            print(f"Warning: make clean returned {result.returncode}")
+            if result.stderr:
+                print(result.stderr[-500:])
+    except Exception as e:
+        print(f"Warning: make clean failed: {e}")
+    if deps:
+        for f in (Path(gpec_dir) / "deps" / "lib").glob("*"):
+            if f.is_file() or f.is_symlink():
+                f.unlink()
+        print(f"Removed {Path(gpec_dir) / 'deps' / 'lib'}/*")
 
 
 def run_GPEC_install_tests(gpec_dir=None, lib_paths=None, legacy_test=True):

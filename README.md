@@ -34,7 +34,7 @@ Stable versions will have a number designation, while all active development sho
 #### Short version:
 System agnostic but requires uv, gcc, openmpi, cmake and make.
 ``` 
-git clone https://github.com/MIT-PSFC/tearing-physics-suite.git
+git clone --recurse-submodules https://github.com/MIT-PSFC/tearing-physics-suite.git
 uv sync
 uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py  
 source tearing_physics_suite_env.sh
@@ -48,7 +48,7 @@ salloc -t 02:00:00 --mem=8G
 module purge
 module load default-paths 
 module load gcc/11.x
-git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
+git clone --recurse-submodules git@github.com:MIT-PSFC/tearing-physics-suite.git
 curl -LsSf https://astral.sh/uv/install.sh | sh 
 uv sync 
 uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py
@@ -59,7 +59,7 @@ Complete install on Engaging from login node, requires ssh key permissions for g
 ```
 salloc -t 02:00:00 --mem=8G
 module load gcc/12.2.0 openmpi/4.1.4
-git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
+git clone --recurse-submodules git@github.com:MIT-PSFC/tearing-physics-suite.git
 curl -LsSf https://astral.sh/uv/install.sh | sh 
 uv sync 
 uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py
@@ -80,11 +80,11 @@ uv run pytest
 
 3. Download source code in the directory of your choice:
 ```
-git clone git@github.com:MIT-PSFC/tearing-physics-suite.git
+git clone --recurse-submodules git@github.com:MIT-PSFC/tearing-physics-suite.git
 ```
 &emsp;&emsp;or 
 ```
-git clone https://github.com/MIT-PSFC/tearing-physics-suite.git
+git clone --recurse-submodules https://github.com/MIT-PSFC/tearing-physics-suite.git
 ```
 
 3. Set up python environment:    
@@ -116,6 +116,13 @@ uv run path/to/tearing-physics-suite/tearing_physics_suite/wrappers/build/build_
 &emsp;&emsp;on the clusters OMEGA and Engaging (more to come...)    
 &emsp;&emsp;On slow shared filesystems (e.g. NERSC CFS) add `--work-dir <fast dir>` (or set    
 &emsp;&emsp;`TPS_BUILD_DIR`) to compile PEST3 and GPEC there; the executables are copied back into `submodules/`.
+&emsp;&emsp;PEST3 and GPEC are git submodules (`submodules/PEST3`, `submodules/GPEC`) pinned to a commit; the build    
+&emsp;&emsp;runs `git submodule update --init` if they are missing, and warns if an existing checkout is not at the pin.    
+&emsp;&emsp;`--rebuild-gpec`/`--rebuild-pest3` clean the build products and keep the source.    
+&emsp;&emsp;To bump a pin:
+```
+cd submodules/GPEC && git checkout <sha> && cd ../.. && git add submodules/GPEC && git commit
+```
 
 5. Load environmental variables: 
 ```

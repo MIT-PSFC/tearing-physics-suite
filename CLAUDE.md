@@ -49,6 +49,12 @@
 - Python: `/fusion/projects/tmdb/scripts/eq_stab/venvs/genvenv1/.venv`. `TPSHOME` (from
   `tearing_physics_suite_env.sh`) is read lazily via `utils.tps_home()`; never read it at import time.
 - Fortran GPEC default branch: `OFT_interface` (`submodules/GPEC`); PEST3: `master`.
+- `submodules/GPEC` and `submodules/PEST3` are git submodules pinned to a commit (clone TPS with
+  `--recurse-submodules`). The build never resets an existing checkout; it warns when HEAD differs from the pin.
+  Bump a pin: `cd submodules/GPEC && git checkout <sha> && cd ../.. && git add submodules/GPEC && git commit`.
+- Existing main checkout, once, after the submodule branch merges (the user runs it, when nobody is building):
+  `git submodule init submodules/GPEC submodules/PEST3 && git submodule absorbgitdirs submodules/GPEC submodules/PEST3`
+  (keeps the clones' branches; moves their `.git` into TPS's `.git/modules`).
 - Make changes on a new branch cut from the checked-out branch, in a worktree if others are working;
   merge or push only on the user's go.
 - Open work: `ongoing_handoff.md`. Change log: `docs/refactor_changes.md`. Cross-project plan:

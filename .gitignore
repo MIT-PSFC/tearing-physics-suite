@@ -1,5 +1,5 @@
 equilibrium_helper/
-submodules/
+submodules/utils/
 tests/test_working_dir
 tests/test_working_dir2
 tests/test_working_dir_parallel

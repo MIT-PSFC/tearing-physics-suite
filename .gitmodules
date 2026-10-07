@@ -1,0 +1,10 @@
+[submodule "submodules/PEST3"]
+	path = submodules/PEST3
+	url = https://github.com/MIT-PSFC/PEST3
+	branch = master
+	ignore = untracked
+[submodule "submodules/GPEC"]
+	path = submodules/GPEC
+	url = https://github.com/PrincetonUniversity/GPEC
+	branch = OFT_interface
+	ignore = untracked

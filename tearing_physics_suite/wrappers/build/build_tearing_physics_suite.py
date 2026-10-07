@@ -5,9 +5,9 @@ Master build script for tearing-physics-suite. See main() for argument control.
 Orchestrates the full build by calling:
   1. build_netcdf_lapack.build_libraries()  – downloads & builds LAPACK, BLAS,
      HDF5, NetCDF-C and NetCDF-Fortran from source.
-  2. build_GPEC_PEST3.build_GPEC()          – clones & builds GPEC against
+  2. build_GPEC_PEST3.build_GPEC()          – fetches & builds GPEC against
      the freshly compiled libraries.
-  3. build_GPEC_PEST3.build_PEST3()         – clones & builds PEST3 against
+  3. build_GPEC_PEST3.build_PEST3()         – fetches & builds PEST3 against
      the same libraries, linking GPEC's VACUUM (so GPEC comes first).
 
 Usage (from the repository root):
@@ -47,6 +47,7 @@ os.environ['TPSHOME'] = str(_repo_dir)
 from tearing_physics_suite.wrappers.build.build_GPEC_PEST3 import (  # noqa: E402 (after the sys.path fix)
     build_GPEC,
     build_PEST3,
+    git_describe,
 )
 from tearing_physics_suite.wrappers.build.build_netcdf_lapack import build_libraries  # noqa: E402
 
@@ -106,6 +107,8 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
 
     gpec_bin  = str(Path(repo_root) / "submodules" / "GPEC" / "bin")
     pest3_bin = str(Path(repo_root) / "submodules" / "PEST3" / "cmake_build" / "pest3")
+    gpec_version = git_describe(Path(repo_root) / "submodules" / "GPEC")
+    pest3_version = git_describe(Path(repo_root) / "submodules" / "PEST3")
 
     lines = [
         "#!/usr/bin/env bash",
@@ -115,6 +118,10 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         "#",
         "# Prerequisites (load before sourcing this file on Slurm/ORCD):",
         "#   module load gcc/12.2.0 openmpi/4.1.4",
+        "#",
+        "# Sources at build time (git describe --always --dirty):",
+        f"#   GPEC : {gpec_version}",
+        f"#   PEST3: {pest3_version}",
         "",
         "# ── Tearing Physics Suite repository root ────────────────────────────────",
         f"export TPSHOME={repo_root}",
@@ -200,7 +207,7 @@ def build_all(
     rebuild_pest3 : bool
         Force a clean rebuild of PEST3.
     rebuild_gpec : bool
-        Force a clean rebuild of GPEC (removes and re-clones source).
+        Force a clean rebuild of GPEC (make clean, deps/lib; keeps the source).
     remake_gpec : bool
         Re-run ``make clean`` + ``make`` on the existing GPEC source without
         re-downloading it.
@@ -220,7 +227,7 @@ def build_all(
         scratch disk); the executables are copied back into submodules/.
         Defaults to ``$TPS_BUILD_DIR``, else in-tree.
     gpec_branch : str
-        GPEC branch to clone if submodules/GPEC does not exist yet.
+        GPEC branch to clone if submodules/GPEC does not exist and is not a registered submodule.
     pest3_gpec_vacuum : bool
         Link GPEC's VACUUM into PEST3 (pest3x -V, the TPS default vacuum).
     jgpec_home : str, optional
@@ -409,7 +416,7 @@ def main():
         "--gpec-branch",
         type=str,
         default="OFT_interface",
-        help="GPEC branch to clone if submodules/GPEC does not exist yet (default: OFT_interface)",
+        help="GPEC branch to clone if submodules/GPEC is missing and TPS is not a git checkout (default: OFT_interface)",
     )
 
     # Skip flags
@@ -423,7 +430,7 @@ def main():
     parser.add_argument("--jgpec-home", type=str, default=None,
                         help="jGPEC repository for run_jgpec, written to the env file (default: $JGPEC_HOME, else /fusion/projects/tmdb/src/GPEC)")
     parser.add_argument("--pest3-native-vacuum", action="store_true", help="Build PEST3 without GPEC's VACUUM (no pest3x -V)")
-    parser.add_argument("--rebuild-gpec", action="store_true", help="Force clean rebuild of GPEC (removes and re-clones source)")
+    parser.add_argument("--rebuild-gpec", action="store_true", help="Force clean rebuild of GPEC (make clean, deps/lib; keeps the source)")
     parser.add_argument("--remake-gpec", action="store_true",
                         help="Re-run make clean + make on existing GPEC source without re-downloading")
 

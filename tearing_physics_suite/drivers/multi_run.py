@@ -18,6 +18,7 @@ import xarray as xr
 import zarr
 from scipy.interpolate import Akima1DInterpolator, PPoly
 
+from tearing_physics_suite.drivers import spot_check as sc
 from tearing_physics_suite.drivers.pipeline import nonlinear_resistive_calculation
 from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, zarr_chunk
 from tearing_physics_suite.utils import _get_num_cpus
@@ -42,7 +43,7 @@ def multi_run(eq_filenames, profile_filenames, read_profile_function, master_wor
     master_working_dir : str
         Top-level directory for worker subdirectories and results.
     **kwargs
-        Forwarded to nonlinear_resistive_calculation.
+        Forwarded to multi_run_ (e.g. spot_check), then to nonlinear_resistive_calculation.
 
     Returns
     -------
@@ -72,7 +73,7 @@ _MULTI_RUN_STATE: dict = {}
 
 def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
                cluster_manager='slurm', return_lists=False, fail_fast=False,
-               warm_start=True, chunksize='automatic', **kwargs):
+               warm_start=True, chunksize='automatic', spot_check=None, **kwargs):
     """Inner parallelisation driver: distributes equilibria across CPU workers.
 
     Uses ``imap_unordered`` for dynamic scheduling with automatic batching.
@@ -98,6 +99,9 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
         If True, skip complete cases (checked by _validate_case).
     chunksize : int or 'automatic'
         imap_unordered chunk size.
+    spot_check : SpotCheck, True or None
+        Re-run a random fraction of cases through the key input scans (drivers/spot_check.py); True uses
+        SpotCheck() defaults (1%). Results go to master_working_dir/spot_checks/; never fails a main run.
     **kwargs
         Forwarded to nonlinear_resistive_calculation.
 
@@ -114,7 +118,13 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
 
     n_cpus = _get_num_cpus()
     n_runs = len(eq_filenames)
-    n_workers = min(n_cpus, n_runs)
+    spot = sc.as_spot_check(spot_check)
+    spot_args = []
+    if spot:
+        plan = sc.plan_spot_checks(n_runs, spot, kwargs, master_working_dir, warm_start)
+        sc.estimate_spot_check_cost(plan)
+        spot_args = sc.spot_tasks(plan, eq_filenames, kwargs, spot, warm_start)
+    n_workers = min(n_cpus, n_runs + len(spot_args))
     print(f"[multi_run] Distributing {n_runs} runs across {n_workers} workers ({n_cpus} CPUs available via SLURM).")
 
     if chunksize == 'automatic':
@@ -143,11 +153,12 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
     for w in range(n_workers):
         worker_id_queue.put(w)
 
-    # One task per equilibrium; the scheduler batches them via chunksize.
+    # One task per equilibrium, then the spot tasks; the scheduler batches them via chunksize.
     per_run_args = [
         (i, eq_filenames[i], profile_list[i], kwargs, fail_fast, warm_start)
         for i in range(n_runs)
-    ]
+    ] + spot_args
+    spot_errors = {}
 
     combined_xr_list = [None] * n_runs
     input_dict_list = [None] * n_runs
@@ -163,6 +174,11 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
         with pool:
             for idx, success, err_msg in pool.imap_unordered(
                     _run_one_eq, per_run_args, chunksize=chunksize):
+                if isinstance(idx, tuple):  # spot task: report only, never fail_fast
+                    if not success:
+                        spot_errors[idx[1:]] = err_msg
+                        print(f"[multi_run] WARNING: spot-check {idx[1:]} failed: {err_msg}")
+                    continue
                 if success:
                     n_success += 1
                     if return_lists:
@@ -194,6 +210,9 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
     if errors:
         print(f"[multi_run] Failed runs: {sorted(errors.keys())}")
         print(f"[multi_run] Saved error details to {error_path}")
+    if spot:
+        with open(os.path.join(sc.spot_dir(master_working_dir), 'errors.pkl'), 'wb') as f:
+            pkl.dump(spot_errors, f)
 
     if return_lists:
         return combined_xr_list, input_dict_list, errors
@@ -271,10 +290,12 @@ def _run_one_eq(args):
     Runs nonlinear_resistive_calculation, pickles the
     result, exports the augmented netCDF, and writes done_{idx}.marker last.
     """
-    idx, eq_filename, profile_dict, kwargs, fail_fast, warm_start = args
     worker_id = _MULTI_RUN_STATE['worker_id']
     working_dir = _MULTI_RUN_STATE['working_dir']
     master_working_dir = _MULTI_RUN_STATE['master_working_dir']
+    if args[0] == 'spot':
+        return _run_spot(args, worker_id, working_dir, master_working_dir)
+    idx, eq_filename, profile_dict, kwargs, fail_fast, warm_start = args
     marker_path = os.path.join(master_working_dir, f'done_{idx}.marker')
 
     # --- Warm-start skip: validate (and repair) pre-existing output ---
@@ -335,6 +356,20 @@ def _run_one_eq(args):
 
     finally:
         # Clean the working directory for the next task on this worker.
+        _clean_working_dir(working_dir)
+
+def _run_spot(args, worker_id, working_dir, master_working_dir):
+    """Worker task: one spot-check (case, scan, n); failures are returned, never raised."""
+    key = args[:2] + args[3:5]
+    try:
+        out = sc.run_spot_task(args, working_dir, master_working_dir)
+        print(f"[multi_run] Worker {worker_id}: spot-check {key[1:]} done.")
+        return out
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"[multi_run] Worker {worker_id}: spot-check {key[1:]} failed: {e}\n{tb_str}")
+        return key, False, f"{e}\n{tb_str}"
+    finally:
         _clean_working_dir(working_dir)
 
 def _clean_working_dir(working_dir):
@@ -705,6 +740,10 @@ def multi_compile_zarr(
     elif report_errs:
         print(f"[multi_compile] No error log found. Assuming all {n_runs} runs succeeded.")
 
+    # Spot-checks (multi_run_(spot_check=...)): spot_checks.zarr + report, and spot_check_flag on every run
+    spotted = os.path.exists(os.path.join(sc.spot_dir(master_working_dir), 'plan.json'))
+    spot_ds = sc.compile_spot_checks(master_working_dir)[0] if spotted else None
+
     # --- stream each run into the Zarr store -----------------------------
     eq_labels = []
     input_dict_list = []
@@ -743,6 +782,9 @@ def multi_compile_zarr(
         eq_label = os.path.basename(eq_filenames[i])
 
         ds = _zeff_on_psi_n_Zeff(ds)
+        if spotted:
+            codes = [str(c) for c in ds.code.values]
+            ds["spot_check_flag"] = (("nn", "code"), sc.spot_check_flag(spot_ds, i, ds.nn.values, codes))
 
         # Cast r / r_prime index coords to float to allow nans
         for _dim in ("r", "r_prime"):

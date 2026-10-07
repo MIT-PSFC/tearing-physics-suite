@@ -154,6 +154,8 @@ uv run pytest -m julia                          # jGPEC runs (first run in a pro
 
 Input sensitivity scans are listed in `tearing_physics_suite/drivers/input_test_suite.py` and run with `run_multiple_scans` (or `run_multiple_scans_parallel`) from `drivers/input_test_runner.py`; see `tests/integration/test_input_scans.py`.
 
+Spot-checks during database runs: `multi_run(..., spot_check=True)` (or `SpotCheck(fraction=..., seed=...)` from `drivers/spot_check.py`) re-runs 1% of cases through `spot_check_tests` (the key numerical scans plus the edge scan for the run's wall setting; quick values) with the run's own settings and n list. Spot tasks run after the main cases in the same pool and add about 20% compute (printed before the run). `multi_compile_zarr` writes `spot_checks/spot_checks.zarr`, `spot_checks/report.txt` and adds `spot_check_flag(run_idx, nn, code)` to the main store (-1 not checked, 0 passed, 1 flagged).
+
 # Licensing
 
 This page's MIT license only applies to the scripts inside this git repository. In using or distributing this repository, you must also adhere to the licenses of the downloaded codes within, which can be found at the following URLs:    

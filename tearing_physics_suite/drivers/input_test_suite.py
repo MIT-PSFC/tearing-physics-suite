@@ -192,7 +192,11 @@ def run_scan(name, eq_filename, results_dir=None, quick_test=True, verbose=True,
     kwargs: scan_vals overrides the default values; superquick/debug where the scan supports them;
     anything else is forwarded to scan_1D_input.
     """
-    spec = SCANS[name]
+    return run_spec(SCANS[name], eq_filename, results_dir, quick_test, verbose, output_prefix, **kwargs)
+
+
+def run_spec(spec, eq_filename, results_dir=None, quick_test=True, verbose=True, output_prefix='', **kwargs):
+    """run_scan for a ScanSpec (e.g. a SCANS entry modified with dataclasses.replace)."""
     if results_dir is None:
         results_dir = os.path.join(tps_home(), 'tests/test_results')
     superquick = kwargs.pop('superquick', False) if spec.superquick_vals is not None else False
@@ -261,6 +265,13 @@ extra_numerical_tests = (
     'sing1_flag_scan',
     'regrid_flag_scan',
 )
+
+# Spot-checks of database runs (drivers/spot_check.py): the key numerical tests plus the edge scan matching the
+# run's wall setting; pest3_finite_element_scan only when the run includes PEST3.
+def spot_check_tests(run_pest3=True, vac_flag='t'):
+    """Scan names spot-checked for a database run with these settings."""
+    scans = tuple(s for s in key_numerical_tests if run_pest3 or s != 'pest3_finite_element_scan')
+    return scans + ('edge_truncation_q_scan_no_wall' if vac_flag == 't' else 'edge_truncation_q_scan',)
 
 # The name of every scan, in default run order:
 scan_functions = tuple(SCANS)

@@ -118,6 +118,7 @@ def gpec_toml_sections(eq_filename, nn, solver, inputs, **jgpec_kwargs):
                nn_low=int(nn), nn_high=int(nn), delta_mlow=int(inputs['delta_mlow']), delta_mhigh=int(inputs['delta_mhigh']),
                mthvac=int(inputs['mthvac']), singfac_min=float(inputs['singfac_min']), ucrit=float(inputs['ucrit']),
                eulerlagrange_tolerance=float(min(inputs['tol_r'], inputs['tol_nr'])),
+               sing_order=int(inputs['sing_order']),  # Riccati's series order (jGPEC default 6; STRIDE's here)
                set_psilim_via_dmlim=_true(inputs['sas_flag']), dmlim=float(inputs['dmlim']),
                integrator=solver, kinetic_factor=0.0, local_stability_flag=False, psiedge=1.0,
                force_termination=True, HDF5_filename='gpec.h5')

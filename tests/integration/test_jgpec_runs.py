@@ -50,7 +50,8 @@ def test_orientation_matches_rdcon(nowall):
 
 
 @pytest.mark.xfail(strict=True, reason="jGPEC Galerkin, no wall: the 4/1 row (psi_n 0.93) differs from RDCON and "
-                                       "Riccati (e.g. [4/1, 2/1] -12.9 vs 3.6 and 3.2); Riccati and the wall case agree")
+                                       "Riccati (e.g. [4/1, 2/1] -12.9 vs 3.6 and 3.2). Cause: unscaled banded LU in "
+                                       "jGPEC galerkin_solve (diagonal spans ~1e-15..1e10); see META_PLAN 5")
 def test_galerkin_nowall_41_row(nowall):
     rd = nowall.rdcon_xr.Delta_prime.sel(i=0).values
     jg = nowall.jgpec_xrs['jGPEC_galerkin'].Delta_prime.sel(i=0).values

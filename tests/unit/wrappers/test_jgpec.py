@@ -51,6 +51,7 @@ def test_toml_sections_solver_keys_and_overrides(inputs):
     assert gal['ForceFreeStates']['integrator'] == 'galerkin' and gal['ForceFreeStates']['gal_rpec_flag'] is False
     assert not any(k.startswith('gal_') for k in ric['ForceFreeStates'])
     assert gal['ForceFreeStates']['nn_low'] == gal['ForceFreeStates']['nn_high'] == 2
+    assert ric['ForceFreeStates']['sing_order'] == int(ins['sing_order'])
     assert gal['Equilibrium']['mtheta'] == 129 and gal['ForceFreeStates']['nstep'] == 7 and gal['Wall']['a'] == 0.5
 
 

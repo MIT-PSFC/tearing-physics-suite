@@ -23,6 +23,9 @@ CONFIGS = {
     'zeff_profile': dict(Zeff={'x': [0.0, 0.5, 1.0], 'y': [1.5, 2.0, 2.5]}),
     'ldp_i': dict(eq_type="'ldp_i'"),
     'dump_mre': dict(dump_MRE_data='t'),
+    'gal_xmin': dict(gal_xmin_flag='t'),
+    'classic_splines': dict(use_classic_splines='t'),
+    'sing_start': dict(sing_start=2, sing_start_str=3),
     'odd_nx_and_overrides': dict(nx=63, set_delta_mlow_to_delta_mhigh=True, set_singfac_min_to_dx=True,
                                  set_int_tolerances_equal=True),
 }
@@ -59,3 +62,19 @@ def test_namelists_match_fixtures(name, tmp_path):
         ref = FIX / name / f
         assert ref.exists(), f'missing fixture {ref}'
         assert (tmp_path / f).read_text() == ref.read_text(), f'{name}/{f} differs'
+
+
+def test_key_groups_match_writers():
+    import inspect
+
+    from tearing_physics_suite.wrappers import gpec_inputs as gi
+    shared, rdcon, stride = set(gi.SHARED_KEYS), set(gi.RDCON_KEYS), set(gi.STRIDE_KEYS)
+    assert not (shared & rdcon or shared & stride or rdcon & stride)
+
+    def kw(f):
+        return {p.name for p in inspect.signature(f).parameters.values() if p.kind == p.KEYWORD_ONLY}
+    assert kw(gi.write_rdcon_in) == shared | rdcon
+    warn_only = {'sing1_flag', 'sing_order_ceiling', 'gal_xmin_flag'}  # RDCON inputs STRIDE only warns about
+    assert kw(gi.write_stride_in) == shared | stride | warn_only
+    params = set(inspect.signature(gi.write_rdcon_stride_inputs).parameters)
+    assert shared | rdcon | stride <= params

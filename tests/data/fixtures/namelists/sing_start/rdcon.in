@@ -1,0 +1,73 @@
+&GAL_INPUT
+    nx=256
+    pfac=0.001
+    gal_tol=1e-10
+    dx1dx2_flag=t
+    dx0=0.0005
+    dx1=0.001
+    dx2=0.001
+    cutoff=10
+    solver='LU'
+    nq=6
+    gal_xmin_flag=f
+/
+&GAL_OUTPUT
+    interp_np=3
+    restore_uh=t
+    restore_us=t
+    restore_ul=t
+    bin_delmatch=f
+    out_galsol=f
+    bin_galsol=f
+    b_flag=f
+    bin_coilsol=f
+/
+&RDCON_CONTROL
+    bal_flag=f
+    mat_flag=f
+    ode_flag=t
+    vac_flag=t
+    gal_flag=t
+    sas_flag=t
+    reform_eq_with_psilim=t
+    qlow=0.0
+    qhigh=1000.0
+    dmlim=0.2
+    sing_start=2
+    nn=1
+    delta_mlow=8
+    delta_mhigh=8
+    delta_mband=0
+    mthvac=960
+    thmax0=1
+    tol_nr=1e-10
+    tol_r=1e-10
+    crossover=0.01
+    singfac_min=0.0001
+    ucrit=1000.0
+    cyl_flag=f
+    sing1_flag=t
+    sing_order=8
+    sing_order_ceiling=f
+    regrid_flag=f
+    psi_N_Zeff=0.0,1.0
+    Zeff=1.52,1.52
+/
+&RDCON_OUTPUT
+    crit_break=t
+    ahb_flag=f
+    msol_ahb=1
+    mthsurf0=1
+    bin_euler=f
+    euler_stride=1
+    out_bal1=f
+    bin_bal1=f
+    out_bal2=f
+    bin_bal2=f
+    MRE_flag=t
+    geom_flag=t
+/
+&UA_DIAGNOSE_LIST
+    uad%flag=f
+    uad%phase=t
+/

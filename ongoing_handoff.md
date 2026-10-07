@@ -11,7 +11,7 @@ Tracking for open work on this branch. Update this file when an item is done (ti
 - Full `tests/run_tests.py` suite passes (7/7, exit 0) on Perlmutter, 2026-10-06, with GPEC built from `Zeff_profile_support`. Remaining value issue: `fortran_wrappers_tests` prints `PEST3 Delta prime 21 no-wall value correct: False` (PEST3 2.57 vs reference 7.3; rdcon 7.29 and stride 7.31 match). The script does not fail on it. Not yet diagnosed. (Since A3 these checks are `tests/integration/test_fortran_wrappers.py`; the PEST3 no-wall check is an `xfail`.)
 
 ## GPEC branch dependencies
-TPS `build_GPEC(branch="develop")` is still the default. Use `--gpec-branch Zeff_profile_support` when cloning GPEC for the TPS tests. The branch is used only when `submodules/GPEC` does not exist yet.
+TPS `build_GPEC(branch="OFT_interface")` is the default (since D, 2026-10-07); `OFT_interface` contains `develop` and `Zeff_profile_support`. The branch is used only when `submodules/GPEC` does not exist yet.
 
 | TPS feature | Requires | Status (2026-10-05) |
 |---|---|---|
@@ -23,7 +23,7 @@ TPS `build_GPEC(branch="develop")` is still the default. Use `--gpec-branch Zeff
 | `ishape` in `&VACDAT` | GPEC vacuum | In develop |
 
 ## Future work
-- [ ] **GPEC `Zeff_profile_support` → develop.** Until it merges, build GPEC with `branch="Zeff_profile_support"` for TPS tests. When it merges, check that these are unchanged:
+- [ ] **GPEC `Zeff_profile_support` → develop.** TPS builds `OFT_interface`, which contains it. When it merges into develop, check that these are unchanged:
   - the namelist and netcdf variable names (`psi_N_Zeff`, `Zeff`);
   - the `read_var_len` length limit (TPS assumes 998 or fewer points);
   - `mercier.f`'s Zeff interpolation (TPS assumes a cubic spline);

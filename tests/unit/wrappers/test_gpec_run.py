@@ -32,7 +32,9 @@ def test_rdcon_only_runs_without_stride_executable(tmp_path, eq_file):
         eq_file, 1, run_rdcon=True, run_stride=False, working_dir=str(tmp_path / 'work'), gpec_dir=gpec_dir,
         output_location=str(out), output_prefix='p_', save_input=True, save_terminal_output=True)
     assert rd_ran and not st_ran and st is None
-    xr.testing.assert_identical(rd.load(), xr.load_dataset(FIX))
+    ref = xr.load_dataset(FIX)
+    ref['Delta_prime'].attrs['long_name'] = 'Delta prime matrix'  # relabelled on read (item F)
+    xr.testing.assert_identical(rd.load(), ref)
     assert (out / 'p_g147131.02300_DIIID_KEFIT_rdcon_n1.nc').exists()
     assert (out / 'p_g147131.02300_DIIID_KEFIT_rdcon_terminal_output_n1.txt').exists()
     assert (out / 'p_g147131.02300_DIIID_KEFIT_rdcon_stride_input_n1.pkl').exists()

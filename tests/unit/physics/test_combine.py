@@ -111,3 +111,13 @@ def test_combine_codes_debug_raises():
 
 def test_combine_codes_empty():
     assert combine_codes({'rdcon': None}, nn=None) == (None, {})
+
+
+def test_strip_inherited_attrs():
+    from tearing_physics_suite.physics.combine import strip_inherited_attrs
+    lab = {'long_name': 'Normalized Poloidal Flux at Rational Surfaces'}
+    ds = xr.Dataset({'psi_n_rational': ('r', [0.5, 0.8], lab), 'chi_perp_surf': ('r', [1.0, 2.0], lab),
+                     'q': ('r', [2.0, 3.0], {'long_name': 'Safety Factor'})})
+    out = strip_inherited_attrs(ds)
+    assert out.chi_perp_surf.attrs == {} and out.psi_n_rational.attrs == lab and out.q.attrs['long_name'] == 'Safety Factor'
+    assert ds.chi_perp_surf.attrs == lab  # input unchanged

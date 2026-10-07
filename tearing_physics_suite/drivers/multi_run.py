@@ -21,6 +21,7 @@ from scipy.interpolate import Akima1DInterpolator, PPoly
 
 from tearing_physics_suite.drivers import spot_check as sc
 from tearing_physics_suite.drivers.pipeline import nonlinear_resistive_calculation
+from tearing_physics_suite.drivers.store_schema import prepare_for_store
 from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, zarr_chunk
 from tearing_physics_suite.physics.combine import CODE_ORDER
 from tearing_physics_suite.utils import _get_num_cpus
@@ -729,6 +730,8 @@ def multi_compile_zarr(
     mb_per_chunk=10,
     report_errs=True,
     meta_data_dicts=None,       # optional per-run dicts (e.g. profile_list) stored via meta_dict_to_dataset
+    store_float32=True,         # store results as float32 (k0/k1/C0 recompute inputs stay float64)
+    drop_duplicates=True,       # drop/blank values that repeat others (drivers/store_schema.py)
 ):
     """Memory-bounded version of multi_compile.
 
@@ -744,6 +747,9 @@ def multi_compile_zarr(
         fully materialized in memory; slice/compute the parts you need.
     compiled_inputs_xr : xr.Dataset
         Small scalar-input dataset (safe to keep in memory).
+
+    Each run is reduced by store_schema.prepare_for_store before it is stored (dwdt_surf dropped,
+    duplicates removed, float32); the per-run files keep everything.
     """
     n_runs = len(eq_filenames)
     meta_data_dicts = meta_data_dicts or []
@@ -810,7 +816,7 @@ def multi_compile_zarr(
 
         eq_label = os.path.basename(eq_filenames[i])
 
-        ds = store_ready(ds)
+        ds = store_ready(ds, store_float32=store_float32, drop_duplicates=drop_duplicates)
         if 'code' in ds.dims:
             used_codes.update(str(c) for c in ds.code.values)
             ds = align_codes(ds, all_codes(ds))
@@ -913,9 +919,10 @@ def multi_compile_zarr(
     print(f"[multi_compile] Compiled {n_added} runs into {zarr_path}")
     return compiled_xr, compiled_inputs_xr
 
-def store_ready(ds):
-    """One run's dataset as the zarr store holds it: Zeff on psi_n_Zeff, float r/r_prime (NaN-paddable)."""
-    ds = _zeff_on_psi_n_Zeff(ds)
+def store_ready(ds, store_float32=True, drop_duplicates=True):
+    """One run's dataset as the zarr store holds it: Zeff on psi_n_Zeff, reduced (store_schema.prepare_for_store),
+    float r/r_prime (NaN-paddable)."""
+    ds = prepare_for_store(_zeff_on_psi_n_Zeff(ds), store_float32=store_float32, drop_duplicates=drop_duplicates)
     for _dim in ("r", "r_prime"):
         if _dim in ds.coords and np.issubdtype(ds[_dim].dtype, np.integer):
             ds = ds.assign_coords({_dim: ds[_dim].astype("float64")})

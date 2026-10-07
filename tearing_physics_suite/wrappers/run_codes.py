@@ -297,9 +297,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         # See how accurate the truncation was:
         if pest3_ran and pest3_trunc_ran:
             if verbose:
-                print(f"Verbose output: PEST3 q-truncation point {pest3_xr['qa'].max().values}, GPEC q-truncation point {qlim_actual}.")
-            if abs(pest3_xr['qa'].max().values - qlim_actual) > 0.01:
-                print(f"WARNING: PEST3 q-truncation point {pest3_xr['qa'].max().values} differs from GPEC q-truncation point {qlim_actual}. Results may not be comparable.")
+                print(f"Verbose output: PEST3 q-truncation point {pest3_xr['q_pest3'].max().values}, GPEC q-truncation point {qlim_actual}.")
+            if abs(pest3_xr['q_pest3'].max().values - qlim_actual) > 0.01:
+                print(f"WARNING: PEST3 q-truncation point {pest3_xr['q_pest3'].max().values} differs from GPEC q-truncation point {qlim_actual}. Results may not be comparable.")
     else:
         pest3_xr = None
         pest3_ran = False

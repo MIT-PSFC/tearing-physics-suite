@@ -6,12 +6,15 @@ import numpy as np
 import xarray as xr
 
 from tearing_physics_suite.physics.combine import (
+    JGPEC_CODES,
     _uniquify_r,
     add_code_dim,
+    align_surfaces,
     code_delta_primes,
     combine_codes,
     compile_xarrays,
     merge_input_dicts,
+    ordered_codes,
 )
 from tearing_physics_suite.physics.cross_field_transport import (
     chi_para_lmfp_no_w_on_modes,
@@ -320,8 +323,7 @@ def linear_resistive_calculation(eq_filename, nvec = None, test_numerical_stabil
     for nn in nvec:
         #if test_numerical_stability:
         #   Run numerical stability test...
-        rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict=run_resistive_calculation(eq_filename, nn, **kwargs)
-        comb_n_xr, n_pest3_xr, n_input_dict = compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict)
+        comb_n_xr, n_pest3_xr, n_input_dict = compile_xarrays(*run_resistive_calculation(eq_filename, nn, **kwargs))
         xarray_vec.append(comb_n_xr)
         pest3_xr_vec.append(n_pest3_xr)
         input_dict_vec.append(n_input_dict)
@@ -429,9 +431,10 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Run resistive delta prime calculation:
     #########################################################################################################
-    rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict = run_resistive_calculation(eq_filename,nn,**kwargs)
+    res = run_resistive_calculation(eq_filename,nn,**kwargs)
+    rdcon_xr = res.rdcon_xr
 
-    input_dict = merge_input_dicts(rdcon_stride_input_dict, pest3_input_dict)
+    input_dict = merge_input_dicts(res.rdcon_stride_input_dict, res.pest3_input_dict)
 
     # Add wd_static, energy_confinement_time, k0, k1, C0, wd_static to input_dict:
     input_dict['wd_static'] = wd_static
@@ -457,12 +460,13 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     # Per code: Delta' coupling, then MRE analysis using the RDCON surface terms
     #########################################################################################################
     expanded = {}
-    for code, ds in (('rdcon', rdcon_xr), ('stride', stride_xr), ('pest3', pest3_xr)):
-        if ds is None:
-            continue
+    datasets = ordered_codes({'rdcon': rdcon_xr, 'stride': res.stride_xr, 'pest3': res.pest3_xr, **res.jgpec_xrs})
+    for code, ds in datasets.items():
         ds = add_code_dim(ds, code, delete_attrs=delete_attrs)
         if 'Delta_prime' in ds:
             ds = code_delta_primes(ds, code)
+            if code in JGPEC_CODES:
+                ds = align_surfaces(ds, expanded['rdcon'])
             surf_xr = ds if code == 'rdcon' else expanded['rdcon']
             ds = extract_critical_mre_factors_on_modes(ds, surf_xr, k0=k0, k1=k1, C0=C0, iterator=wd_static, force_lmfp=force_lmfp)
         expanded[code] = ds

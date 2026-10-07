@@ -1,12 +1,28 @@
 # Python functions to call GPEC and PEST3 fortran codes for delta prime calculations
 
 import os
+from typing import NamedTuple
 
 import numpy as np
 
 from tearing_physics_suite.utils import tps_home
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation, _default_eq_type
+from tearing_physics_suite.wrappers.jgpec import check_jgpec_request, run_jgpec_solvers
 from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, pest3_special_truncation_loop
+
+
+class CodeResults(NamedTuple):
+    """Return value of run_resistive_calculation (unpacks like the original 8-tuple plus the jGPEC fields)."""
+    rdcon_xr: object
+    stride_xr: object
+    pest3_xr: object
+    rdcon_ran: bool
+    stride_ran: bool
+    pest3_ran: bool
+    rdcon_stride_input_dict: object
+    pest3_input_dict: object
+    jgpec_xrs: dict
+    jgpec_ran: dict
 
 
 def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, run_pest3=True,
@@ -26,6 +42,10 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         pest_pull_mtheta=True, # Change at your own risk, see mtheta_scan scan results
         debug_GPEC_resistive_calculation=False, #Quick exit after GPEC resistive calculation
         ascii_q_plot=False,       # Print an ascii q-profile plot after the GPEC run
+        run_jgpec=False,          # Also compute Delta' with jGPEC (Julia GPEC); needs run_rdcon for the surface map
+        jgpec_solvers=('galerkin',), # Any of 'galerkin', 'riccati'; each is its own code (jGPEC_<solver>)
+        jgpec_threads=1,
+        jgpec_timeout=7200,       # Seconds per jGPEC run (the first run in a process includes Julia compilation)
         **kwargs):
     """
     Run resistive toroidal calculation for a single toroidal mode number by calling
@@ -57,12 +77,15 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     Returns
     -------
+    CodeResults (a NamedTuple; the first eight fields are the original return values):
     rdcon_xr, stride_xr, pest3_xr : xr.Dataset or None
         Output xarrays from each code.
     rdcon_ran, stride_ran, pest3_ran : bool
         Whether each code ran successfully.
     rdcon_stride_input_dict, pest3_input_dict : dict or None
         Input parameters used for each calculation.
+    jgpec_xrs, jgpec_ran : dict
+        {'jGPEC_<solver>': xr.Dataset or None} and {'jGPEC_<solver>': bool}; empty unless run_jgpec.
     """
     if pest3_dir is None:
         pest3_dir = os.path.join(tps_home(), 'submodules/PEST3/cmake_build/pest3')
@@ -81,6 +104,10 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         if key in kwargs:
             del kwargs[key]
 
+    #Extract keyword arguments for jGPEC
+    jgpec_kwargs = {k: kwargs.pop(k) for k in [k for k in kwargs if k.endswith('_jgpec')]}
+    if run_jgpec:
+        check_jgpec_request(jgpec_solvers, kwargs.get('vac_flag', 't'), run_rdcon)
     # Make equilibrium type consistent (default case is eqdsk):
     _default_eq_type(eq_filename, kwargs)
     if 'eq_type' in kwargs:
@@ -100,6 +127,13 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     if ascii_q_plot and rdcon_xr is not None:
         ascii_q_plotter(rdcon_xr)
+
+    jgpec_xrs, jgpec_ran = {}, {}
+    if run_jgpec:
+        jgpec_xrs, jgpec_ran = run_jgpec_solvers(
+            eq_filename, nn, working_dir, rdcon_stride_input_dict, rdcon_xr if rdcon_ran else None,
+            solvers=jgpec_solvers, threads=jgpec_threads, timeout=jgpec_timeout, output_location=output_location,
+            output_prefix=output_prefix, override_save=override_save, verbose=verbose, **jgpec_kwargs)
 
     #########################################################################################################
     # Set up pest3 calculation:
@@ -271,7 +305,8 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         pest3_input_dict = None
 
     # Return all results:
-    return rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict
+    return CodeResults(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict,
+                       pest3_input_dict, jgpec_xrs, jgpec_ran)
 
 
 def ascii_q_plotter(rdcon_xr):

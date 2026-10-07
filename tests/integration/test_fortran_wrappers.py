@@ -55,7 +55,7 @@ def test_wall_dp21(wall_run, code, ref, atol):
 
 
 def test_wall_outputs_round_trip(wall_run, eq_file):
-    d, (rd, st, p3, _, _, _, rs_in, p3_in) = wall_run
+    d, (rd, st, p3, _, _, _, rs_in, p3_in) = wall_run[0], wall_run[1][:8]
     stem = 'test_1' + eq_stem(eq_file)
     for code, ds in (('rdcon', rd), ('stride', st), ('pest3', p3)):
         assert ds.equals(xr.open_dataset(d / f'{stem}_{code}_n1.nc')), code

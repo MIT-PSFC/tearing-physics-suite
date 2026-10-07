@@ -144,6 +144,21 @@ def delta_prime_variability(xarray,comparison_var='code',
         Delta_prime_surf_pest3_stride_andor_rdcon = xarray.Delta_prime_surf.sel(code=xarray.Delta_prime_surf.code.isin(['stride', 'rdcon','pest3']))
         xarray = add_comparison_across_var(xarray,Delta_prime_surf_pest3_stride_andor_rdcon,comparison_var,override_name='GPECvsPEST')
 
+    #########################################################################################################
+    # Special case: comparison_var = 'code', each jGPEC solver vs rdcon ('<code>vsRDCON'), and the two
+    #   jGPEC solvers against each other ('jGPEC_solvers')
+    #########################################################################################################
+
+    if comparison_var == 'code':
+        codes = list(xarray.Delta_prime_surf.code.values)
+        jgpec = [c for c in codes if str(c).startswith('jGPEC_')]
+        for c in jgpec if 'rdcon' in codes else []:
+            xarray = add_comparison_across_var(xarray, xarray.Delta_prime_surf.sel(code=['rdcon', c]), comparison_var,
+                                               override_name=f'{c}vsRDCON')
+        if len(jgpec) > 1:
+            xarray = add_comparison_across_var(xarray, xarray.Delta_prime_surf.sel(code=jgpec), comparison_var,
+                                               override_name='jGPEC_solvers')
+
     if run_bool_check:
         return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
     return xarray

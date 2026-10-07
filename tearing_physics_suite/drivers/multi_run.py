@@ -21,6 +21,7 @@ from scipy.interpolate import Akima1DInterpolator, PPoly
 from tearing_physics_suite.drivers.pipeline import nonlinear_resistive_calculation
 from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, zarr_chunk
 from tearing_physics_suite.utils import _get_num_cpus
+from tearing_physics_suite.wrappers.jgpec import precompile_jgpec
 
 
 def multi_run(eq_filenames, profile_filenames, read_profile_function, master_working_dir, verbose=False, cluster_manager='slurm', return_lists=False, fail_fast=False, **kwargs):
@@ -132,6 +133,9 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
             print(f"[multi_run] Using chunksize={chunksize} for dynamic scheduling.")
     else:
         print(f"[multi_run] Using user-specified chunksize={chunksize}.")
+
+    if kwargs.get('run_jgpec'):  # compile jGPEC once here, not in every worker at once
+        precompile_jgpec()
 
     # Hand each spawned worker a unique ID (so it can claim worker_{id}/).
     ctx = multiprocessing.get_context('spawn')

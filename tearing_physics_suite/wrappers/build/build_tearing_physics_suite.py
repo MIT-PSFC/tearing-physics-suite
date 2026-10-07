@@ -51,7 +51,7 @@ from tearing_physics_suite.wrappers.build.build_GPEC_PEST3 import (  # noqa: E40
 from tearing_physics_suite.wrappers.build.build_netcdf_lapack import build_libraries  # noqa: E402
 
 
-def write_env_file(lib_paths, repo_root, out_path=None):
+def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
     """
     Write a bash environment setup file that configures the shell to run
     GPEC (rdcon, stride, dcon) and PEST3 using the installed libraries.
@@ -66,6 +66,9 @@ def write_env_file(lib_paths, repo_root, out_path=None):
     out_path : str or Path, optional
         Output path for the bash file.  Defaults to
         ``<repo_root>/tearing_physics_suite_env.sh``.
+    jgpec_home : str, optional
+        jGPEC (Julia GPEC) repository, written as JGPEC_HOME with the Julia executable (JGPEC_JULIA).
+        Default: wrappers.jgpec.jgpec_home().
 
     Returns
     -------
@@ -75,6 +78,10 @@ def write_env_file(lib_paths, repo_root, out_path=None):
     if out_path is None:
         out_path = Path(repo_root) / "tearing_physics_suite_env.sh"
     out_path = Path(out_path)
+
+    from tearing_physics_suite.wrappers.jgpec import jgpec_home as default_jgpec_home
+    from tearing_physics_suite.wrappers.jgpec import julia_exe
+    jgpec_home = jgpec_home or default_jgpec_home()
 
     # Detect compilers and get appropriate flags
     from tearing_physics_suite.wrappers.build.compiler_utils import detect_compilers
@@ -132,6 +139,10 @@ def write_env_file(lib_paths, repo_root, out_path=None):
         "# ── Executables ───────────────────────────────────────────────────────────",
         f"export PATH={gpec_bin}:{pest3_bin}:$PATH",
         "",
+        "# ── jGPEC (Julia GPEC, run_jgpec) ─────────────────────────────────────────",
+        f"export JGPEC_HOME={jgpec_home}",
+        f"export JGPEC_JULIA={julia_exe()}",
+        "",
         "echo \"tearing_physics_suite environment loaded.\"",
         f"echo \"  TPSHOME : {repo_root}\"",
         f"echo \"  Compiler: {compiler_info['fc']} ({compiler_info.get('compiler_type', 'unknown')})\"",
@@ -163,6 +174,7 @@ def build_all(
     work_dir=None,
     gpec_branch="OFT_interface",
     pest3_gpec_vacuum=True,
+    jgpec_home=None,
 ):
     """
     Run the full tearing-physics-suite build pipeline.
@@ -211,6 +223,9 @@ def build_all(
         GPEC branch to clone if submodules/GPEC does not exist yet.
     pest3_gpec_vacuum : bool
         Link GPEC's VACUUM into PEST3 (pest3x -V, the TPS default vacuum).
+    jgpec_home : str, optional
+        jGPEC repository written to the env file as JGPEC_HOME (default $JGPEC_HOME, else
+        /fusion/projects/tmdb/src/GPEC).
 
     Returns
     -------
@@ -355,7 +370,7 @@ def build_all(
     # Write environment setup bash file
     # ------------------------------------------------------------------
     if lib_paths:
-        env_file = write_env_file(lib_paths, repo_root)
+        env_file = write_env_file(lib_paths, repo_root, jgpec_home=jgpec_home)
         print(f"\n  Environment file : {env_file}")
         print("  Source it with:  source tearing_physics_suite_env.sh")
     else:
@@ -405,6 +420,8 @@ def main():
     # Rebuild flags
     parser.add_argument("--rebuild-libs", action="store_true", help="Force rebuild of dependency libraries")
     parser.add_argument("--rebuild-pest3", action="store_true", help="Force clean rebuild of PEST3")
+    parser.add_argument("--jgpec-home", type=str, default=None,
+                        help="jGPEC repository for run_jgpec, written to the env file (default: $JGPEC_HOME, else /fusion/projects/tmdb/src/GPEC)")
     parser.add_argument("--pest3-native-vacuum", action="store_true", help="Build PEST3 without GPEC's VACUUM (no pest3x -V)")
     parser.add_argument("--rebuild-gpec", action="store_true", help="Force clean rebuild of GPEC (removes and re-clones source)")
     parser.add_argument("--remake-gpec", action="store_true",
@@ -437,6 +454,7 @@ def main():
         work_dir=args.work_dir,
         gpec_branch=args.gpec_branch,
         pest3_gpec_vacuum=not args.pest3_native_vacuum,
+        jgpec_home=args.jgpec_home,
     )
 
     sys.exit(0 if success else 1)

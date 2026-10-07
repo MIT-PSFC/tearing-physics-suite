@@ -16,9 +16,9 @@ res = {}
 for name, (fname, psihigh) in cases.items():
     wd = os.path.join(out, name)
     os.makedirs(wd, exist_ok=True)
-    rd, st, _, rd_ran, st_ran, _, _, _ = tfw.run_resistive_calculation(
+    rd, st, _, rd_ran, st_ran = tfw.run_resistive_calculation(
         os.path.join(truth, fname), 1, working_dir=wd, gpec_dir=gpec_dir, run_rdcon=True, run_stride=True,
-        run_pest3=False, psihigh=psihigh, output_location=wd, verbose=False)
+        run_pest3=False, psihigh=psihigh, output_location=wd, verbose=False)[:5]
     res[name] = {'rdcon_ran': rd_ran, 'stride_ran': st_ran,
                  'rdcon_dp21': float(rd.Delta_prime.isel(r=0, r_prime=0, i=0)) if rd_ran else None,
                  'stride_dp21': float(st.Delta_prime.isel(r=0, r_prime=0, i=0)) if st_ran else None}

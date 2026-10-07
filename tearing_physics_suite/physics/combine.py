@@ -145,6 +145,44 @@ def sel_rational(ds, value, dim="r", atol=1e-8):
     return collapsed.isel({dim: idx})
 
 
+# Order of codes on the 'code' dim
+CODE_ORDER = ('rdcon', 'stride', 'jGPEC_galerkin', 'jGPEC_riccati', 'pest3')
+JGPEC_CODES = ('jGPEC_galerkin', 'jGPEC_riccati')
+
+
+def ordered_codes(datasets):
+    """{code: ds} in CODE_ORDER (unknown codes last), dropping None."""
+    rank = {c: i for i, c in enumerate(CODE_ORDER)}
+    return {c: datasets[c] for c in sorted(datasets, key=lambda c: rank.get(c, len(rank))) if datasets[c] is not None}
+
+
+def align_surfaces(ds, ref, atol=1e-6):
+    """ds on ref's rational surfaces (r, r_prime); NaN where ds has no surface.
+
+    Surfaces are matched by q_rational (to atol), the nearest psi_n_rational among equal q (reversed shear).
+    Surfaces of ds that ref lacks are dropped with a warning. Used for jGPEC, whose surface set is its own
+    (Riccati: the surfaces it crossed). Apply after the Delta' coupling, which needs ds's own surfaces.
+    """
+    def flat(d, v):
+        return d[v].values.reshape(-1, d.sizes['r'])[0]
+    q, psi, ref_q, ref_psi = flat(ds, 'q_rational'), flat(ds, 'psi_n_rational'), flat(ref, 'q_rational'), flat(ref, 'psi_n_rational')
+    idx, free = np.full(len(ref_q), -1), np.ones(len(q), bool)
+    for k in range(len(ref_q)):
+        cand = np.flatnonzero(free & np.isclose(q, ref_q[k], rtol=0, atol=atol))
+        if len(cand):
+            idx[k] = cand[np.argmin(np.abs(psi[cand] - ref_psi[k]))]
+            free[idx[k]] = False
+    if free.any():
+        print(f"WARNING: surfaces not in the reference dropped: q = {q[free]}, psi_n = {psi[free]}")
+    pos, found = np.maximum(idx, 0), idx >= 0
+    out = ds.drop_vars(['r', 'r_prime']).isel(r=pos, r_prime=pos)
+    for v in out.data_vars:
+        for d in ('r', 'r_prime'):
+            if d in out[v].dims:
+                out[v] = out[v].where(xr.DataArray(found, dims=d))
+    return out.assign_coords(r=ref['r'].values, r_prime=ref['r_prime'].values)
+
+
 def merge_input_dicts(*dicts):
     """Merge input dicts left to right, skipping None (later dicts win). Returns a new dict."""
     out = {}
@@ -214,9 +252,10 @@ def combine_codes(datasets, nn, debug=False, **concat_kwargs):
     return combined, dropped
 
 
-def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict, calc_dps=True, **kwargs):
+def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict,
+                    jgpec_xrs=None, jgpec_ran=None, calc_dps=True, **kwargs):
     """
-    Combine rdcon, stride, and pest3 xarrays into a single dataset.
+    Combine rdcon, stride, jGPEC and pest3 xarrays into a single dataset.
 
     Merges outputs from run_resistive_calculation into one xarray with a 'code'
     dimension. Optionally computes coupled Delta' values.
@@ -229,6 +268,8 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
         Whether each code ran successfully.
     rdcon_stride_input_dict, pest3_input_dict : dict or None
         Input parameter dictionaries.
+    jgpec_xrs, jgpec_ran : dict or None
+        {'jGPEC_<solver>': xr.Dataset or None} and run flags (see run_resistive_calculation).
     calc_dps : bool
         If True, compute coupled Delta' values via extract_delta_primes.
 
@@ -243,10 +284,13 @@ def compile_xarrays(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_
     """
     input_dict = merge_input_dicts(rdcon_stride_input_dict, pest3_input_dict)
     expanded = {}
-    for code, ds in (('rdcon', rdcon_xr), ('stride', stride_xr), ('pest3', pest3_xr)):
-        if ds is not None:
-            ds = add_code_dim(ds, code, drop_var_attrs=True)
-            expanded[code] = code_delta_primes(ds, code) if calc_dps else ds
+    datasets = ordered_codes({'rdcon': rdcon_xr, 'stride': stride_xr, 'pest3': pest3_xr, **(jgpec_xrs or {})})
+    for code, ds in datasets.items():
+        ds = add_code_dim(ds, code, drop_var_attrs=True)
+        ds = code_delta_primes(ds, code) if calc_dps else ds
+        if code in JGPEC_CODES and 'rdcon' in expanded:
+            ds = align_surfaces(ds, expanded['rdcon'])
+        expanded[code] = ds
     # PEST3 is also returned on its own if it could not be combined (see combine_codes).
     combined_xr, dropped = combine_codes(expanded, input_dict.get('nn'), **kwargs)
     return combined_xr, dropped.get('pest3'), input_dict

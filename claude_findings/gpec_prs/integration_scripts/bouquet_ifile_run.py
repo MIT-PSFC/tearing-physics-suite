@@ -30,9 +30,9 @@ for src in ('geqdsk', 'ifile'):
     pad = b.config.source.psi_pad if hasattr(b.config.source, 'psi_pad') else 1e-3
     wd = os.path.join(out, 'run_' + src)
     os.makedirs(wd, exist_ok=True)
-    rd, st, _, rd_ran, st_ran, _, _, _ = tfw.run_resistive_calculation(
+    rd, st, _, rd_ran, st_ran = tfw.run_resistive_calculation(
         files[0], 1, working_dir=wd, gpec_dir=gpec_dir, run_rdcon=True, run_stride=True, run_pest3=False,
-        psihigh=0.985 / (1 - pad), output_location=wd, verbose=False)
+        psihigh=0.985 / (1 - pad), output_location=wd, verbose=False)[:5]
     res[src] = {'file': files[0], 'bytes': os.path.getsize(files[0]),
                 'rdcon_dp21': float(rd.Delta_prime.isel(r=0, r_prime=0, i=0)) if rd_ran else None,
                 'stride_dp21': float(st.Delta_prime.isel(r=0, r_prime=0, i=0)) if st_ran else None}

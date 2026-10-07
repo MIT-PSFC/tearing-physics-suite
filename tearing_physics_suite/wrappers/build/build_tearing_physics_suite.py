@@ -16,9 +16,9 @@ Usage (from the repository root):
 See README.md for prerequisite system packages (gcc, openmpi, cmake, make).
 """
 
+import argparse
 import os
 import sys
-import argparse
 from pathlib import Path
 
 # Ensure the package is importable when running as a script.
@@ -44,8 +44,8 @@ if 'TPSHOME' in os.environ and os.environ['TPSHOME'] != str(_repo_dir):
           "Overriding TPSHOME to repository root for this build.")
 os.environ['TPSHOME'] = str(_repo_dir)
 
+from tearing_physics_suite.wrappers.build.build_GPEC_PEST3 import build_GPEC, build_PEST3
 from tearing_physics_suite.wrappers.build.build_netcdf_lapack import build_libraries
-from tearing_physics_suite.wrappers.build.build_GPEC_PEST3 import build_PEST3, build_GPEC
 
 
 def write_env_file(lib_paths, repo_root, out_path=None):
@@ -267,7 +267,12 @@ def build_all(
         print("\nSkipping dependency library builds (--skip-libs).")
         # Construct lib_paths from existing install_dir so PEST3/GPEC can
         # still find the previously built libraries.
-        from tearing_physics_suite.wrappers.build.build_netcdf_lapack import LAPACKBuilder, HDF5Builder, NetCDFBuilder, NetCDFFortranBuilder
+        from tearing_physics_suite.wrappers.build.build_netcdf_lapack import (
+            HDF5Builder,
+            LAPACKBuilder,
+            NetCDFBuilder,
+            NetCDFFortranBuilder,
+        )
 
         common = {"install_dir": install_dir, "build_dir": build_dir, "verbose": verbose}
         lib_paths = {}

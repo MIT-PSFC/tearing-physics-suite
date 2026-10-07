@@ -11,8 +11,8 @@
 # Each scan is one ScanSpec row in SCANS; run it with run_scan(name, eq_filename, ...).
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from tearing_physics_suite.drivers.input_scans import scan_1D_input
 from tearing_physics_suite.utils import create_dense_log_paramvals

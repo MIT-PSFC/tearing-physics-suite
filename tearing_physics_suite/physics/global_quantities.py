@@ -1,5 +1,5 @@
-import xarray as xr
 import numpy as np
+import xarray as xr
 
 
 def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
@@ -35,11 +35,11 @@ def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
     w_marg_rank = xr.full_like(combined_xr.w_marg_surf, np.nan)
     dwdtau_rank = xr.full_like(combined_xr.dwdtau_max_surf, np.nan)
     assert combined_xr.w_marg_surf.dims == combined_xr.dwdtau_max_surf.dims, "Dimensions of w_marg_surf and dwdtau_max_surf do not match"
-    
+
     #########################################################################################################
-    # Applying psi_n_rational mask 
+    # Applying psi_n_rational mask
     #########################################################################################################
-    psi_n_rational_like_surfaces = combined_xr.psi_n_rational+0.0*combined_xr['Delta_prime_surf'] 
+    psi_n_rational_like_surfaces = combined_xr.psi_n_rational+0.0*combined_xr['Delta_prime_surf']
     # Set psi_n_rational_like_surfaces.loc[code='pest3'] equal to psi_n_rational_like_surfaces.loc[code='rdcon'] (since pest3 doesn't compute psi_n_rational)
     if 'rdcon' in combined_xr.code.values and 'pest3' in combined_xr.code.values:
         psi_n_rational_like_surfaces.loc[dict(code='pest3')] = psi_n_rational_like_surfaces.loc[dict(code='rdcon')]
@@ -70,7 +70,7 @@ def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
             w_marg_ranks_da = xr.DataArray(w_marg_ranks, coords=subset.w_marg_surf.coords, dims=subset.w_marg_surf.dims)
             # Put w_marg_ranks_da into combined_xr:
             w_marg_rank.loc[dict(Delta_prime_type=dpt, code=code)] = w_marg_ranks_da
-            
+
     #########################################################################################################
     # Rank dwdtau_max_surf (largest to smallest):
     #########################################################################################################
@@ -83,7 +83,7 @@ def global_mre_quantities(combined_xr,psi_pedestal_cutoff=0.9):
             dwdtau_ranks_da = xr.DataArray(dwdtau_ranks, coords=subset.dwdtau_max_surf.coords, dims=subset.dwdtau_max_surf.dims)
             # Put dwdtau_ranks_da into combined_xr:
             dwdtau_rank.loc[dict(Delta_prime_type=dpt, code=code)] = dwdtau_ranks_da
-    
+
     combined_xr = combined_xr.assign(
         min_w_marg_rank=w_marg_rank,
         max_dwdtau_rank=dwdtau_rank
@@ -104,7 +104,7 @@ def delta_prime_variability(xarray,comparison_var='code',
     Records absolute and relative differences. Handles special comparisons:
     STRIDE vs RDCON ('GPEC') and GPEC vs PEST3 ('GPECvsPEST').
 
-    Boolean True False values are generated to check whether the differences in Delta_prime_surf lie within the bounds 
+    Boolean True False values are generated to check whether the differences in Delta_prime_surf lie within the bounds
     set by abs_threshold, rel_threshold, abs_PEST_threshold, and rel_PEST_threshold.
 
     Parameters
@@ -140,7 +140,7 @@ def delta_prime_variability(xarray,comparison_var='code',
         return xarray
 
     #########################################################################################################
-    # Record the maximum range of variation in Delta_prime_surf across comparison_var 
+    # Record the maximum range of variation in Delta_prime_surf across comparison_var
     #########################################################################################################
 
     xarray = add_comparison_across_var(xarray,xarray.Delta_prime_surf,comparison_var)
@@ -152,7 +152,7 @@ def delta_prime_variability(xarray,comparison_var='code',
     #   Will overlap with code case if only STRIDE and RDCON were ran
     #########################################################################################################
 
-    if comparison_var == 'code' and 'stride' in xarray.Delta_prime_surf.code and 'rdcon' in xarray.Delta_prime_surf.code: 
+    if comparison_var == 'code' and 'stride' in xarray.Delta_prime_surf.code and 'rdcon' in xarray.Delta_prime_surf.code:
         Delta_prime_surf_stride_and_rdcon = xarray.Delta_prime_surf.sel(code=xarray.Delta_prime_surf.code.isin(['stride', 'rdcon']))
         xarray = add_comparison_across_var(xarray,Delta_prime_surf_stride_and_rdcon,comparison_var,override_name='GPEC')
 
@@ -161,7 +161,7 @@ def delta_prime_variability(xarray,comparison_var='code',
     #   Will overlap with code case if only STRIDE and RDCON were ran
     #########################################################################################################
 
-    if comparison_var == 'code' and 'pest3' in xarray.Delta_prime_surf.code and ('rdcon' in xarray.Delta_prime_surf.code or 'stride' in xarray.Delta_prime_surf.code): 
+    if comparison_var == 'code' and 'pest3' in xarray.Delta_prime_surf.code and ('rdcon' in xarray.Delta_prime_surf.code or 'stride' in xarray.Delta_prime_surf.code):
         Delta_prime_surf_pest3_stride_andor_rdcon = xarray.Delta_prime_surf.sel(code=xarray.Delta_prime_surf.code.isin(['stride', 'rdcon','pest3']))
         xarray = add_comparison_across_var(xarray,Delta_prime_surf_pest3_stride_andor_rdcon,comparison_var,override_name='GPECvsPEST')
 
@@ -196,7 +196,7 @@ def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_
     Delta_prime_reldiffs_across_var = Delta_prime_diffs_across_var / np.abs(Delta_prime_surf).mean(dim=comparison_var)
     Delta_prime_reldiffs_across_var2 = Delta_prime_diffs_across_var / Delta_prime_surf.mean(dim=comparison_var)
 
-    if len(override_name) == 0: 
+    if len(override_name) == 0:
         override_name = comparison_var
 
     # Add Delta_prime_diffs_across_var to xarray, with str(comparison_var) included in name:

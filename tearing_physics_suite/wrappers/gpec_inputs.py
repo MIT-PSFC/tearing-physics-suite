@@ -1,8 +1,7 @@
 # Python functions to write input files for RDCON and STRIDE
 
 import os
-import shutil
-import xarray as xr
+
 import numpy as np
 
 ZEFF_MAX_PTS = 998 # rdcon's variable-length namelist read-in limit (GPEC Zeff_profile_support)
@@ -83,7 +82,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('    psihigh='+str(psihigh)   +'\n') #Maximum value of psi, normalized from 0 to 1
     f.write('    mpsi='+str(mpsi)  +'\n') #Number of radial grid intervals for equilibrium quantities
     f.write('    mtheta='+str(mtheta)+'\n') #Number of equally spaced poloidal grid intervals for all splines
-    if not (nstepd is None):
+    if nstepd is not None:
         f.write('    nstepd='+str(nstepd)+'\n')
     f.write('    etol='+str(etol)+'\n')
     f.write('    newq0='+str(newq0)   +'\n') #Grad-Shafranov solution invariant adjustment of the q profile to give the specified value of q at the axis. Default 0 uses input file value.
@@ -128,7 +127,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('   verbose_timer_output = f\n')
     f.write('/\n')
     f.write('&VACDAT\n')
-    f.write('   ishape = '+str(ishape)+'\n')# ishape==8 -> DIII-D wall, ishape==42 -> wall read straight from wall_geo.in 
+    f.write('   ishape = '+str(ishape)+'\n')# ishape==8 -> DIII-D wall, ishape==42 -> wall read straight from wall_geo.in
     f.write('   aw = 0.05\n')
     f.write('   bw = 1.5\n')
     f.write('   cw = 0\n')
@@ -317,14 +316,14 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             out_bal2='f',           # Ascii output for bal_flag functions
             bin_bal2='f',           # Binary output for bal_flag functions
             out_ahg2msc='f',        # If true, uses old vacuum.io print-to-file logic
-            MRE_flag='t',           # If true, outputs modified rutherford equation data 
+            MRE_flag='t',           # If true, outputs modified rutherford equation data
             geom_flag='t',          # If true, outputs surface integral information for the equilibrium
 
             #UA_DIAGNOSE_LIST
             flag='f',
             phase='t',
             eq_type="""'efit'""", #Type of the input 2D equilibrium file. Accepts efit, chease, fluxgrid, transp, jsolver, lar, sol, etc.
-            
+
             #STRIDE_CONTROL
             use_classic_splines='f', # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
             use_notaknot_splines='f', # Use not-a-knot boundary conditions for splines with extrapolation boundary conditions
@@ -354,7 +353,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             verbose_performance_output='t',      # Print detailed timing information to terminal
             sing_start_str=0,                    # Start integration at the sing_start'th rational from the axis (psilow). Different from rdcon sing_start since stride finds q_low searching from outside in
 
-            #Extra 
+            #Extra
             a_wall=21,                           # Controls ideal conformal shell distance. See vac.in description below.
             ishape=6,                            # Set to 8 for DIII-D wall, 6 for a conformal shell (see vacuum_vac.f for more information)
             verbose = False,                     # Print verbose output to terminal
@@ -395,11 +394,11 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     Zeff = zeff_dict(Zeff)
 
     if a_wall==0 and ishape==6:
-        vac_flag='f' 
+        vac_flag='f'
     if vac_flag=='f':
         calc_dp_with_vac = 'f' # If vac_flag is false, then calc_dp_with_vac must be false
         a_wall = 0.0 # If vac_flag is false, then a_wall must be zero. This'll automatically set a_wall_pest to 0 too.
-    if nx % 2 != 0: 
+    if nx % 2 != 0:
         if verbose: print("Warning: nx is not even, increasing by 1 to make it even.")
         nx += 1
 
@@ -507,11 +506,11 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'sing_start_str': sing_start_str,
         'verbose': verbose
     }
-    
+
     equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,ishape=ishape,out_ahg2msc=out_ahg2msc,**kwargs)
     #combine the dictionaries
     return_dict.update(equil_dict)
-    
+
     if run_rdcon:
         f = open(working_dir+write_rdcon_filename, 'w')
 
@@ -526,7 +525,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         f.write('    cutoff='+str(cutoff)+'\n')  #The number of elements include the large solution as the driving term
         f.write('    solver='+solver+'\n') #LU factorization of solving Galerkinn matrix
         f.write('    nq='+str(nq)+'\n')  #The number of Gaussian points in each Galerkin element
-        f.write('    gal_xmin_flag='+gal_xmin_flag   +'\n') #Flag for automatically setting width of resonant element based on power series convergence. Convergence is not well behaved in my experience, this can commonly error out. 
+        f.write('    gal_xmin_flag='+gal_xmin_flag   +'\n') #Flag for automatically setting width of resonant element based on power series convergence. Convergence is not well behaved in my experience, this can commonly error out.
 
         f.write('/'+'\n')
         f.write('&GAL_OUTPUT'+'\n')
@@ -614,7 +613,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         if sing_order_ceiling=='t':
             print("Warning: sing_order_ceiling is set to true, but STRIDE does not support this option. Consider manually setting sing_order to a value that works for your case.")
         if gal_xmin_flag=='t':
-            print("Warning: gal_xmin_flag is set to true, so RDCON will automatically set its asymptotic matching distances, while STRIDE does not support this option.")   
+            print("Warning: gal_xmin_flag is set to true, so RDCON will automatically set its asymptotic matching distances, while STRIDE does not support this option.")
 
         f = open(working_dir+write_stride_filename, 'w')
 

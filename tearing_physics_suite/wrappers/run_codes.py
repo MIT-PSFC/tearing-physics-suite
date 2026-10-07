@@ -1,18 +1,19 @@
 # Python functions to call GPEC and PEST3 fortran codes for delta prime calculations
 
 import os
+
 import numpy as np
 
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.wrappers.pest3 import pest3_special_truncation_loop, PEST3_resistive_calculation
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation, _default_eq_type
+from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, pest3_special_truncation_loop
 
 
 def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, run_pest3=True,
         make_working_dir=True,
         make_results_dir=True,
         working_dir=os.path.join(home_dir, 'working_dir'),
-        gpec_dir=os.path.join(home_dir, 'submodules/GPEC'), 
+        gpec_dir=os.path.join(home_dir, 'submodules/GPEC'),
         pest3_dir=os.path.join(home_dir, 'submodules/PEST3/cmake_build/pest3'),
         verbose=True,
         fresh_start=True,
@@ -21,7 +22,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         save_input=True,
         save_terminal_output=False, #Currently broken
         pest_match_truncation=True,
-        override_save=True, 
+        override_save=True,
         pest_pull_mtheta=True, # Change at your own risk, see mtheta_scan scan results
         debug_GPEC_resistive_calculation=False, #Quick exit after GPEC resistive calculation
         ascii_q_plot=False,       # Print an ascii q-profile plot after the GPEC run
@@ -114,9 +115,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     m_mins=0
     delta_mhigh=rdcon_stride_input_dict['delta_mhigh']
     delta_mlow=rdcon_stride_input_dict['delta_mlow']
-    num_rat_surfaces=0 
+    num_rat_surfaces=0
 
-    # Pull truncation and poloidal mode information from GPEC calculations: 
+    # Pull truncation and poloidal mode information from GPEC calculations:
     if (run_rdcon and rdcon_ran):
         m_max = int(np.ceil(rdcon_xr.qmax*nn+delta_mhigh))
         m_min = int(np.floor(min(rdcon_xr.qmin*nn,0)-4-delta_mlow))
@@ -125,7 +126,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         q_rationals = rdcon_xr.q_rational.values
         r = rdcon_xr.r
         r_prime = rdcon_xr.r_prime
-        # Check if rdcon generated Delta_prime 
+        # Check if rdcon generated Delta_prime
         if "Delta_prime" in rdcon_xr.data_vars:
             num_rat_surfaces=max(len(rdcon_xr.Delta_prime.isel(i=0,r_prime=0).values),num_rat_surfaces)
     if (run_stride and stride_ran):
@@ -174,10 +175,10 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     if 'psihigh_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['psihigh_pest'] = rdcon_stride_input_dict['psihigh']
-        allow_trunc_loop=True 
+        allow_trunc_loop=True
     else:
         if verbose: print("Using user defined PEST3 truncation value psihigh_pest = ", pest3_kwargs_dict['psihigh_pest'])
-        allow_trunc_loop=False #If you enter psihigh_pest, will override automatic truncation loop 
+        allow_trunc_loop=False #If you enter psihigh_pest, will override automatic truncation loop
 
     gpec_vacuum_pest = pest3_kwargs_dict.get('vacuum_source_pest', 'gpec') == 'gpec'
     if 'a_wall_pest' not in pest3_kwargs_dict:
@@ -200,12 +201,12 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         if num_rat_surfaces > 15:
             pest3_kwargs_dict['rational_surface_control_pest'] = '''-m"''' + 'x'*num_rat_surfaces + '''"''' # Compute Delta's for first num_rat_surfaces rational surfaces
         if num_rat_surfaces == 0 and nn*5 < 15: # Large n, don't forget to include all these rational surfaces
-            pest3_kwargs_dict['rational_surface_control_pest'] = '''-m"''' + 'x'*nn*5 + '''"''' 
+            pest3_kwargs_dict['rational_surface_control_pest'] = '''-m"''' + 'x'*nn*5 + '''"'''
 
     #########################################################################################################
     # Run PEST3 resistive calculation:
     #########################################################################################################
-    
+
     if run_pest3:
         pest3_trunc_ran = False
         try:
@@ -236,7 +237,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
             print("**************************************************************** WARNING **********************************************************************")
             raise RuntimeError
 
-        try: 
+        try:
             pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
                 eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
                 working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
@@ -250,7 +251,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
             print(f"WARNING: PEST3 run failed: {e}")
 
         if verbose:
-            print("Pest3 ran:",pest3_ran, "Pest3 truncation ran:", pest3_trunc_ran)        
+            print("Pest3 ran:",pest3_ran, "Pest3 truncation ran:", pest3_trunc_ran)
 
         # See how accurate the truncation was:
         if pest3_ran and pest3_trunc_ran:

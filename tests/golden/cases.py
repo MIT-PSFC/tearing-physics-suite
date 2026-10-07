@@ -19,16 +19,18 @@ import xarray as xr
 def _imports():
     """Return the TPS callables, from the new layout if present, else the old one."""
     try:
-        from tearing_physics_suite.drivers.pipeline import (
-            linear_resistive_calculation, nonlinear_resistive_calculation)
-        from tearing_physics_suite.physics.global_quantities import global_mre_quantities
+        from tearing_physics_suite.drivers.multi_run import multi_compile_zarr, multi_run_
+        from tearing_physics_suite.drivers.pipeline import linear_resistive_calculation, nonlinear_resistive_calculation
         from tearing_physics_suite.drivers.profile_read import read_kin_file
-        from tearing_physics_suite.drivers.multi_run import multi_run_, multi_compile_zarr
+        from tearing_physics_suite.physics.global_quantities import global_mre_quantities
     except ImportError:
-        from tearing_physics_suite.tearing_physics_suite import (
-            linear_resistive_calculation, nonlinear_resistive_calculation, global_mre_quantities)
+        from tearing_physics_suite.multi_run import multi_compile_zarr, multi_run_
         from tearing_physics_suite.profile_read import read_kin_file
-        from tearing_physics_suite.multi_run import multi_run_, multi_compile_zarr
+        from tearing_physics_suite.tearing_physics_suite import (
+            global_mre_quantities,
+            linear_resistive_calculation,
+            nonlinear_resistive_calculation,
+        )
     return dict(linear=linear_resistive_calculation, nonlinear=nonlinear_resistive_calculation,
                 gmq=global_mre_quantities, read_kin=read_kin_file,
                 multi_run_=multi_run_, multi_compile_zarr=multi_compile_zarr)

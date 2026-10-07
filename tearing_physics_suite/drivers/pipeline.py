@@ -1,21 +1,35 @@
 # This contains the core functionalities of tearing physics suite
 
-import xarray as xr
-import numpy as np
 import copy
 import os
+
+import numpy as np
+import xarray as xr
+
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.wrappers.run_codes import run_resistive_calculation
-from tearing_physics_suite.physics.combine import compile_xarrays
-from tearing_physics_suite.wrappers.gpec_inputs import zeff_dict
-from tearing_physics_suite.physics.cross_field_transport import chi_para_lmfp_no_w_on_modes, chi_para_smfp_on_modes, chi_para_lmfp_noisland_on_modes, chi_perp_on_modes
-from tearing_physics_suite.physics.combine import _uniquify_r, add_code_dim, code_delta_primes, combine_codes, merge_input_dicts
+from tearing_physics_suite.physics.combine import (
+    _uniquify_r,
+    add_code_dim,
+    code_delta_primes,
+    combine_codes,
+    compile_xarrays,
+    merge_input_dicts,
+)
+from tearing_physics_suite.physics.cross_field_transport import (
+    chi_para_lmfp_no_w_on_modes,
+    chi_para_lmfp_noisland_on_modes,
+    chi_para_smfp_on_modes,
+    chi_perp_on_modes,
+)
 from tearing_physics_suite.physics.global_quantities import delta_prime_variability, global_mre_quantities
 from tearing_physics_suite.physics.mre_model import extract_critical_mre_factors_on_modes
 from tearing_physics_suite.physics.surface_terms import deltaprime_crit_on_modes, mre_terms_on_modes
+from tearing_physics_suite.wrappers.gpec_inputs import zeff_dict
+from tearing_physics_suite.wrappers.run_codes import run_resistive_calculation
 
-def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, 
-    Zeff = None, 
+
+def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
+    Zeff = None,
     average_ion_mass = None,
     diamagnetic_rotation_ion_charge=None,
     # Rotation splines
@@ -32,11 +46,11 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     k1=1.7,
     C0=0.6,
     wd_static=False, # Set true to ignore the variation in the ratio of perpendicular to parallel transport across the island, as island width varies
-    force_lmfp=False, 
+    force_lmfp=False,
     test_numerical_stability=False,
     debug=True,
     debug_global_mre_quantities=False,
-    psi_pedestal_cutoff=0.9, # Surfaces inside this cutoff in norm. pol. flux are included when finding the minimum marginally stable island width 
+    psi_pedestal_cutoff=0.9, # Surfaces inside this cutoff in norm. pol. flux are included when finding the minimum marginally stable island width
     **kwargs):
     """Run linear and nonlinear tearing analysis on an equilibrium for multiple toroidal mode numbers set by nvec.
 
@@ -119,7 +133,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     message = ''
     for xrp in pest3_xr_vec:
-        if not (xrp is None):
+        if xrp is not None:
             message += f'Warning:\n    PEST3 n = {xrp.n} failed to combine with other xarrays.'
 
     #########################################################################################################
@@ -150,17 +164,17 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     #########################################################################################################
     # evaluate how different the Delta primes computed by each code are...
     #########################################################################################################
-    if not (combined_xr is None) and len(combined_xr['code']) > 1:
+    if combined_xr is not None and len(combined_xr['code']) > 1:
         combined_xr = delta_prime_variability(combined_xr)
 
     #########################################################################################################
-    # define global mre quantities 
+    # define global mre quantities
     #########################################################################################################
 
     if debug_global_mre_quantities:
         return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
-    if not (combined_xr is None):
+    if combined_xr is not None:
         combined_xr = global_mre_quantities(combined_xr,psi_pedestal_cutoff=psi_pedestal_cutoff)
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
@@ -269,7 +283,7 @@ def compare_dicts(d1,d2):
     return not diff_vals
 
 def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stability=False,  debug=True, **kwargs):
-    """ Runs linear tearing analysis on an equilibrium over a range 
+    """ Runs linear tearing analysis on an equilibrium over a range
     of toroidal mode numbers set by nvec. **kwargs are sent directly to the function 'run_resistive_calculation',
     setting the operational parameters of STRIDE, RDCON and PEST3.
 
@@ -301,7 +315,7 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
         xarray_vec.append(comb_n_xr)
         pest3_xr_vec.append(n_pest3_xr)
         input_dict_vec.append(n_input_dict)
-        if not comb_n_xr is None:
+        if comb_n_xr is not None:
             print("  n = ",nn,":",comb_n_xr.Delta_prime_surf.isel(nn=0,Delta_prime_type=0).where(comb_n_xr.Delta_prime_surf.isel(Delta_prime_type=0).r<(comb_n_xr.Delta_prime_surf.isel(Delta_prime_type=0).r.min()+3),drop=True))
             print("  at q = ",comb_n_xr.q_rational.isel(nn=0,code=0).values[0:3])
 
@@ -311,7 +325,7 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
 
     message = ''
     for xrp in pest3_xr_vec:
-        if not (xrp is None):
+        if xrp is not None:
             message += f'Warning:\n    PEST3 n = {xrp.n} failed to combine with other xarrays.'
 
     #########################################################################################################
@@ -342,7 +356,7 @@ def linear_resistive_calculation(eq_filename, nvec = [1], test_numerical_stabili
     #########################################################################################################
     # evaluate how different the Delta primes computed by each code are...
     #########################################################################################################
-    if not (combined_xr is None) and len(combined_xr['code']) > 1:
+    if combined_xr is not None and len(combined_xr['code']) > 1:
         combined_xr = delta_prime_variability(combined_xr)
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
@@ -372,7 +386,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
         diamagnetic_rotation_ion_charge=None, # Ion charge for diamagnetic rotation calculation. If None, inferred from on-axis ne/ni.
         **kwargs):
-    """ 
+    """
     Executive function that calculates Delta primes with run_resistive_calculation, then runs MRE analysis on output deltaprimes, returning
     a fully combined xarray.
 
@@ -393,13 +407,13 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         Separate PEST3 output if it could not be merged into combined_xr.
     input_dict : dict
         Dictionary of all input parameters used in the calculation.
-    """ 
+    """
 
     # Check that either energy_confinement_time or chi_perp_spline is defined:
     assert not (chi_perp_spline is None and energy_confinement_time is None), "Must either define energy_confinement_time or chi_perp_spline for MRE analysis."
 
     #########################################################################################################
-    # Run resistive delta prime calculation: 
+    # Run resistive delta prime calculation:
     #########################################################################################################
     rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict, pest3_input_dict = run_resistive_calculation(eq_filename,nn,**kwargs)
 

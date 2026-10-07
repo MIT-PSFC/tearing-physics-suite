@@ -1,14 +1,13 @@
 # Scripts to calculate effective delta' values using generalisation
 # from Brennan & Sugiyama 2006.
 
-import math
-import xarray as xr
-from sympy import Matrix
-import sympy
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
+import xarray as xr
 from jax import jacfwd
+
 from tearing_physics_suite.utils import trim_nans
+
 
 def extract_delta_primes(inputxr,debug=False, couple_reals=True):
     """Compute single-helicity and outer-region-coupled Delta' on rational surfaces.
@@ -37,7 +36,7 @@ def extract_delta_primes(inputxr,debug=False, couple_reals=True):
     delta_prime_real_component = inputxr["Delta_prime"].sel(i=0).values
     delta_prime_im_component = inputxr["Delta_prime"].sel(i=1).values
     # Make a combined delta_prime with its real and complex values together:
-    delta_primes = delta_prime_real_component + 1j * delta_prime_im_component 
+    delta_primes = delta_prime_real_component + 1j * delta_prime_im_component
     # Check delta_prime is of type complex
     assert np.iscomplexobj(delta_primes), "Delta_prime must be a complex array."
 
@@ -55,16 +54,16 @@ def extract_delta_primes(inputxr,debug=False, couple_reals=True):
     delta_prime_single_helicity_err=None
     delta_prime_single_helicity_perr=None
 
-    if (not delta_prime_perr is None) and (not delta_prime_err is None): #Assume pest3 since Delta_prime_perr is present
+    if (delta_prime_perr is not None) and (delta_prime_err is not None): #Assume pest3 since Delta_prime_perr is present
         _, _, _, _, _, delta_prime_single_helicity_perr, delta_prime_eff_perr, delta_prime_nn_eff_perr, delta_prime_2nn_eff_perr, divisors_perr = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_perr, couple_reals=couple_reals)
         delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors, delta_prime_single_helicity_err, delta_prime_eff_err, delta_prime_nn_eff_err, delta_prime_2nn_eff_err, divisors_err = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_err, couple_reals=couple_reals)
-    elif not (delta_prime_perr is None): #Assume pest3 since Delta_prime_perr is present
+    elif delta_prime_perr is not None: #Assume pest3 since Delta_prime_perr is present
         delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors, delta_prime_single_helicity_perr, delta_prime_eff_perr, delta_prime_nn_eff_perr, delta_prime_2nn_eff_perr, divisors_perr = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_perr, couple_reals=couple_reals)
-    elif not (delta_prime_err is None): #Assume STRIDE or RDCON since Delta_prime_perr is absent 
+    elif delta_prime_err is not None: #Assume STRIDE or RDCON since Delta_prime_perr is absent
         delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors, delta_prime_single_helicity_err, delta_prime_eff_err, delta_prime_nn_eff_err, delta_prime_2nn_eff_err, divisors_err = extract_delta_primes_(delta_primes, debug=debug, delta_prime_errs=delta_prime_err, couple_reals=couple_reals)
     else: #Assume STRIDE or RDCON since Delta_prime_perr is absent
         delta_prime_single_helicity, delta_prime_eff, delta_prime_nn_eff, delta_prime_2nn_eff, divisors = extract_delta_primes_(delta_primes, debug=debug, couple_reals=couple_reals)
-        
+
     #########################################################################################################
     # Check correct input data array type:
     #########################################################################################################
@@ -93,12 +92,12 @@ def extract_delta_primes(inputxr,debug=False, couple_reals=True):
     Dprime_2['Delta_prime_type'] = ['nn coupled']
     Dprime_3['Delta_prime_type'] = ['2nn coupled']
     Dprime_4['Delta_prime_type'] = ['full coupled']
-    
+
     ImDprime_1['Delta_prime_type'] = ['single helicity']
     ImDprime_2['Delta_prime_type'] = ['nn coupled']
     ImDprime_3['Delta_prime_type'] = ['2nn coupled']
     ImDprime_4['Delta_prime_type'] = ['full coupled']
-    
+
     # Combine into one DataArray using coordinate Delta_prime_type
     Dprime_all_da = xr.concat(
         [Dprime_1, Dprime_2, Dprime_3, Dprime_4],
@@ -123,7 +122,7 @@ def extract_delta_primes(inputxr,debug=False, couple_reals=True):
     # Put (real) delta prime errors into the xarray using coordinate Delta_prime_type
     #########################################################################################################
 
-    if not (delta_prime_single_helicity_err is None):
+    if delta_prime_single_helicity_err is not None:
         Dprime_err_1 = (delta_prime_single_helicity_err + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
         Dprime_err_2 = (delta_prime_nn_eff_err + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
         Dprime_err_3 = (delta_prime_2nn_eff_err + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
@@ -150,7 +149,7 @@ def extract_delta_primes(inputxr,debug=False, couple_reals=True):
     # Put (real) delta prime pest3 errors into the xarray using coordinate Delta_prime_type
     #########################################################################################################
 
-    if not (delta_prime_single_helicity_perr is None):
+    if delta_prime_single_helicity_perr is not None:
         Dprime_perr_1 = (delta_prime_single_helicity_perr + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
         Dprime_perr_2 = (delta_prime_nn_eff_perr + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
         Dprime_perr_3 = (delta_prime_2nn_eff_perr + 0.0 * copy_da).expand_dims('Delta_prime_type', axis=0)
@@ -179,9 +178,9 @@ def extract_delta_primes(inputxr,debug=False, couple_reals=True):
 def extract_delta_primes_(delta_primes,debug=False, delta_prime_errs=None, couple_reals=True):
     """
     Calculate delta' values using the outer ideal mode coupling generalisation from Brennan & Sugiyama PoP 2006.
-    Applying these delta' values to a singular surface invokes the assumption that there is only one 
+    Applying these delta' values to a singular surface invokes the assumption that there is only one
     resistive surface in the plasma (the surface of interest). If you use complex values as inputs for delta_primes,
-    will provide complex outputs. Optional (complex or real) input delta_prime_errs will be propagated through the coupling equations, 
+    will provide complex outputs. Optional (complex or real) input delta_prime_errs will be propagated through the coupling equations,
     however only the real component of the propagated errors is outputted.
 
     Parameters
@@ -198,7 +197,7 @@ def extract_delta_primes_(delta_primes,debug=False, delta_prime_errs=None, coupl
     delta_prime_eff : numpy.ndarray
         The delta' values modified by coupling across the whole matrix.
     delta_prime_nn_eff : numpy.ndarray
-        The delta' values modified by coupling with the first nearest neighbour surfaces. 
+        The delta' values modified by coupling with the first nearest neighbour surfaces.
     delta_prime_2nn_eff : numpy.ndarray
         The delta' values modified by coupling with the first and second nearest neighbour surfaces.
     """
@@ -211,7 +210,7 @@ def extract_delta_primes_(delta_primes,debug=False, delta_prime_errs=None, coupl
     # Check if input is a numpy array:
     if (not isinstance(delta_primes, np.ndarray)):
         raise TypeError("Input must be a numpy array.")
-    delta_primes = jnp.array(delta_primes) # Turn input into 
+    delta_primes = jnp.array(delta_primes) # Turn input into
 
     # Check if matrix is square:
     if delta_primes.shape[0] != delta_primes.shape[1]:
@@ -228,7 +227,7 @@ def extract_delta_primes_(delta_primes,debug=False, delta_prime_errs=None, coupl
     #########################################################################################################
 
     run_errs = False
-    if not delta_prime_errs is None:
+    if delta_prime_errs is not None:
         delta_prime_errs = np.squeeze(delta_prime_errs)
         # Check if input is a numpy array:
         if (not isinstance(delta_prime_errs, np.ndarray)):
@@ -292,7 +291,7 @@ def extract_delta_primes_(delta_primes,debug=False, delta_prime_errs=None, coupl
         print("Divisors:", divisors)
         if run_errs:
             print(" delta_primes,", delta_primes)
-            print(" delta_prime_errs,", delta_prime_errs) 
+            print(" delta_prime_errs,", delta_prime_errs)
             print(" delta_prime_single_helicity_err,", delta_prime_single_helicity_err)
             print(" delta_prime_eff_err", delta_prime_eff_err)
             print(" delta_prime_nn_eff_err", delta_prime_nn_eff_err)
@@ -381,7 +380,7 @@ def delta_prime_nn_couple(delta_primes):
         delta_prime_nn_mod.append(DP_coupled_i_nn / divisor)
     delta_prime_nn_mod = jnp.array(delta_prime_nn_mod).astype(float)
     # To get coupled delta prime values, add modifiers to single helicity values:
-    delta_prime_nn_eff = delta_prime_single_helicity + delta_prime_nn_mod 
+    delta_prime_nn_eff = delta_prime_single_helicity + delta_prime_nn_mod
     return jnp.array(delta_prime_nn_eff)
 
 def delta_prime_2nn_couple(delta_primes):
@@ -402,7 +401,7 @@ def delta_prime_2nn_couple(delta_primes):
         delta_prime_2nn_mod.append(DP_coupled_i_2nn / divisor)
     delta_prime_2nn_mod = jnp.array(delta_prime_2nn_mod).astype(float)
     # To get coupled delta prime values, add modifiers to single helicity values:
-    delta_prime_2nn_eff = delta_prime_single_helicity + delta_prime_2nn_mod 
+    delta_prime_2nn_eff = delta_prime_single_helicity + delta_prime_2nn_mod
     return jnp.array(delta_prime_2nn_eff)
 
 def get_delta_prime_divisors(delta_primes):
@@ -414,9 +413,9 @@ def get_delta_prime_divisors(delta_primes):
     return jnp.array(divisors)
 
 def extract_variances(delta_primes,delta_prime_errs,debug=False):
-    """ 
-    Returns propagated errors of delta primes using variance formula 
-    (see attached reference doi:10.6028/jres.070c.025 
+    """
+    Returns propagated errors of delta primes using variance formula
+    (see attached reference doi:10.6028/jres.070c.025
     to https://en.wikipedia.org/wiki/Propagation_of_uncertainty#cite_note-9)
     Uses jacobians of Delta prime coupling functions calculated using Jax.
 

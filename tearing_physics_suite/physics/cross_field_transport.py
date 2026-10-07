@@ -1,12 +1,11 @@
 # Python functions to construct cross-field transport terms for the modified Rutherford equation
 
-import xarray as xr
 import numpy as np
-from scipy.interpolate import Akima1DInterpolator
+
 
 # Checked
 def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
-    """Long-mean-free-path parallel thermal diffusivity at rational surfaces, without island width factor. This calculation assumes the 
+    """Long-mean-free-path parallel thermal diffusivity at rational surfaces, without island width factor. This calculation assumes the
     island connection length is setting the parallel transport timescale, not the electron-ion collision time.
 
     Implements Fitzpatrick 2023 Eq. 14.206, converted to normalised poloidal flux space
@@ -29,11 +28,11 @@ def chi_para_lmfp_no_w_on_modes(rdcon_xarray):
     rdcon_xarray = rdcon_xarray.assign(
         chi_para_lmfp_no_w_surf= 2*R0*rdcon_xarray['v_te_surf']*rdcon_xarray['psi_n_rational']/(np.sqrt(np.pi)*n*rdcon_xarray['flux_shear_s_surf']) #Divide by island width in normalised flux space to get chi_parallel_lmfp
     )
-    
+
     return rdcon_xarray
 
 def chi_para_lmfp_noisland_on_modes(rdcon_xarray):
-    """Long-mean-free-path parallel thermal diffusivity with no island, using (half) the helical field line connection length instead of 
+    """Long-mean-free-path parallel thermal diffusivity with no island, using (half) the helical field line connection length instead of
     electron-ion collision time (Fitzpatrick 1995 Eq. 132, divided by electron density). Appropriate when no island is present.
 
     Parameters
@@ -71,12 +70,12 @@ def chi_para_lmfp_noisland_on_modes(rdcon_xarray):
     )
 
     # Using Fitzpatrick 1995 equation 132, and dividing by electron density.
-    # We use half the connection length, as this is the largest physical distance between two points on a closed field 
+    # We use half the connection length, as this is the largest physical distance between two points on a closed field
     # line over which convective heat transport can occur (making no distinction between co and counter-passing electrons).
     rdcon_xarray = rdcon_xarray.assign(
         chi_para_lmfp_noisland_surf = 0.5*rdcon_xarray['helical_correction_length_surf']*rdcon_xarray['v_te_surf'] #[m^2/s]
     )
-    
+
     return rdcon_xarray
 
 # Checked
@@ -104,15 +103,15 @@ def chi_para_smfp_on_modes(rdcon_xarray):
     return rdcon_xarray
 
 # Checked
-def chi_perp_on_modes(rdcon_xarray, 
-        areal_elongation=None, 
-        minor_radius=None, 
-        energy_confinement_time=None, 
+def chi_perp_on_modes(rdcon_xarray,
+        areal_elongation=None,
+        minor_radius=None,
+        energy_confinement_time=None,
         chi_perp_spline=None):
     """
     Calculate the perpendicular thermal diffusivity in units m^2/s.
     Will use chi_perp_spline if provided. Otherwise, energy_confinement_time (alone) is required.
-    Default operation with energy_confinement_time assumes all energy goes through each surface (see **). 
+    Default operation with energy_confinement_time assumes all energy goes through each surface (see **).
     However if minor_radius and areal_elongation are provided, we apply the Fitzpatrick 1995 formula (see ***).
 
     Parameters
@@ -134,7 +133,7 @@ def chi_perp_on_modes(rdcon_xarray,
         Input dataset with chi_perp_surf [m^2/s] added.
     """
 
-    if not (chi_perp_spline is None): # Use chi_perp_spline
+    if chi_perp_spline is not None: # Use chi_perp_spline
         chi_perp_on_modes = np.array(chi_perp_spline(rdcon_xarray.psi_n_rational.values))
 
     elif energy_confinement_time is None: # If no spline, need energy_confinement_time to continue
@@ -143,13 +142,13 @@ def chi_perp_on_modes(rdcon_xarray,
     elif minor_radius is None: # **Assume all energy goes through each surface. This is the default option!
         minor_radii_squared = rdcon_xarray.avg_r_surf.values*rdcon_xarray.avg_r_surf.values
         chi_perp_on_modes = np.array(minor_radii_squared / (6*energy_confinement_time)) # Assumes all energy put into the plasma deposits in core (overestimates chi_perp inner surfaces)
-    
+
     elif isinstance(minor_radius, float) and isinstance(areal_elongation, float): # ***Uses Fitzpatrick 1995 formula:
         chi_perp = areal_elongation * minor_radius**2 / (6*energy_confinement_time) # One value for all surfaces
-        chi_perp_on_modes = np.array([chi_perp]*len(rdcon_xarray.psi_n_rational.values)) 
+        chi_perp_on_modes = np.array([chi_perp]*len(rdcon_xarray.psi_n_rational.values))
 
     else:
-        raise ValueError("Incorrect entries to chi_perp function.") 
+        raise ValueError("Incorrect entries to chi_perp function.")
 
     rdcon_xarray = rdcon_xarray.assign(chi_perp_surf=chi_perp_on_modes+0.0*rdcon_xarray['psi_n_rational'])
 

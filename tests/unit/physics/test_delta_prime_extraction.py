@@ -2,8 +2,14 @@ import numpy as np
 import pytest
 
 from tearing_physics_suite.physics.delta_prime_extraction import (
-    delta_prime_2nn_couple, delta_prime_full_couple, delta_prime_nn_couple, delta_prime_no_couple,
-    extract_delta_primes, get_delta_prime_divisors, matrix_cofactor)
+    delta_prime_2nn_couple,
+    delta_prime_full_couple,
+    delta_prime_nn_couple,
+    delta_prime_no_couple,
+    extract_delta_primes,
+    get_delta_prime_divisors,
+    matrix_cofactor,
+)
 
 M2 = np.array([[2.0, 0.5], [0.3, -4.0]])
 M3 = np.array([[2.0, 0.5, 0.2], [0.3, -4.0, 0.7], [0.1, 0.6, -9.0]])

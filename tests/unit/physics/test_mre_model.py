@@ -3,7 +3,14 @@ import pytest
 import xarray as xr
 
 from tearing_physics_suite.physics.mre_model import (
-    Delta_GGJ, Delta_nc, DeltaPrime_bar, dwdtau, extract_mre_factors, generate_wd_function, get_local_max)
+    Delta_GGJ,
+    Delta_nc,
+    DeltaPrime_bar,
+    dwdtau,
+    extract_mre_factors,
+    generate_wd_function,
+    get_local_max,
+)
 
 W = np.logspace(-8, 0, num=1000)
 K1, C0 = 1.7, 0.6

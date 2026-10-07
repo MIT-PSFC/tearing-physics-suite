@@ -1,8 +1,10 @@
-# Utilities for tearing physics suite 
+# Utilities for tearing physics suite
 
 import math
+import os
+
 import numpy as np
-import os 
+
 
 def trim_nans(delta_primes,delta_prime_errs=None):
     """Remove trailing NaN rows/columns from a square Delta' matrix.
@@ -27,7 +29,7 @@ def trim_nans(delta_primes,delta_prime_errs=None):
         Trimmed error matrix (or None).
     """
     assert delta_primes.shape[0] == delta_primes.shape[1], "Input matrix is not square."
-    if not delta_prime_errs is None:
+    if delta_prime_errs is not None:
         assert delta_primes.shape[0] == delta_prime_errs.shape[0] == delta_prime_errs.shape[1], "Delta prime errors have different shape to Delta primes."
     dp_col1 = delta_primes[:,0]
     nans_in_col1=0
@@ -43,13 +45,13 @@ def trim_nans(delta_primes,delta_prime_errs=None):
     #We cut the matrix to remove nans:
     if nans_in_col1 > 0:
         delta_primes = delta_primes[:-nans_in_col1,:-nans_in_row1]
-        if not delta_prime_errs is None:
+        if delta_prime_errs is not None:
             delta_prime_errs = delta_prime_errs[:-nans_in_col1,:-nans_in_row1]
     # Now delta_primes is a square matrix with no nans. Check no nans present:
     if np.isnan(delta_primes).any():
         print(delta_primes)
         raise ValueError("Input matrix has interior nans present. Error somewhere in truncation")
-    if not delta_prime_errs is None:
+    if delta_prime_errs is not None:
         if np.isnan(delta_prime_errs).any():
             print(delta_prime_errs)
             raise ValueError("Input matrix has interior nans present. Error somewhere in truncation")
@@ -74,21 +76,21 @@ def create_dense_log_paramvals(start=1e-1, end=1e-7, points_per_decade=10, extra
     list of float
         Parameter values in descending order.
     """
-    
+
     # Calculate the log range
     log_start = math.log10(start)
     log_end = math.log10(end)
-    
+
     # Base logarithmic spacing
     num_decades = abs(log_start - log_end)
     base_points = int(num_decades * points_per_decade) + 1
-    
+
     # Create base logarithmic array using list comprehension
     paramvals_base = []
     for i in range(base_points):
         log_val = log_start + (log_end - log_start) * i / (base_points - 1)
         paramvals_base.append(10**log_val)
-    
+
     # Add extra density in specific regions if specified
     extra_vals = []
     if extra_density_regions:
@@ -98,14 +100,14 @@ def create_dense_log_paramvals(start=1e-1, end=1e-7, points_per_decade=10, extra
             for i in range(extra_points):
                 log_val = log_min + (log_max - log_min) * i / (extra_points - 1)
                 extra_vals.append(10**log_val)
-    
+
     # Combine all values and remove duplicates
     all_vals = paramvals_base + extra_vals
     paramvals_unique = list(set(all_vals))
-    
+
     # Sort in descending order (from 1e-1 to 1e-7)
     paramvals_sorted = sorted(paramvals_unique, reverse=True)
-    
+
     return paramvals_sorted
 
 

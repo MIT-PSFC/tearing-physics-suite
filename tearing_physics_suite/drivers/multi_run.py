@@ -5,15 +5,16 @@
 ## Pass a list of equilibrium file names, and corresponding profile file names, as well as that function, to the multi_run function. It then actively
 ## distributes the runs across available CPU cores, and collects the outputs into a list of xarrays and a list of input dicts.
 
-import os
-import sys
 import gc
-import shutil
 import multiprocessing
+import os
 import pickle as pkl
+import shutil
+import sys
 import traceback
-import xarray as xr
+
 import numpy as np
+import xarray as xr
 import zarr
 from scipy.interpolate import Akima1DInterpolator, PPoly
 
@@ -59,7 +60,7 @@ def multi_run(eq_filenames, profile_filenames, read_profile_function, master_wor
     elif len(profile_filenames) == 1:
         profile_list = read_profile_function(profile_filenames[0], verbose=verbose)
         assert len(profile_list) == len(eq_filenames), "read_profile_function must return a list of profile dicts with the same length as eq_filenames."
-    else: 
+    else:
         assert len(profile_filenames) == len(eq_filenames), "If profile_filenames is a list, it must have the same length as eq_filenames."
         profile_list = [read_profile_function(profile_filenames[i], verbose=verbose) for i in range(len(profile_filenames))]
 
@@ -199,7 +200,7 @@ def multi_run_(eq_filenames, profile_list, master_working_dir, verbose=False,
 def _init_multi_run_worker(worker_id_queue, master_working_dir):
     """Pool initialiser: claim a unique worker ID and set up its private dir.
 
-    Runs once per spawned worker before any tasks are dispatched. 
+    Runs once per spawned worker before any tasks are dispatched.
     Restricts the process to a single thread, creates worker_{id}/, and redirects stdout/stderr
     to a per-worker log file. Shared state is stashed in _MULTI_RUN_STATE for
     _run_one_eq to read (since imap_unordered has no fixed worker->task binding).
@@ -262,7 +263,7 @@ def _run_one_eq(args):
 
     Reads its private working directory from _MULTI_RUN_STATE (set by the
     initializer). On warm_start, defers to _validate_case first: a case that is
-    already complete is skipped. 
+    already complete is skipped.
     Runs nonlinear_resistive_calculation, pickles the
     result, exports the augmented netCDF, and writes done_{idx}.marker last.
     """
@@ -737,7 +738,7 @@ def multi_compile_zarr(
             continue
 
         eq_label = os.path.basename(eq_filenames[i])
-        
+
         ds = _zeff_on_psi_n_Zeff(ds)
 
         # Cast r / r_prime index coords to float to allow nans
@@ -959,7 +960,7 @@ def meta_dict_to_dataset(meta, ds=None, episode_dim="run_idx",
                 ds_out = ds_out.set_xindex(ida_dim)
             if verbose:
                 print(f"[meta] elevated '{xname}' -> indexed coord '{ida_dim}' on dim '{ida_dim}'")
-    
+
     return ds_out.expand_dims(episode_dim)
 
 def _flatten_meta(meta, prefix=""):

@@ -1,5 +1,6 @@
-import xarray as xr
 import numpy as np
+import xarray as xr
+
 from tearing_physics_suite.physics.delta_prime_extraction import extract_delta_primes
 
 
@@ -20,7 +21,7 @@ def _uniquify_r(ds):
             occ[i] = seen.get(v, 0)
             seen[v] = occ[i] + 1
         return occ
-    
+
     def _unique_flag(vals):
         # True where this value occurs exactly once in `vals`; False if it is
         # part of a degenerate group (i.e. will be collapsed later).

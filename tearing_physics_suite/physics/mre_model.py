@@ -1,21 +1,9 @@
 # Python functions to construct and analyse the modified Rutherford equation on modes
 
-import xarray as xr
 import numpy as np
+import xarray as xr
 from scipy.interpolate import Akima1DInterpolator
 from scipy.signal import find_peaks
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # If I want: make extra dimension for different versions of generate_wd_function [should probably do this, right now not sure...]
@@ -28,11 +16,11 @@ def extract_critical_mre_factors_on_modes(
         **kwargs):
     """
     Takes in code_xarray with delta prime values already computed, and rdcon_xarray with key mre surface terms computed.
-    Returns code_xarray with critical MRE factors including maximum island width, 
+    Returns code_xarray with critical MRE factors including maximum island width,
     location of maximum island width, and minimum marginally stable island width computed using the delta prime values.
     Parameters:
     k0 = 0.8227 comes from private communication w. Eric Howell, but is near identical to LaHaye 2017 10.1051/epjconf/201715703027 Eq. 1.
-    k1 = 1.7 comes from Chang et al. PRL 1995 
+    k1 = 1.7 comes from Chang et al. PRL 1995
     C0 = 0.6 comes from Schlutt and Hegna PoP 2012
     Returns:
     code_xarray : xarray.DataSet
@@ -59,7 +47,7 @@ def extract_critical_mre_factors_on_modes(
         dims=code_xarray.Delta_prime_surf.dims + ('w_bar',),
         coords={**code_xarray.Delta_prime_surf.coords, 'w_bar': w_vec_lowres}
     )
-    
+
     w_margs = tempda.copy(deep=True)
     w_sats = tempda.copy(deep=True)
     w_max_locs = tempda.copy(deep=True)
@@ -75,14 +63,14 @@ def extract_critical_mre_factors_on_modes(
         # Necessity of going surface by surface = defining wd_function:
         rdcon_surf = rdcon_xarray.isel(r=ri)
         wd_function = generate_wd_function(rdcon_surf,**kwargs)
-                
+
         # Things needed for calculating MRE data
         Dr = rdcon_surf['Dr_surf'].values
         Di = rdcon_surf['Di_surf'].values
         Dnc = rdcon_surf['Dnc_surf'].values
         H = rdcon_surf['H_surf'].values
-        
-        # Things that we will output using the structure: tempda2 
+
+        # Things that we will output using the structure: tempda2
         prefac = rdcon_surf['eta_star_surf'].values/k0
         wd_at_X0 = wd_function(rdcon_surf['X0_surf'].values)
 
@@ -125,7 +113,7 @@ def extract_critical_mre_factors_on_modes(
     )
 
     # Want X0_on_w_marg_surf and X0_on_wd_at_marg_surf to be less than 0 for MRE analysis to be valid!
-    code_xarray = code_xarray.assign( 
+    code_xarray = code_xarray.assign(
         X0_on_w_marg_surf = rdcon_xarray['X0_surf']/code_xarray['w_marg_surf'],
         X0_on_wd_at_marg_surf = rdcon_xarray['X0_surf']/code_xarray['wd_at_marg_surf'],
         X0_on_wd_at_X0_surf = rdcon_xarray['X0_surf']/code_xarray['wd_at_X0_surf'])
@@ -161,15 +149,15 @@ def mre_combination_wrap(wd_function, Dr, Di, Dnc, H, k1, C0, prefac, w_vec, w_v
         dwdtau_max = np.nan
         wd_at_marg = np.nan
         if not np.isnan(delta_prime_surf):
-            dwdtau_loc = lambda w_in: dwdtau(w_in, wd_function, delta_prime_surf, 
-                                            Dr, Di, 
-                                            Dnc, H, 
+            dwdtau_loc = lambda w_in: dwdtau(w_in, wd_function, delta_prime_surf,
+                                            Dr, Di,
+                                            Dnc, H,
                                             k1, C0)
             dwdtau_vec = dwdtau_loc(w_vec)
             dwdt_vec_low_res = prefac*dwdtau_loc(w_vec_lowres)
             w_marg, w_sat, w_max_loc, dwdtau_max = extract_mre_factors(dwdtau_vec, w_vec)
             if not np.isnan(w_marg):
-                wd_at_marg = wd_function(w_marg)    
+                wd_at_marg = wd_function(w_marg)
             else:
                 wd_at_marg = np.nan
         return dwdt_vec_low_res, w_marg, w_sat, w_max_loc, dwdtau_max, wd_at_marg
@@ -194,7 +182,7 @@ def extract_mre_factors(dwdtau_vec, w_vec):
         Last spline root if dwdtau ends negative. 0.0 if always decaying, 1.0 if
         always growing.
     w_max_loc : float
-        Island width at peak dwdtau. nan if dwdtau monotonically increases to w=1 (not onset-relevant). 
+        Island width at peak dwdtau. nan if dwdtau monotonically increases to w=1 (not onset-relevant).
     dwdtau_max : float
         Peak dwdtau value at w_max_loc.
     """
@@ -206,7 +194,7 @@ def extract_mre_factors(dwdtau_vec, w_vec):
 
     # Find where dwdtau crosses zero:
     zero_crossings = dwdtau_spln.roots(extrapolate=False)
-    
+
     w_marg = np.nan
     w_sat = np.nan
 
@@ -217,10 +205,10 @@ def extract_mre_factors(dwdtau_vec, w_vec):
         if dwdtau_vec[-1] < 0:
             # Saturated island width is the last zero crossing:
             w_sat = zero_crossings[-1]
-    else: 
+    else:
         if dwdtau_vec[0] < 0:   # Always decaying
-            w_marg = 1.0 
-            w_sat = 0.0 
+            w_marg = 1.0
+            w_sat = 0.0
         elif dwdtau_vec[0] > 0: # Always growing
             w_marg = 0.0
             w_sat = 1.0
@@ -236,7 +224,7 @@ def extract_mre_factors(dwdtau_vec, w_vec):
     if max_index==len(dwdtau_vec)-1:
         # Look for local maxes at smaller island widths...
         w_max_temp, dwdtau_max_temp, max_index = get_local_max(w_vec,dwdtau_vec)
-        if np.isnan(w_max_temp): # dwdtau monotonically increases to max at w = 1.0 
+        if np.isnan(w_max_temp): # dwdtau monotonically increases to max at w = 1.0
             return w_marg, w_sat, np.nan, np.nan # Ignore dwdtau_max, doesn't relate to onset phenomena...
 
     extremum_points = dwdtau_deriv_spln.roots(extrapolate=False) # w-location of extremum points in dwdtau
@@ -265,7 +253,7 @@ def get_local_max(xvec,yvec):
     -------
     x_peak, y_peak : float
         Coordinates of the selected peak.
-    peak_ind : int 
+    peak_ind : int
         Index of the peak.
     """
     peak_inds = find_peaks(yvec)[0]
@@ -276,18 +264,18 @@ def get_local_max(xvec,yvec):
         return xvec[peak_inds[-1]], yvec[peak_inds[-1]], peak_inds[-1]
     return xvec[peak_inds[0]], yvec[peak_inds[0]], peak_inds[0]
 
-# When you artificially set chifrac in M3DC1, make another generate_wd_function that just uses that chifrac. 
+# When you artificially set chifrac in M3DC1, make another generate_wd_function that just uses that chifrac.
 # How to implement this within the island is another question
 def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_Fitz_formula=False):
     """
-    Generates for a particular surface, a function that takes in w_bar 
+    Generates for a particular surface, a function that takes in w_bar
     (island width in normalised poloidal flux), and returns wd_bar
-    (Fitzpatrick island width in normalised poloidal flux). 
-    By default, takes the minimum of chi_para_lmfp and chi_para_smfp, 
+    (Fitzpatrick island width in normalised poloidal flux).
+    By default, takes the minimum of chi_para_lmfp and chi_para_smfp,
     but can be set to use only chi_para_lmfp. Assumes that rdcon_xarray
     has already been through cross_field_transport.py.
 
-    If use_Fitz_formula is True, then we apply the Fitzpatrick 2023 formula 14.209. Default is no, 
+    If use_Fitz_formula is True, then we apply the Fitzpatrick 2023 formula 14.209. Default is no,
     since if the chi_para_smfp and chi_para_lmfp are equal, this formula cuts chi_para in half, which I don't agree with.
 
     If iterator is False, we calculate the ratio of chi_perp/chi_para at the specific island size being evaluated (I think this is more correct).
@@ -317,7 +305,7 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
     chi_para_lmfp_no_w = rdcon_xarray_surf['chi_para_lmfp_no_w_surf'].values
     Wc_prefac_m = rdcon_xarray_surf['Wc_prefac_m_surf'].values
     X0 = rdcon_xarray_surf['X0_surf'].values
-    
+
     if not iterator: # I think this is more correct
         def wd_function(w_bar: float):
             """
@@ -340,7 +328,7 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
         def wd_function(w_bar: float):
             """ !!! IGNORES w_bar !!!
             Takes in w_bar (island width in normalised poloidal flux) and returns wd_bar
-            (Fitzpatrick island width in normalised poloidal flux). 
+            (Fitzpatrick island width in normalised poloidal flux).
             """
             wd_bar4=X0**4
             for i in range(10): #Iterate to convergence
@@ -366,7 +354,7 @@ def dwdtau(w_bar: float, wd_function: 'function', DeltaPrimeGPEC: float, Dr: flo
     """
     wd_bar=wd_function(w_bar)
     return DeltaPrime_bar(w_bar, DeltaPrimeGPEC, Di) + Delta_GGJ(w_bar, wd_bar, Dr, Di, H, k1, C0) + Delta_nc(w_bar, wd_bar, Dnc, k1, C0)
-        
+
 def Delta_nc(w_bar: float, wd_bar: float, Dnc: float, k1: float, C0: float):
     """Neoclassical bootstrap current drive term of the MRE (Schlutt & Hegna PoP 2012).
 
@@ -377,7 +365,7 @@ def Delta_nc(w_bar: float, wd_bar: float, Dnc: float, k1: float, C0: float):
 def Delta_GGJ(w_bar: float, wd_bar: float, Dr: float, Di: float, H: float, k1: float, C0: float):
     """Glasser-Greene-Johnson curvature stabilisation term of the MRE (Schlutt & Hegna PoP 2012).
 
-    Converted to normalised poloidal flux space. Note typo in that paper; to agree with Hegna 1999 in 
+    Converted to normalised poloidal flux space. Note typo in that paper; to agree with Hegna 1999 in
     the toroidal limit, we use k1 instead of k0. Units: psi_norm^(-1).
     """
     alpha_l=0.5-np.sqrt(-Di)

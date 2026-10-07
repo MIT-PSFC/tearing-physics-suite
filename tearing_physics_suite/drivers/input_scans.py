@@ -1,15 +1,16 @@
 # Python functions to scan input parameters during the resistive calculation, testing numerical and physics sensitivities
 
-import pandas as pd
-import xarray as xr
-import numpy as np
 import os
 from collections import Counter
+
+import numpy as np
+import xarray as xr
 
 home_dir = os.environ['TPSHOME']
 import tearing_physics_suite.wrappers.run_codes as tfw
 from tearing_physics_suite.physics.combine import compile_xarrays
 from tearing_physics_suite.physics.global_quantities import delta_prime_variability
+
 
 def scan_1D_input(input_name,input_values,eq_filename,
         nn,
@@ -50,12 +51,12 @@ def scan_1D_input(input_name,input_values,eq_filename,
 
     if input_name in kwargs:
         kwargs.pop(input_name)
-    if not 'output_prefix' in kwargs:
+    if 'output_prefix' not in kwargs:
         kwargs["output_prefix"] = ''
         output_prefix_tmp = ''
     else:
         output_prefix_tmp = kwargs["output_prefix"]
-    
+
     results = []
     casenum=1
 
@@ -156,7 +157,7 @@ def extract_scanned_xrs(results, input_name, abs_threshold, rel_threshold, outpu
         message = str(" "+input_name+": "+str(input_values)+'\n')
     xarrays_msg = []
     for i in range(len(xarrays)):
-        if xarrays[i] is not None:  
+        if xarrays[i] is not None:
             if 'Delta_prime' in xarrays[i]:
                 xarrays_msg.append(xarrays[i])
     if 'rdcon' in xarrays_msg[0].code:
@@ -177,7 +178,7 @@ def extract_scanned_xrs(results, input_name, abs_threshold, rel_threshold, outpu
     #########################################################################################################
 
     # Check if all values in a 1D array are the same [xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))] are the same
-    if np.all(np.array([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))]) == xarrays_msg[0].r.values[0]): 
+    if np.all(np.array([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))]) == xarrays_msg[0].r.values[0]):
         message+=str("   at q-surface "+ str(xarrays_msg[0].r.values[0])+"\n")
     else:
         message+=str("   q-surfaces:"+ str([xarrays_msg[i].r.values[0] for i in range(len(xarrays_msg))])+"\n")
@@ -239,16 +240,16 @@ def delta_prime_variability_runner(xarrays, input_values, input_name, message, a
     delta_prime_xarray = delta_prime_compiler(xarrays, input_values, input_name)
 
     #########################################################################################################
-    # Run delta_prime_variability  
+    # Run delta_prime_variability
     #########################################################################################################
 
     xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere = delta_prime_variability(delta_prime_xarray, comparison_var = input_name, run_bool_check=True, abs_threshold=abs_threshold, rel_threshold=rel_threshold)
-    
+
     return xarray, abs_thresh_exceeded_anywhere, rel_thresh_exceeded_anywhere, abs_thresh_exceeded_psi95_anywhere, rel_thresh_exceeded_psi95_anywhere
 
 def delta_prime_compiler(xarray_list, input_values, input_name, run_concatenation=True):
     """
-    Function takes a list of xarrays (one per scan value), extracts Delta_prime_surf and psi_n_rational from each, and compiles them into a single xarray for comparison. 
+    Function takes a list of xarrays (one per scan value), extracts Delta_prime_surf and psi_n_rational from each, and compiles them into a single xarray for comparison.
 
     Parameters
     ----------

@@ -1,7 +1,13 @@
 import numpy as np
 from scipy.interpolate import Akima1DInterpolator, PchipInterpolator
+
 import tearing_physics_suite.physics.constants as gv
-from tearing_physics_suite.physics.rotation import add_drift_rotation, add_rotation, decorrelation_ratios, decorrelation_timescales
+from tearing_physics_suite.physics.rotation import (
+    add_drift_rotation,
+    add_rotation,
+    decorrelation_ratios,
+    decorrelation_timescales,
+)
 
 
 def mre_raw_interp(rdcon_xarray):
@@ -157,7 +163,7 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
             lnLamb_ei_surf = 15.2-0.5*np.log(rdcon_xarray['ne_m3_surf']/1e20)+np.log(rdcon_xarray['te_keV_surf']),  # Dimless
             lnLamb_ee = 14.9-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV']),                  # Dimless
             lnLamb_ei = 15.2-0.5*np.log(rdcon_xarray['ne_m3']/1e20)+np.log(rdcon_xarray['te_keV'])                  # Dimless
-        ) 
+        )
     else:
         rdcon_xarray = rdcon_xarray.assign(
             lnLamb_ei_surf = Coulomb_logarithm+0.0*rdcon_xarray['psi_n_rational'], # Dimless
@@ -167,16 +173,16 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     rdcon_xarray = rdcon_xarray.assign(
         eta_spitz_surf = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei_surf']*(rdcon_xarray['te_keV_surf']**(-3/2)),    # Ohm m
         eta_spitz = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei']*(rdcon_xarray['te_keV']**(-3/2))                    # Ohm m
-    ) 
+    )
     return rdcon_xarray
 
 
 def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=[1.0],psi_surfs_of_interest=[0.95],diamagnetic_rotation_ion_charge=None):
     """
-    Calculate the MRE terms on modes using the provided xarray data and splines. This just 
-    deals with values out of rdcon_xarray, and natural flux coordinates. Requires mre_flag & geom_flag='t' (as per default) 
+    Calculate the MRE terms on modes using the provided xarray data and splines. This just
+    deals with values out of rdcon_xarray, and natural flux coordinates. Requires mre_flag & geom_flag='t' (as per default)
     when running RDCON.
-    
+
     Parameters:
     rdcon_xarray : xarray.DataArray
         The xarray containing the radial coordinate data.
@@ -188,7 +194,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         Spline for ion temperature in KeV on normalised poloidal flux.
     te_spline : 1DSpline
         Spline for electron temperature in KeV on normalised poloidal flux.
-    
+
     Returns:
     rdcon_xarray : xarray.DataArray
         The updated xarray with MRE terms calculated.
@@ -231,17 +237,17 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                                         ne1_m3_surf = np.array(ne_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
                                         ti1_keV_surf = np.array(ti_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'],
                                         te1_keV_surf = np.array(te_spline(rdcon_xarray['psi_n_rational'].values,1))+0.0*rdcon_xarray['psi_n_rational'])
-    
+
     # Check if average_ion_mass is in rdcon_xarray:
-    if not 'average_ion_mass' in rdcon_xarray:
-        rdcon_xarray = rdcon_xarray.assign(average_ion_mass=average_ion_mass) # Mass in units amu 
+    if 'average_ion_mass' not in rdcon_xarray:
+        rdcon_xarray = rdcon_xarray.assign(average_ion_mass=average_ion_mass) # Mass in units amu
 
     # Thermal velocities in m/s. Note eV*e = joules, using Fitzpatrick 2023 Eq. 1.71-1.72 definition of thermal velocities
     rdcon_xarray = rdcon_xarray.assign(
-        v_te_surf = np.sqrt(2* 
+        v_te_surf = np.sqrt(2*
                             gv.e*(1e3*rdcon_xarray['te_keV_surf']) #Electron temp in joules
                             / gv.me), # Electron mass in kg
-        v_ti_surf = np.sqrt(2* 
+        v_ti_surf = np.sqrt(2*
                             gv.e*(1e3*rdcon_xarray['ti_keV_surf']) #Ion temp in joules
                             / (rdcon_xarray.average_ion_mass.values*gv.amu))) # Average ion mass in kg
 
@@ -273,20 +279,20 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
 
     # The following are from Glasser et al. 2016 Appendix A12-A16:
     #  Resistive diffusion time in seconds
-    rdcon_xarray = rdcon_xarray.assign( 
-        taur_surf = rdcon_xarray['taur_prefac_surf']/rdcon_xarray['eta_spitz_surf']) #mu0 is included in taur_prefac_surf 
+    rdcon_xarray = rdcon_xarray.assign(
+        taur_surf = rdcon_xarray['taur_prefac_surf']/rdcon_xarray['eta_spitz_surf']) #mu0 is included in taur_prefac_surf
     #  Alven time in seconds
-    rdcon_xarray = rdcon_xarray.assign( 
+    rdcon_xarray = rdcon_xarray.assign(
         taua_surf = rdcon_xarray['taua_prefac_surf']*np.sqrt(rdcon_xarray['rho_surf'])/rdcon_xarray.n) # seconds
-    #  Lundquist number  
-    rdcon_xarray = rdcon_xarray.assign( 
+    #  Lundquist number
+    rdcon_xarray = rdcon_xarray.assign(
         S_surf = rdcon_xarray['taur_surf']/rdcon_xarray['taua_surf']) # dimless
     #  Characteristic resistive linear layer width in normalised flux space
-    rdcon_xarray = rdcon_xarray.assign( 
+    rdcon_xarray = rdcon_xarray.assign(
         X0_surf = rdcon_xarray['S_surf']**(-1/3)) # dimless
     #  Characteristic timescale of linear resistive mode growth
     rdcon_xarray = rdcon_xarray.assign(
-        Q0_surf = rdcon_xarray['X0_surf']/rdcon_xarray['taua_surf']) # 1 / seconds 
+        Q0_surf = rdcon_xarray['X0_surf']/rdcon_xarray['taua_surf']) # 1 / seconds
 
     # Add mode number m for rational surfaces:
     m_ints = np.round(rdcon_xarray.n*rdcon_xarray['q_rational'].values).astype(int)
@@ -299,7 +305,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     )
 
     """ Sanity check comparing the formulas in GPEC/rdcon/resist.f to the Wesson formulas used above:
-        Glasser values: 
+        Glasser values:
             we assume ne = 1e14 is actually 1e20 m^(-3) based on rho=ne*mi*1e6, and we assume te = 3e3 = 3KeV
             e=1.6021917e-19
             mp=1.672614e-27
@@ -312,7 +318,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
             eta=me/(ne*1e6*e**2*taue*1.96)
             rho=ne*mi*1e6
             taur=
-        Wesson values: 
+        Wesson values:
             we use using ne = 1e20, and te = 3e3 = 3 KeV
             lambdW = 15.2-0.5*np.log(1e20/1e20)+np.log(3)
             taueW=1.09*(10**16)*(3**(3/2))/(1e20*lambdW) # seconds
@@ -444,7 +450,7 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     DeltaPrimeCrits15_no_chifrac = np.full_like(Hs, np.nan)
 
     for i in range(len(Hs)):
-        if not (Hs[i] < 0.5 or Hs[i] > -5/2): # Condition for validity for these formulas 
+        if not (Hs[i] < 0.5 or Hs[i] > -5/2): # Condition for validity for these formulas
             continue
     #########################################################################################################
     # Glasser et al. Phys. Fluids 1975, Eq 111:
@@ -467,18 +473,18 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
         else:
             chi_para = chi_para_lmfp_noisland_surf[i]
         chi_frac_noisland = chi_para / chi_perp_surf[i]
-        DeltaPrimeCrits15[i] = (1/2)*np.pi**(3/2)*chi_frac_noisland**(1/4)*v_rationals[i]*(-Drs[i])*(alpha*alpha*Lambda*Lambda/(avg_Bsq_surf[i]*avg_dVsq))**(1/4) 
+        DeltaPrimeCrits15[i] = (1/2)*np.pi**(3/2)*chi_frac_noisland**(1/4)*v_rationals[i]*(-Drs[i])*(alpha*alpha*Lambda*Lambda/(avg_Bsq_surf[i]*avg_dVsq))**(1/4)
         DeltaPrimeCrits15_no_chifrac[i] = DeltaPrimeCrits15[i]/(chi_frac_noisland**(1/4))
 
     rdcon_xarray = rdcon_xarray.assign(
         Qcrit_surf = Qcrits+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 110.
         Delta_prime_crit = DeltaPrimeCrits75+0.0*rdcon_xarray['psi_n_rational'], # Glasser et al. Phys. Fluids 1975, Eq 111.
         DeltaPrime_crit_no_X0 = DeltaPrimeCrits75_no_X0+0.0*rdcon_xarray['psi_n_rational'], # Multiply by (1/X0)^(1-2Hs) to get Delta_prime_crit if you are modifying resistivity and/or mass density.
-        Delta_prime_tcrit = DeltaPrimeCrits15+0.0*rdcon_xarray['psi_n_rational'],  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025). 
+        Delta_prime_tcrit = DeltaPrimeCrits15+0.0*rdcon_xarray['psi_n_rational'],  # Connor et al. PPCF 2015, Eq 59. Requires small Dr, small H assumption to be valid (generally true, see Benjamin et al., NF 2025).
         Delta_prime_tcrit_no_chifrac = DeltaPrimeCrits15_no_chifrac+0.0*rdcon_xarray['psi_n_rational']  # Multiply by (chi_para/chi_perp)^(1/4) to get DeltaPrime_crit2 if you are modifying transport coefficients.
     )
-    
-    # All we need for S, X0, and Delta_prime_crit, in m3dc1 is n, eta(spitz or otherwise), and mass density (ni, ion mass, ne - see mre_terms_on_modes for formula.) 
+
+    # All we need for S, X0, and Delta_prime_crit, in m3dc1 is n, eta(spitz or otherwise), and mass density (ni, ion mass, ne - see mre_terms_on_modes for formula.)
     # All we need for Delta_prime_tcrit is chi_frac. Note chi_frac in theory depends on Zeff, but if chifrac is being artificially set by M3DC1, we don't need to worry about it for Delta_prime_tcrit.
-    
+
     return rdcon_xarray

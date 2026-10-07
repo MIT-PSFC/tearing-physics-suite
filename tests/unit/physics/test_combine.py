@@ -3,7 +3,12 @@ import pytest
 import xarray as xr
 
 from tearing_physics_suite.physics.combine import (
-    _counts_along_dim, _uniquify_r, add_unique_label, collapse_to_primary, sel_rational)
+    _counts_along_dim,
+    _uniquify_r,
+    add_unique_label,
+    collapse_to_primary,
+    sel_rational,
+)
 
 R = [2.0, 3.0, 3.0, 4.0]  # degenerate m=3 (two surfaces with the same m)
 

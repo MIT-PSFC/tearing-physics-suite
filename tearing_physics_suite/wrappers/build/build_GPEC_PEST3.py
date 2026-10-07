@@ -2,11 +2,16 @@
 
 import os
 import re
-import sys
-import subprocess
 import shutil
+import subprocess
+import sys
 from pathlib import Path
-from tearing_physics_suite.wrappers.build.compiler_utils import detect_compilers, get_cmake_fortran_flags, get_cmake_c_flags
+
+from tearing_physics_suite.wrappers.build.compiler_utils import (
+    detect_compilers,
+    get_cmake_c_flags,
+    get_cmake_fortran_flags,
+)
 
 home_dir = os.environ['TPSHOME']
 
@@ -214,26 +219,26 @@ def setup_scimake(pest3_source):
     """
     Download and set up scimake modules required for PEST3 CMake build.
     Clones from the Tech-X GitHub repository into the PEST3 source tree.
-    
+
     Parameters:
     -----------
     pest3_source : Path
         Path to PEST3 source directory
-    
+
     Returns:
     --------
     Path
         Path to scimake directory, or None if setup failed
     """
     scimake_dir = pest3_source / "scimake"
-    
+
     if scimake_dir.exists() and any(scimake_dir.iterdir()):
         print(f"scimake already present at {scimake_dir}")
         return scimake_dir
-    
+
     print("Cloning scimake from GitHub (Tech-XCorp/scimake)...")
     scimake_url = "https://github.com/Tech-XCorp/scimake.git"
-    
+
     try:
         result = subprocess.run(
             ["git", "clone", scimake_url, str(scimake_dir)],
@@ -244,7 +249,7 @@ def setup_scimake(pest3_source):
         if result.returncode != 0:
             print(f"Error cloning scimake: {result.stderr}")
             return None
-        
+
         print(f"Successfully set up scimake at {scimake_dir}")
         return scimake_dir
     except subprocess.TimeoutExpired:
@@ -263,7 +268,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     Builds the library in the 'submodules/utils/PEST3' directory unless otherwise specified.
     After a successful build, automatically runs PEST3_install_test() to verify the binary
     produces correct output, unless run_tests=False.
-    
+
     Parameters:
     -----------
     lib_paths : dict
@@ -299,15 +304,15 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         True if build (and, when run_tests=True, tests) succeeded, False otherwise
     """
     os.chdir(home_dir)
-    
+
     # Set default build directory
     if build_dir is None:
         build_dir = Path(home_dir) / "submodules" / "PEST3"
     else:
         build_dir = Path(build_dir)
-    
+
     pest3_source = Path(home_dir) / "submodules" / "PEST3"
-    
+
     print("=" * 60)
     print("Building PEST3")
     print("=" * 60)
@@ -337,18 +342,18 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         return True
 
     # Step 1: Clone PEST3 from GitHub if not already present
-    print(f"\nStep 1: Preparing PEST3 source...")
+    print("\nStep 1: Preparing PEST3 source...")
     pest3_url = "https://github.com/MIT-PSFC/PEST3"
-    
+
     # Force delete existing PEST3 source to ensure clean build
     if pest3_source.exists() and rebuild:
-        print(f"Removing existing PEST3 source to ensure clean build...")
+        print("Removing existing PEST3 source to ensure clean build...")
         try:
             shutil.rmtree(pest3_source)
-            print(f"Successfully removed PEST3 source")
+            print("Successfully removed PEST3 source")
         except Exception as e:
             print(f"Warning: Could not remove PEST3 source: {e}")
-    
+
     if not pest3_source.exists():
         print(f"Cloning PEST3 from {pest3_url}...")
         try:
@@ -364,28 +369,28 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             return False
     else:
         print(f"Using existing PEST3 source at {pest3_source}")
-    
+
     # Step 1b: Set up scimake for CMake build
-    print(f"\nStep 1b: Setting up scimake modules...")
+    print("\nStep 1b: Setting up scimake modules...")
     scimake_dir = setup_scimake(pest3_source)
     if not scimake_dir:
         print("Warning: Could not set up scimake, attempting to proceed anyway...")
-    
+
     # Step 2: Create build directory
-    print(f"\nStep 2: Setting up build directory...")
+    print("\nStep 2: Setting up build directory...")
     build_dir.mkdir(parents=True, exist_ok=True)
     print(f"Build directory: {build_dir}")
-    
+
     # Step 3: Configure PEST3
-    print(f"\nStep 3: Configuring PEST3...")
-    
+    print("\nStep 3: Configuring PEST3...")
+
     # Prepare environment variables for linking
     env = os.environ.copy()
-    
+
     ldflags = []
     cppflags = []
     ld_library_path = []
-    
+
     # Helper function to find lib directory
     def find_lib_dir(base_dir):
         for libname in ['lib', 'lib64']:
@@ -395,20 +400,20 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             if candidate.exists():
                 return str(candidate)
         return str(Path(base_dir) / 'lib')
-    
+
     # Extract library paths from lib_paths dictionary
     if 'blas' in lib_paths and lib_paths['blas']['lib']:
         blas_lib = lib_paths['blas']['lib']
         ldflags.append(f"-L{blas_lib}")
         ld_library_path.append(str(blas_lib))
         print(f"Using BLAS: {blas_lib}")
-    
+
     if 'lapack' in lib_paths and lib_paths['lapack']['lib']:
         lapack_lib = lib_paths['lapack']['lib']
         ldflags.append(f"-L{lapack_lib}")
         ld_library_path.append(str(lapack_lib))
         print(f"Using LAPACK: {lapack_lib}")
-    
+
     if 'hdf5' in lib_paths and lib_paths['hdf5']['lib']:
         hdf5_lib = lib_paths['hdf5']['lib']
         ldflags.append(f"-L{hdf5_lib}")
@@ -416,7 +421,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         if lib_paths['hdf5']['include']:
             cppflags.append(f"-I{lib_paths['hdf5']['include']}")
         print(f"Using HDF5: {hdf5_lib}")
-    
+
     if 'netcdf' in lib_paths and lib_paths['netcdf']['lib']:
         netcdf_lib = lib_paths['netcdf']['lib']
         ldflags.append(f"-L{netcdf_lib}")
@@ -424,7 +429,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         if lib_paths['netcdf']['include']:
             cppflags.append(f"-I{lib_paths['netcdf']['include']}")
         print(f"Using NetCDF: {netcdf_lib}")
-    
+
     if 'netcdf-fortran' in lib_paths and lib_paths['netcdf-fortran']['lib']:
         netcdf_fort_lib = lib_paths['netcdf-fortran']['lib']
         ldflags.append(f"-L{netcdf_fort_lib}")
@@ -432,36 +437,36 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         if lib_paths['netcdf-fortran']['include']:
             cppflags.append(f"-I{lib_paths['netcdf-fortran']['include']}")
         print(f"Using NetCDF-Fortran: {netcdf_fort_lib}")
-    
+
     if ld_library_path:
         env['LD_LIBRARY_PATH'] = ":".join(ld_library_path) + f":{env.get('LD_LIBRARY_PATH', '')}"
-    
+
     if ldflags:
         env['LDFLAGS'] = " ".join(ldflags) + f" {env.get('LDFLAGS', '')}"
-    
+
     if cppflags:
         env['CPPFLAGS'] = " ".join(cppflags) + f" {env.get('CPPFLAGS', '')}"
-    
+
     # Step 3: Configure PEST3 using CMake
-    print(f"\nStep 3: Configuring PEST3 with CMake...")
-    
+    print("\nStep 3: Configuring PEST3 with CMake...")
+
     # Detect compilers and get appropriate flags
     compiler_info = detect_compilers()
     cmake_fortran_flags = get_cmake_fortran_flags(compiler_info['compiler_type'])
-    
+
     # Create a separate build directory for CMake (clean it for fresh configure)
     prefix = Path(work_dir) / "PEST3" if work_dir else build_dir
     cmake_build_dir = prefix / "cmake_build"
     if cmake_build_dir.exists():
         shutil.rmtree(cmake_build_dir, ignore_errors=True)
     cmake_build_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Helper function to find library files in lib or lib64
     def find_library_file(base_dir, lib_pattern):
         """Search for library files in lib or lib64 directories"""
         if isinstance(base_dir, str):
             base_dir = Path(base_dir)
-        
+
         # Try lib64 first, then lib
         for libdir in ['lib64', 'lib']:
             lib_path = base_dir / libdir
@@ -470,11 +475,11 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
                 if matches:
                     return str(matches[0])
         return None
-    
+
     # Prepare CMake configuration command
     # scimake uses SUPRA_SEARCH_PATH and <Pkg>_ROOT_DIR to find packages
     utils_prefix = lib_paths.get('hdf5', {}).get('prefix', '')
-    
+
     # Patch SciInit.cmake to fix CMP0017 OLD policy error with newer CMake
     sci_init = pest3_source / "scimake" / "SciInit.cmake"
     if sci_init.exists():
@@ -486,7 +491,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             )
             sci_init.write_text(content)
             print("Patched SciInit.cmake: CMP0017 set to NEW")
-    
+
     cmake_cmd = [
         "cmake",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
@@ -504,7 +509,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         f"-DGPEC_DIR={gpec_dir}",
         str(pest3_source),
     ]
-    
+
     # Explicitly set all compilers to the MPI wrappers from the loaded
     # module environment, avoiding CMake picking up a stale/wrong MPI
     # (e.g. Intel oneAPI MPI linked against mvapich2).
@@ -525,7 +530,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     if cmake_c_flags:
         cmake_cmd.insert(-1, f"-DCMAKE_C_FLAGS={cmake_c_flags}")
         print(f"Using C flags: {cmake_c_flags}")
-    
+
     # Add BLAS/LAPACK configuration using library dirs and names
     # (avoids SciSeparateLibs argument mismatch)
     if 'blas' in lib_paths and lib_paths['blas']['prefix']:
@@ -533,28 +538,28 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         if blas_lib:
             blas_lib_dir = str(Path(blas_lib).parent)
             cmake_cmd.append(f"-DBLAS_LIBRARY_DIRS={blas_lib_dir}")
-            cmake_cmd.append(f"-DBLAS_LIBRARY_NAMES=blas")
+            cmake_cmd.append("-DBLAS_LIBRARY_NAMES=blas")
             print(f"CMake BLAS dir: {blas_lib_dir}")
-    
+
     if 'lapack' in lib_paths and lib_paths['lapack']['prefix']:
         lapack_lib = find_library_file(lib_paths['lapack']['prefix'], "liblapack.so")
         if lapack_lib:
             lapack_lib_dir = str(Path(lapack_lib).parent)
             cmake_cmd.append(f"-DLAPACK_LIBRARY_DIRS={lapack_lib_dir}")
-            cmake_cmd.append(f"-DLAPACK_LIBRARY_NAMES=lapack")
+            cmake_cmd.append("-DLAPACK_LIBRARY_NAMES=lapack")
             print(f"CMake LAPACK dir: {lapack_lib_dir}")
-    
+
     # Add HDF5 configuration
     if 'hdf5' in lib_paths and lib_paths['hdf5']['prefix']:
         cmake_cmd.append(f"-DHDF5_ROOT={lib_paths['hdf5']['prefix']}")
         print(f"CMake HDF5: {lib_paths['hdf5']['prefix']}")
-    
+
     # Add NetCDF configuration
     if 'netcdf' in lib_paths and lib_paths['netcdf']['prefix']:
         cmake_cmd.append(f"-DNetCDF_ROOT={lib_paths['netcdf']['prefix']}")
         print(f"CMake NetCDF: {lib_paths['netcdf']['prefix']}")
-    
-    print(f"Running CMake...")
+
+    print("Running CMake...")
     try:
         result = subprocess.run(
             cmake_cmd,
@@ -564,13 +569,13 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             env=env,
             timeout=1800
         )
-        
+
         if result.returncode != 0:
             print(f"CMake failed with return code {result.returncode}")
             print("STDOUT:", result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout)
             print("STDERR:", result.stderr[-1000:] if len(result.stderr) > 1000 else result.stderr)
             return False
-        
+
         print("CMake configuration completed successfully")
     except subprocess.TimeoutExpired:
         print("CMake timed out")
@@ -578,14 +583,14 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     except Exception as e:
         print(f"Error running CMake: {e}")
         return False
-    
+
     # Step 4: Build PEST3
-    print(f"\nStep 4: Building PEST3...")
-    
+    print("\nStep 4: Building PEST3...")
+
     # Use single-threaded build to avoid parallel compilation race conditions
     # in PEST3's Fortran dependency chain
     make_cmd = ["make", "-j", "1"]
-    
+
     try:
         result = subprocess.run(
             make_cmd,
@@ -595,13 +600,13 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             env=env,
             timeout=3600
         )
-        
+
         if result.returncode != 0:
             print(f"Build failed with return code {result.returncode}")
             print("STDOUT:", result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
             print("STDERR:", result.stderr[-500:] if len(result.stderr) > 500 else result.stderr)
             return False
-        
+
         print("Build completed successfully")
     except subprocess.TimeoutExpired:
         print("Build timed out")
@@ -609,12 +614,12 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     except Exception as e:
         print(f"Error running make: {e}")
         return False
-    
+
     # Step 5: Install PEST3
-    print(f"\nStep 5: Installing PEST3...")
-    
+    print("\nStep 5: Installing PEST3...")
+
     install_cmd = ["make", "install"]
-    
+
     try:
         result = subprocess.run(
             install_cmd,
@@ -624,13 +629,13 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
             env=env,
             timeout=1800
         )
-        
+
         if result.returncode != 0:
             print(f"Install failed with return code {result.returncode}")
             print("STDOUT:", result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
             print("STDERR:", result.stderr[-500:] if len(result.stderr) > 500 else result.stderr)
             return False
-        
+
         print(f"PEST3 installed to {prefix}")
     except subprocess.TimeoutExpired:
         print("Install timed out")
@@ -644,7 +649,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         pest3x.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cmake_build_dir / "pest3" / "pest3x", pest3x)
         print(f"Copied pest3x to {pest3x}")
-    
+
     print("\n" + "=" * 60)
     print("✓ PEST3 build completed successfully!")
     print("=" * 60)
@@ -817,7 +822,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
     env["CC"] = compiler_info['cc']
     if compiler_info['f77']:
         env["F77"] = compiler_info['f77']
-    
+
     print(f"  FC = {env['FC']} ({compiler_info['compiler_type']})")
     print(f"  CC = {env['CC']}")
 
@@ -1054,6 +1059,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=Fa
         tolerance; ``False`` otherwise.
     """
     import shutil as _shutil
+
     import xarray as xr
 
     os.chdir(home_dir)
@@ -1177,7 +1183,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=Fa
             print("\n".join(tail[-10:]) if tail else "(no output)")
             return result.returncode
         except subprocess.TimeoutExpired:
-            print(f"  TIMED OUT (>300 s)")
+            print("  TIMED OUT (>300 s)")
             return -1
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -1354,7 +1360,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=Fa
         val = _read_delta_prime(nc_path)
         if val is None:
             if known:
-                print(f"  Value check: no output file (known failure – not blocking)")
+                print("  Value check: no output file (known failure – not blocking)")
             else:
                 all_passed = False
             continue
@@ -1370,7 +1376,7 @@ def GPEC_install_test(gpec_dir=None, lib_paths=None, install_dir=None, legacy=Fa
         )
         if not passed:
             if known:
-                print(f"  (known failure – not blocking)")
+                print("  (known failure – not blocking)")
             else:
                 all_passed = False
 
@@ -1605,7 +1611,7 @@ def PEST3_install_test(build_dir=None, lib_paths=None, install_dir=None):
                 continue
 
             ran[i] = True
-            print(f"  Run: PASSED (returncode=0)")
+            print("  Run: PASSED (returncode=0)")
 
         except subprocess.TimeoutExpired:
             print(f"✗ {test['name']} TIMED OUT (>120 s)")
@@ -1619,7 +1625,7 @@ def PEST3_install_test(build_dir=None, lib_paths=None, install_dir=None):
         # ---- Validate pest3.nc output --------------------------------
         nc_path = examples_dir / "pest3.nc"
         if not nc_path.exists():
-            print(f"  Value check: FAILED – pest3.nc not found after run")
+            print("  Value check: FAILED – pest3.nc not found after run")
             all_passed = False
             continue
 
@@ -1670,7 +1676,7 @@ def PEST3_install_test(build_dir=None, lib_paths=None, install_dir=None):
 if __name__ == "__main__":
     # Parse command line arguments
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Build PEST3 library")
     parser.add_argument(
         "--lib-paths",
@@ -1689,14 +1695,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Run tests after building"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Try to parse lib_paths as JSON if it looks like a file path
     import json
     if args.lib_paths.endswith('.json'):
         try:
-            with open(args.lib_paths, 'r') as f:
+            with open(args.lib_paths) as f:
                 lib_paths = json.load(f)
         except Exception as e:
             print(f"Error reading library paths from file: {e}")
@@ -1707,6 +1713,6 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Error parsing library paths JSON: {e}")
             sys.exit(1)
-    
+
     success = build_PEST3(lib_paths, build_dir=args.build_dir, debug=args.debug)
     sys.exit(0 if success else 1)

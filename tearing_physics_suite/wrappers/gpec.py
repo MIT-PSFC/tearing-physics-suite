@@ -1,11 +1,13 @@
 import os
+import pickle as pkl
 import shutil
 import subprocess
+
 import xarray as xr
-import pickle as pkl
+
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.wrappers.gpec_inputs import write_rdcon_stride_inputs
 from tearing_physics_suite.utils import eq_stem
+from tearing_physics_suite.wrappers.gpec_inputs import write_rdcon_stride_inputs
 
 
 def _default_eq_type(eq_filename, kwargs):
@@ -14,11 +16,11 @@ def _default_eq_type(eq_filename, kwargs):
         kwargs['eq_type'] = """'ldp_i'"""
 
 
-def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False, 
-        make_working_dir=True, 
+def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=False,
+        make_working_dir=True,
         make_results_dir=True,
         working_dir=os.path.join(home_dir, 'working_dir'),
-        gpec_dir=os.path.join(home_dir, 'submodules/GPEC'), 
+        gpec_dir=os.path.join(home_dir, 'submodules/GPEC'),
         verbose=False,
         fresh_start=True,
         output_location=None,
@@ -114,7 +116,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
     # Check if equilibrium file exists
     if not os.path.exists(eq_filename):
         raise FileNotFoundError(f"Equilibrium file {eq_filename} does not exist.")
-    
+
     # Move the equilibrium file to the working directory
     shutil.copy(eq_filename, working_dir)
     eq_filename = os.path.basename(eq_filename)  # Get the base name of the equilibrium
@@ -132,7 +134,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
     #########################################################################################################
     # Call executables:
     #########################################################################################################
-    
+
     os.chdir(working_dir)  # Change to the working directory
 
     rdcon_run=0
@@ -141,7 +143,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
     if run_rdcon:
         if fresh_start and os.path.exists(os.path.join(working_dir, 'rdcon_output_n'+str(nn)+'.nc')):
             os.remove(os.path.join(working_dir, 'rdcon_output_n'+str(nn)+'.nc'))
-            if verbose: print(f"Removed existing rdcon output file from working directory before running rdcon")
+            if verbose: print("Removed existing rdcon output file from working directory before running rdcon")
         if verbose: print("Running rdcon...")
         if save_terminal_output:
             rdcon_run = subprocess.call(working_dir+'/rdcon > rdcon_terminal_output_n'+str(nn)+'.txt', shell=True)
@@ -152,7 +154,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
     if run_stride:
         if fresh_start and os.path.exists(os.path.join(working_dir, 'stride_output_n'+str(nn)+'.nc')):
             os.remove(os.path.join(working_dir, 'stride_output_n'+str(nn)+'.nc'))
-            if verbose: print(f"Removed existing stride output file from working directory before running stride")
+            if verbose: print("Removed existing stride output file from working directory before running stride")
         if verbose: print("Running stride...")
         if save_terminal_output:
             stride_run = subprocess.call(working_dir+'/stride > stride_terminal_output_n'+str(nn)+'.txt', shell=True)

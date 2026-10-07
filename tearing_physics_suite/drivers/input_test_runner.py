@@ -1,20 +1,18 @@
 # Default combinations of input scans from input_test_suite.py, to test sensitivity of Delta' calculations to various input parameters.
 
-import os
 import multiprocessing
+import os
 import pickle as pkl
-import pandas as pd
-import xarray as xr
-import numpy as np
 
 home_dir = os.environ['TPSHOME']
 from tearing_physics_suite.drivers.input_test_suite import SCANS, run_scan, scan_functions
 from tearing_physics_suite.utils import _get_num_cpus
 
+
 def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=os.path.join(home_dir, 'tests/test_results'), quick_test=True, verbose=True, debug=False, hotstart=''):
     """
     Runs multiple scan functions consecutively based on a list of scan names.
-    
+
     Parameters:
     -----------
     scan_namelist : list
@@ -27,7 +25,7 @@ def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=o
         Whether to run quick tests or full scans
     verbose : bool
         Whether to print verbose output
-    
+
     Returns:
     --------
     results : dict
@@ -48,7 +46,7 @@ def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=o
     results = {}
     messages = []
     failed_cases = []
-    
+
     for scan_name in scan_namelist:
         if scan_name not in SCANS:
             print(f"Warning: Scan function '{scan_name}' not found. Skipping.")

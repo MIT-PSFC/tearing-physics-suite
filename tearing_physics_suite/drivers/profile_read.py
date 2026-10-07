@@ -2,10 +2,12 @@
 
 import os
 import warnings
+
 import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy.interpolate import PchipInterpolator
+
 
 def _average_ion_mass(psi_n, n_main, n_imp, main_mass_amu=2.0, imp_mass_amu=12.0):
     """rho-weighted (area-like) mean thermal ion mass [AMU] over psi_n <= 1."""
@@ -36,8 +38,8 @@ def read_kin_file(filename):
     if os.path.exists(filename):
         print(f"\nReading kinetic profile file: {filename}")
         try:
-            profile_data_names = pd.read_csv(filename, sep='\s+',header=None,nrows=1)
-            profile_data_xr = xr.Dataset(pd.read_csv(filename, skiprows=1, sep='\s+', header=None,names=profile_data_names.iloc[0].values))
+            profile_data_names = pd.read_csv(filename, sep=r'\s+',header=None,nrows=1)
+            profile_data_xr = xr.Dataset(pd.read_csv(filename, skiprows=1, sep=r'\s+', header=None,names=profile_data_names.iloc[0].values))
             te_keV_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['te(eV)'].values/1000,extrapolate=False)
             ti_keV_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['ti(eV)'].values/1000,extrapolate=False)
             ne_spline = PchipInterpolator(profile_data_xr['psi'].values, profile_data_xr['ne(m^-3)'].values,extrapolate=False)
@@ -59,7 +61,7 @@ def read_kin_file(filename):
             'omega_ExB': omega_ExB_spline
         }
     }
-        
+
 
 def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_keys=None):
     """Read an IDA-lite .cdf file and return kinetic and rotation splines for MRE analysis.
@@ -144,11 +146,11 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
 
             if verbose:
                 print("✓ Successfully created splines:")
-                print(f"  - n_e (electron density)")
-                print(f"  - T_e (electron temperature)")
-                print(f"  - omega_tor_12C6 (toroidal rotation)")
-                print(f"  - v_pol (poloidal velocity)")
-                print(f"  - E_r (radial electric field)")
+                print("  - n_e (electron density)")
+                print("  - T_e (electron temperature)")
+                print("  - omega_tor_12C6 (toroidal rotation)")
+                print("  - v_pol (poloidal velocity)")
+                print("  - E_r (radial electric field)")
                 # Test evaluation at a point
                 test_psi_n = 0.5
                 print(f"\nTest evaluation at psi_n = {test_psi_n}:")

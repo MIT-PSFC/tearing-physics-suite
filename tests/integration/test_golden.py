@@ -5,7 +5,6 @@ Exact match by default; set TPS_GOLDEN_RTOL / TPS_GOLDEN_ATOL to loosen.
 import os
 
 import pytest
-
 from golden.cases import run_case
 from golden.compare import compare_dirs
 

@@ -1,5 +1,5 @@
-import xarray as xr
 import numpy as np
+import xarray as xr
 from scipy.interpolate import Akima1DInterpolator, PchipInterpolator
 
 
@@ -29,7 +29,7 @@ def add_drift_rotation(rdcon_xarray,Er_spline=None,diamagnetic_rotation_ion_char
     ni_values = np.array(rdcon_xarray.ni_m3.values)
     te_values = np.array(rdcon_xarray.te_keV.values)
     ti_values = np.array(rdcon_xarray.ti_keV.values)
-    avg_nablapsi_values = np.array(rdcon_xarray.avg_nabla_psi.values) # <|nabla psi|> 
+    avg_nablapsi_values = np.array(rdcon_xarray.avg_nabla_psi.values) # <|nabla psi|>
     psio = np.array(rdcon_xarray.psio)
     # Single species approximation of ion charge, assuming on-axis density satisfies quasi-neutrality:
     if diamagnetic_rotation_ion_charge is not None:
@@ -169,7 +169,7 @@ def add_rotation(rdcon_xarray,omega_splines=None):
         rdcon_xarray = rdcon_xarray.assign(
             **{f"{key}1_surf": np.array(spline(rdcon_xarray.psi_n_rational.values,1))+0.0*rdcon_xarray['psi_n_rational']}
         )
-    
+
     return rdcon_xarray
 
 
@@ -331,7 +331,7 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=[1],psi_surfs_of_i
 
         # Now we have two xarray DataArrays for this key: one with decorrelation timescales to rational surfaces of interest, and one with decorrelation timescales to psi surfaces of interest. We can save these onto rdcon_xarray with new keys:
         if len(psi_n_at_q_surfs_of_interest) > 0:
-            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf": decorellation_data_arrays_qsurf})  
+            rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_qsurf": decorellation_data_arrays_qsurf})
         if len(psi_surfs_of_interest) > 0:
             rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf": decorellation_data_arrays_psisurf})
 
@@ -357,7 +357,7 @@ def decorrelation_ratios(rdcon_xarray):
     xr.Dataset
         Input dataset with _on_taua, _on_taur, and _Q0 ratio variables added.
     """
-    
+
     for key in rdcon_xarray.rotation_keys.values:
         key_no_suffix = key[:-5] # Remove '_surf' suffix to get the key without it
 
@@ -375,7 +375,7 @@ def decorrelation_ratios(rdcon_xarray):
             taur_surf____ = rdcon_xarray['taur_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
             Q0_surf____ = rdcon_xarray['Q0_surf'].broadcast_like(rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"])
 
-    
+
             rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taua": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taua_surf____})
             rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_on_taur": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]/taur_surf____})
             rdcon_xarray = rdcon_xarray.assign(**{f"{key_no_suffix}_tdecorr_psisurf_Q0": rdcon_xarray[f"{key_no_suffix}_tdecorr_psisurf"]*Q0_surf____})

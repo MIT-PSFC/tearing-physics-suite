@@ -533,7 +533,7 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
     debug : bool
         Print debug information.
     drop_soln_info : bool
-        Drop full-solution variables (x1frbo_re, etc.) to avoid dimension conflicts.
+        Drop full-solution variables (x1frbo_re, etc.) to avoid dimension conflicts. False raises a ValueError.
     q_rationals : np.ndarray or None
         GPEC rational surface q values for alignment.
     r, r_prime : np.ndarray or None
@@ -550,8 +550,8 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
     #########################################################################################################
     # Vacuum matrix is for checks only; keep its source as attributes.
     if 'vacuum_source' in ps3:
-        ps3.attrs['vacuum_source'] = 'gpec' if int(ps3.vacuum_source) == 1 else 'pest3'
-        ps3.attrs['mthvac'] = int(ps3.mthvac)
+        ps3 = ps3.assign_attrs(vacuum_source='gpec' if int(ps3.vacuum_source) == 1 else 'pest3',
+                               mthvac=int(ps3.mthvac))
     ps3 = ps3.drop_vars([v for v in ('vacmat', 'vacmti', 'vacuum_source', 'mthvac') if v in ps3])
 
     #Names of dims:
@@ -579,29 +579,15 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
     profdim_1=ps3.psinod.dims[0]
     profdim_2=ps3.qa.dims[0]
     thetadim=ps3.xjacob.dims[1]
-    #Rename dimensions to standardize & remove duplicates
-    for varname, da in ps3.data_vars.items():
-        new_dims = []
-        for dim_i in da.dims:
-            if (dim_i == surfdim) and ('r_temp' in new_dims):
-                new_dims.append('r_prime_temp')
-            elif dim_i == surfdim:
-                new_dims.append('r_temp')
-            elif dim_i == profdim_1:
-                new_dims.append('psinod_dim')
-            elif dim_i == profdim_2:
-                new_dims.append('qprof_dim')
-            elif dim_i == thetadim:
-                new_dims.append('theta_dim')
-            elif dim_i == unknowndim:
-                new_dims.append('ukn_dim')
-            else:
-                new_dims.append(dim_i)
-        if debug: print(len(da.dims),new_dims)
-        if len(da.dims) > 0:
-            tempvals = da.values
-            temp_da = xr.DataArray(tempvals, dims=tuple(new_dims))
-            ps3[varname] = temp_da
+    #Rename dimensions to standardize & remove duplicates (later entries take precedence; a repeated
+    # surface dim, e.g. in aprim_re, becomes r_prime_temp):
+    new_dims = {unknowndim: 'ukn_dim', thetadim: 'theta_dim', profdim_2: 'qprof_dim', profdim_1: 'psinod_dim'}
+    if surfdim is not None:
+        new_dims[surfdim] = 'r_temp'
+    if debug: print(new_dims)
+    ps3 = ps3.rename_dims(new_dims)
+    ps3 = ps3.assign({varname: (('r_temp', 'r_prime_temp'), da.data) for varname, da in ps3.data_vars.items()
+                      if da.dims == ('r_temp', 'r_temp')})
 
     for varname, da in ps3.data_vars.items():
         if drop_soln_info:
@@ -622,52 +608,14 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
         print("PEST3 data variables: ", ps3.dims)
         raise ValueError("PEST3 output does not have a variable named 'r_temp'. Check PEST3 output and cleaning logic.")
 
-    for varname, da in ps3.data_vars.items():
-        if len(missing_m_from_pest) > 0:
-            # We expand ps3[varname] such that ps3[varname].r matches input DataArray r:
-            if 'r_temp' in da.dims and 'r_prime_temp' not in da.dims:
-                tempvals = da.values
-                # Add extra nans to the end:
-                tempvals_new = np.full((len(r)), np.nan)
-                tempvals_new[:len(da.r_temp)] = tempvals
-                temp_da = xr.DataArray(tempvals_new, dims=('r'))
-                # Set the coordinates of temp_da to match r:
-                temp_da.coords['r'] = r
-                # Replace da with temp_da in ps3:
-                ps3 = ps3.drop_vars(varname)
-                ps3[varname] = temp_da
-            elif 'r_temp' in da.dims and 'r_prime_temp' in da.dims:
-                # We expand ps3[varname] such that ps3[varname].r matches input DataArray r and ps3[varname].r_prime matches input DataArray r_prime:
-                tempvals = da.values
-                # Add extra nans to the end:
-                tempvals_new = np.full((len(r), len(r_prime)), np.nan)
-                tempvals_new[:len(da.r_temp), :len(da.r_prime_temp)] = tempvals
-                temp_da = xr.DataArray(tempvals_new, dims=('r', 'r_prime'))
-                # Set the coordinates of temp_da to match r and r_prime:
-                temp_da.coords['r'] = r
-                temp_da.coords['r_prime'] = r_prime
-                # Replace da with temp_da in ps3:
-                ps3 = ps3.drop_vars(varname)
-                ps3[varname] = temp_da
-        else:
-            # Just rename 'r_temp' to 'r' and 'r_prime_temp' to 'r_prime':
-            if 'r_temp' in da.dims and 'r_prime_temp' not in da.dims:
-                tempvals = da.values
-                temp_da = xr.DataArray(tempvals, dims=('r'))
-                # Set the coordinates of temp_da to match r:
-                temp_da.coords['r'] = r
-                # Replace da with temp_da in ps3:
-                ps3 = ps3.drop_vars(varname)
-                ps3[varname] = temp_da
-            elif 'r_temp' in da.dims and 'r_prime_temp' in da.dims:
-                tempvals = da.values
-                temp_da = xr.DataArray(tempvals, dims=('r', 'r_prime'))
-                # Set the coordinates of temp_da to match r and r_prime:
-                temp_da.coords['r'] = r
-                temp_da.coords['r_prime'] = r_prime
-                # Replace da with temp_da in ps3:
-                ps3 = ps3.drop_vars(varname)
-                ps3[varname] = temp_da
+    if not drop_soln_info:
+        raise ValueError("Full-solution variables (x1frbo_re, etc.) cannot be put on r: dimension conflicts. Use drop_soln_info=True.")
+
+    # Put the surfaces on GPEC's r, r_prime; PEST3's missing outer surfaces are NaN:
+    ps3 = ps3.rename_dims(r_temp='r', r_prime_temp='r_prime')
+    if len(missing_m_from_pest) > 0:
+        ps3 = ps3.pad(r=(0, len(r) - ps3.sizes['r']), r_prime=(0, len(r_prime) - ps3.sizes['r_prime']))
+    ps3 = ps3.assign_coords(r=r, r_prime=r_prime)
 
     if len(ps3.cmatch.dims) > 0:
         return pest3_rescale_deltaprimes(ps3)

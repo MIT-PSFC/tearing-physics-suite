@@ -190,10 +190,16 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         if verbose: print("Using user defined PEST3 truncation value psihigh_pest = ", pest3_kwargs_dict['psihigh_pest'])
         allow_trunc_loop=False #If you enter psihigh_pest, will override automatic truncation loop 
 
+    gpec_vacuum_pest = pest3_kwargs_dict.get('vacuum_source_pest', 'gpec') == 'gpec'
     if 'a_wall_pest' not in pest3_kwargs_dict:
         pest3_kwargs_dict['a_wall_pest'] = rdcon_stride_input_dict['a_wall']
-        if rdcon_stride_input_dict['ishape']!=6 and rdcon_stride_input_dict['vac_flag']=='t':
+        if gpec_vacuum_pest and rdcon_stride_input_dict['vac_flag']=='t' and pest3_kwargs_dict['a_wall_pest'] <= 0:
+            pest3_kwargs_dict['a_wall_pest'] = 1 # a_wall_pest > 0 turns the vacuum on; the wall comes from vac.in
+        if not gpec_vacuum_pest and rdcon_stride_input_dict['ishape']!=6 and rdcon_stride_input_dict['vac_flag']=='t':
             print("WARNING: PEST3 cannot replicate GPEC's wall shape - calculation will differ.")
+
+    if 'mthvac_pest' not in pest3_kwargs_dict:
+        pest3_kwargs_dict['mthvac_pest'] = rdcon_stride_input_dict['mthvac']
 
     if ('mtheta_pest' not in pest3_kwargs_dict) and pest_pull_mtheta:
         pest3_kwargs_dict['mtheta_pest'] = rdcon_stride_input_dict['mtheta']

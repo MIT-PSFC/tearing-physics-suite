@@ -5,10 +5,10 @@ Master build script for tearing-physics-suite. See main() for argument control.
 Orchestrates the full build by calling:
   1. build_netcdf_lapack.build_libraries()  – downloads & builds LAPACK, BLAS,
      HDF5, NetCDF-C and NetCDF-Fortran from source.
-  2. build_GPEC_PEST3.build_PEST3()         – clones & builds PEST3 against
+  2. build_GPEC_PEST3.build_GPEC()          – clones & builds GPEC against
      the freshly compiled libraries.
-  3. build_GPEC_PEST3.build_GPEC()          – clones & builds GPEC against
-     the same libraries.
+  3. build_GPEC_PEST3.build_PEST3()         – clones & builds PEST3 against
+     the same libraries, linking GPEC's VACUUM (so GPEC comes first).
 
 Usage (from the repository root):
     uv run tearing_physics_suite/build_tearing_physics_suite.py [options]
@@ -159,7 +159,8 @@ def build_all(
     gpec_single_threaded=False,
     legacy_gpec_test=True,
     work_dir=None,
-    gpec_branch="develop",
+    gpec_branch="OFT_interface",
+    pest3_gpec_vacuum=True,
 ):
     """
     Run the full tearing-physics-suite build pipeline.
@@ -206,6 +207,8 @@ def build_all(
         Defaults to ``$TPS_BUILD_DIR``, else in-tree.
     gpec_branch : str
         GPEC branch to clone if submodules/GPEC does not exist yet.
+    pest3_gpec_vacuum : bool
+        Link GPEC's VACUUM into PEST3 (pest3x -V, the TPS default vacuum).
 
     Returns
     -------
@@ -286,33 +289,12 @@ def build_all(
                 lib_paths[name] = paths
 
     # ------------------------------------------------------------------
-    # Step 2: Build PEST3
-    # ------------------------------------------------------------------
-    pest3_ok = True  # default: not run
-    if not skip_pest3:
-        print("\n" + "=" * 60)
-        print("  Step 2 / 3 : Building PEST3")
-        print("=" * 60 + "\n")
-
-        pest3_ok = build_PEST3(
-            lib_paths,
-            rebuild=rebuild_pest3,
-            debug=debug,
-            work_dir=work_dir,
-        )
-        if not pest3_ok:
-            print("\nERROR: PEST3 build failed.")
-            all_ok = False
-    else:
-        print("\nSkipping PEST3 build (--skip-pest3).")
-
-    # ------------------------------------------------------------------
-    # Step 3: Build GPEC
+    # Step 2: Build GPEC
     # ------------------------------------------------------------------
     gpec_ok = True  # default: not run
     if not skip_gpec:
         print("\n" + "=" * 60)
-        print("  Step 3 / 3 : Building GPEC")
+        print("  Step 2 / 3 : Building GPEC")
         print("=" * 60 + "\n")
 
         gpec_ok = build_GPEC(
@@ -330,6 +312,28 @@ def build_all(
             all_ok = False
     else:
         print("\nSkipping GPEC build (--skip-gpec).")
+
+    # ------------------------------------------------------------------
+    # Step 3: Build PEST3
+    # ------------------------------------------------------------------
+    pest3_ok = True  # default: not run
+    if not skip_pest3:
+        print("\n" + "=" * 60)
+        print("  Step 3 / 3 : Building PEST3")
+        print("=" * 60 + "\n")
+
+        pest3_ok = build_PEST3(
+            lib_paths,
+            rebuild=rebuild_pest3,
+            debug=debug,
+            work_dir=work_dir,
+            gpec_vacuum=pest3_gpec_vacuum,
+        )
+        if not pest3_ok:
+            print("\nERROR: PEST3 build failed.")
+            all_ok = False
+    else:
+        print("\nSkipping PEST3 build (--skip-pest3).")
 
     # ------------------------------------------------------------------
     # Summary
@@ -387,8 +391,8 @@ def main():
     parser.add_argument(
         "--gpec-branch",
         type=str,
-        default="develop",
-        help="GPEC branch to clone if submodules/GPEC does not exist yet (default: develop)",
+        default="OFT_interface",
+        help="GPEC branch to clone if submodules/GPEC does not exist yet (default: OFT_interface)",
     )
 
     # Skip flags
@@ -399,6 +403,7 @@ def main():
     # Rebuild flags
     parser.add_argument("--rebuild-libs", action="store_true", help="Force rebuild of dependency libraries")
     parser.add_argument("--rebuild-pest3", action="store_true", help="Force clean rebuild of PEST3")
+    parser.add_argument("--pest3-native-vacuum", action="store_true", help="Build PEST3 without GPEC's VACUUM (no pest3x -V)")
     parser.add_argument("--rebuild-gpec", action="store_true", help="Force clean rebuild of GPEC (removes and re-clones source)")
     parser.add_argument("--remake-gpec", action="store_true",
                         help="Re-run make clean + make on existing GPEC source without re-downloading")
@@ -429,6 +434,7 @@ def main():
         legacy_gpec_test=not args.no_legacy_gpec_test,
         work_dir=args.work_dir,
         gpec_branch=args.gpec_branch,
+        pest3_gpec_vacuum=not args.pest3_native_vacuum,
     )
 
     sys.exit(0 if success else 1)

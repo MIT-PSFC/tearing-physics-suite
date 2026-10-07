@@ -24,6 +24,17 @@ def eq_stem(eq_filename):
 
 home_dir = os.environ['TPSHOME']
 
+_GPEC_VAC_SYMBOL = b'vacuum_mod_MOD_mscvac'
+_gpec_vac_built = {}
+
+def pest3_has_gpec_vacuum(pest3_executable):
+    """True if pest3x was linked with GPEC's VACUUM (needed for -V)."""
+    key = (pest3_executable, os.path.getmtime(pest3_executable))
+    if key not in _gpec_vac_built:
+        with open(pest3_executable, 'rb') as fexe:
+            _gpec_vac_built[key] = _GPEC_VAC_SYMBOL in fexe.read()
+    return _gpec_vac_built[key]
+
 
 def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_results_dir=True,
         working_dir=os.path.join(home_dir, 'working_dir'),
@@ -46,7 +57,9 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
         rational_surface_control_pest='''-m"xxxxxxxxxxxxxxx"''', # String to control the computation of rational surfaces. Use 'xxxxxxxxxx' to compute Delta's for first 10 rational surfaces. Use '.' symbol to skip a rational surface.
         psilow_pest=1e-4,
         psihigh_pest=0.995,         # This behaves differently from the GPEC psihigh
-        a_wall_pest=20,             # Distance of the conformal ideal wall from the plasma in units of minor radius. a_wall_pest > 10 <=> wall at infinity, a_wall_pest = 0 <=> internal mode only. See pest3.hh for more details. 
+        a_wall_pest=20,             # Distance of the conformal ideal wall from the plasma in units of minor radius. a_wall_pest > 10 <=> wall at infinity, a_wall_pest = 0 <=> internal mode only. See pest3.hh for more details. With vacuum_source_pest='gpec', any a_wall_pest > 0 just turns the vacuum on; the wall comes from vac.in.
+        vacuum_source_pest='gpec',  # 'gpec': GPEC's VACUUM (as DCON/STRIDE), wall from working_dir/vac.in. 'pest3': PEST3's own vacuum, conformal wall from a_wall_pest.
+        mthvac_pest=960,            # Theta points for GPEC's VACUUM (GPEC's mthvac).
         mtheta_pest=129, #Must be odd # Number of poloidal rays for eqdsk mapping. Large values (~800) likely introduce numerical instabilities.
         mpsi_pest=400,                   # Number of radial grid intervals for equilibrium quantities for eqdsk mapping. Large values (~800) likely introduce numerical instabilities.
         nx_string_pest='''-k"100 50 80 140"''', # [Higher is not better!!! see pest3_finite_element_scan for more info] String for the number of radial finite elements per non-singular interval. Convergence should obey nx^(-2) going to zero, hence multiple values are specified. Use nxpest for a single value. Use even numbers!
@@ -133,6 +146,17 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
     shutil.copy(pest3_executable, working_dir)
     assert os.path.isfile(working_dir+'/pest3x')
 
+    if vacuum_source_pest not in ('gpec', 'pest3'):
+        raise ValueError(f"vacuum_source_pest must be 'gpec' or 'pest3', not {vacuum_source_pest!r}")
+    vacuum_string_pest = ''
+    if vacuum_source_pest == 'gpec' and a_wall_pest > 0:  # a_wall_pest <= 0: wall on plasma, no vacuum
+        if not pest3_has_gpec_vacuum(pest3_executable):
+            raise RuntimeError(f"{pest3_executable} was built without GPEC vacuum. Rebuild PEST3 with "
+                               "gpec_vacuum=True, or pass vacuum_source_pest='pest3'.")
+        if not os.path.isfile(os.path.join(working_dir, 'vac.in')):
+            raise FileNotFoundError(f"vacuum_source_pest='gpec' needs vac.in in {working_dir} (written by the GPEC run).")
+        vacuum_string_pest = ' -V' + str(mthvac_pest)
+
     # Check if equilibrium file exists
     if not os.path.exists(eq_filename):
         raise FileNotFoundError(f"Equilibrium file {eq_filename} does not exist.")
@@ -170,6 +194,7 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
                         + ' -f' + eq_filename 
                         + ' -n' + str(nn) 
                         + ' -b' + str(a_wall_pest) 
+                        + vacuum_string_pest
                         + ' -l' + str(kband_pest)
                         + ' ' + rational_surface_control_pest
                         + ' -a' + str(psilow_pest) 
@@ -209,6 +234,8 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
         'psilow_pest': psilow_pest,
         'psihigh_pest': psihigh_pest,
         'a_wall_pest': a_wall_pest,
+        'vacuum_source_pest': vacuum_source_pest if vacuum_string_pest else ('pest3' if a_wall_pest > 0 else 'none'),
+        'mthvac_pest': mthvac_pest,
         'mtheta_pest': mtheta_pest,
         'mpsi_pest': mpsi_pest,
         'nx_string_pest': nx_string_pest,
@@ -512,6 +539,12 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
     #########################################################################################################
     # Standardize dimensions and variable names in PEST3 output:
     #########################################################################################################
+    # Vacuum matrix is for checks only; keep its source as attributes.
+    if 'vacuum_source' in ps3:
+        ps3.attrs['vacuum_source'] = 'gpec' if int(ps3.vacuum_source) == 1 else 'pest3'
+        ps3.attrs['mthvac'] = int(ps3.mthvac)
+    ps3 = ps3.drop_vars([v for v in ('vacmat', 'vacmti', 'vacuum_source', 'mthvac') if v in ps3])
+
     #Names of dims:
     missing_m_from_gpec = []
     missing_m_from_pest = []

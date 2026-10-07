@@ -33,7 +33,7 @@ def test_stale_pest3_nc_not_read(tmp_path):
     try:
         pest3_xr, pest3_ran, _ = p3w.PEST3_resistive_calculation(
             eq, 1, working_dir=str(work), pest3_dir=exe_dir, verbose=False,
-            save_input=False, clean_netcdf=False)
+            save_input=False, clean_netcdf=False, vacuum_source_pest='pest3')
     finally:
         os.chdir(cwd)
     assert pest3_xr is None
@@ -70,3 +70,37 @@ def test_truncation_loop_converged(monkeypatch):
 def test_truncation_loop_failed_run(monkeypatch):
     """A failed PEST3 run returns (0, False) instead of indexing None."""
     assert _run_loop(monkeypatch, qa_last=3.0, ran=False) == (0, False)
+
+
+def _run_gpec_vac(tmp_path, body, vac_in=True):
+    exe_dir, eq = _fake_pest3(tmp_path, body)
+    work = tmp_path / 'work'
+    work.mkdir()
+    if vac_in:
+        (work / 'vac.in').write_text('&vac\n/\n')
+    cwd = os.getcwd()
+    try:
+        return p3w.PEST3_resistive_calculation(
+            eq, 1, working_dir=str(work), pest3_dir=exe_dir, verbose=False,
+            save_input=False, clean_netcdf=False, mthvac_pest=480), work
+    finally:
+        os.chdir(cwd)
+
+
+def test_gpec_vacuum_needs_gpec_build(tmp_path):
+    """The default GPEC vacuum refuses a pest3x linked without it."""
+    with pytest.raises(RuntimeError, match='without GPEC vacuum'):
+        _run_gpec_vac(tmp_path, 'exit 0')
+
+
+def test_gpec_vacuum_needs_vac_in(tmp_path):
+    with pytest.raises(FileNotFoundError, match='vac.in'):
+        _run_gpec_vac(tmp_path, '# vacuum_mod_MOD_mscvac\nexit 0', vac_in=False)
+
+
+def test_gpec_vacuum_passes_V_flag(tmp_path):
+    """-V<mthvac_pest> reaches pest3x, and the input dict records the source."""
+    (_, _, inputs), work = _run_gpec_vac(tmp_path, '# vacuum_mod_MOD_mscvac\necho "$@" > args.txt')
+    assert ' -V480 ' in ' ' + (work / 'args.txt').read_text() + ' '
+    assert inputs['vacuum_source_pest'] == 'gpec'
+    assert inputs['mthvac_pest'] == 480

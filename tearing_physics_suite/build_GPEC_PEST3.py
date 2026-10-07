@@ -144,7 +144,7 @@ def prepare_GPEC_legacy_examples(gpec_dir=None, work_root=None):
     return work_root
 
 
-def is_pest3_built(build_dir=None):
+def is_pest3_built(build_dir=None, gpec_vacuum=None):
     """
     Check whether the PEST3 binary already exists in the expected location.
 
@@ -153,6 +153,8 @@ def is_pest3_built(build_dir=None):
     build_dir : str or Path, optional
         PEST3 build/install directory.  Defaults to
         ``<home_dir>/submodules/PEST3``.
+    gpec_vacuum : bool or None
+        If given, the binary must also have (True) or lack (False) GPEC's VACUUM.
 
     Returns
     -------
@@ -170,7 +172,13 @@ def is_pest3_built(build_dir=None):
         build_dir / "bin" / "pest3x",
         build_dir / "pest3x",
     ]
-    return any(c.exists() for c in candidates)
+    found = [c for c in candidates if c.exists()]
+    if not found:
+        return False
+    if gpec_vacuum is None:
+        return True
+    from tearing_physics_suite.PEST3_wrappers import pest3_has_gpec_vacuum
+    return pest3_has_gpec_vacuum(str(found[0])) == gpec_vacuum
 
 
 def is_gpec_built(gpec_dir=None):
@@ -249,7 +257,8 @@ def setup_scimake(pest3_source):
         return None
 
 
-def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests=True, work_dir=None):
+def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests=True, work_dir=None,
+                gpec_vacuum=True, gpec_dir=None):
     """
     Build the PEST3 library by downloading the source code at github url 'https://github.com/MIT-PSFC/PEST3'.
     Assumes you have already ran build_netcdf_lapack.py to compile dependencies, and utilizes the paths returned by that function to link against the dependencies.
@@ -281,6 +290,10 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         If given, configure, build and install in ``<work_dir>/PEST3`` (e.g. on
         a fast local disk) and copy ``pest3x`` back to
         ``<build_dir>/cmake_build/pest3/pest3x``. Sources stay in submodules/PEST3.
+    gpec_vacuum : bool
+        Link GPEC's VACUUM (pest3x -V, the TPS default vacuum). Needs a built GPEC.
+    gpec_dir : str or Path, optional
+        Built GPEC tree for gpec_vacuum (default: submodules/GPEC).
     
     Returns:
     --------
@@ -304,7 +317,16 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     # ------------------------------------------------------------------
     # Skip compilation if already built and rebuild not requested
     # ------------------------------------------------------------------
-    if not rebuild and is_pest3_built(build_dir):
+    if gpec_dir is None:
+        gpec_dir = Path(home_dir) / "submodules" / "GPEC"
+    gpec_dir = Path(gpec_dir)
+    if gpec_vacuum and not ((gpec_dir / "deps" / "lib" / "libvac.a").exists()
+                            and (gpec_dir / "vacuum" / "vacuum_mod.mod").exists()):
+        print(f"ERROR: gpec_vacuum=True needs a built GPEC (deps/lib/libvac.a, vacuum/vacuum_mod.mod) in {gpec_dir}. "
+              "Build GPEC first, or pass gpec_vacuum=False.")
+        return False
+
+    if not rebuild and is_pest3_built(build_dir, gpec_vacuum=gpec_vacuum):
         print(f"PEST3 already built in {build_dir}, skipping compilation.")
         if run_tests:
             print("Running install test on existing build...")
@@ -480,6 +502,8 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         "-DHdf5_Fortran_REQUIRED=OFF",  # Our HDF5 doesn't have Fortran bindings
         f"-DNetcdf_ROOT_DIR={utils_prefix}",
         f"-DBlasLapack_ROOT_DIR={utils_prefix}",
+        f"-DPEST3_GPEC_VACUUM={'ON' if gpec_vacuum else 'OFF'}",
+        f"-DGPEC_DIR={gpec_dir}",
         str(pest3_source),
     ]
     
@@ -642,7 +666,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     return True
 
 
-def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="develop", disable_openmp=False, legacy_test=True, work_dir=None):
+def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="OFT_interface", disable_openmp=False, legacy_test=True, work_dir=None):
     """
     Build the GPEC code by downloading from GitHub and compiling with make.
     Requires that build_netcdf_lapack.py has already been used to compile
@@ -682,7 +706,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         If True (default), run GPEC_install_test() after a successful build.
         Set to False to skip post-build verification.
     branch : str
-        Git branch to clone (default: "develop").
+        Git branch to clone (default: "OFT_interface").
     disable_openmp : bool
         If True, pass ``OMPFLAG=`` (empty) to make, omitting the OpenMP
         compiler flag so the compiled executables run single-threaded.
@@ -730,7 +754,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         return True
 
     # ------------------------------------------------------------------
-    # Step 1: Clone GPEC (develop branch) into submodules/GPEC
+    # Step 1: Clone GPEC (default OFT_interface branch) into submodules/GPEC
     # ------------------------------------------------------------------
     print("\nStep 1: Preparing GPEC source...")
 

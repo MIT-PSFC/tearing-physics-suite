@@ -1,0 +1,4176 @@
+{
+ "RDCON_cutoff_scan_n1|debug_kwarg": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n1|extra_kwarg": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n1|full": {
+  "call": [
+   [
+    "cutoff",
+    [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "RDCON_cutoff_scan_n1|prefix": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n1|quick": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n1|scan_vals": {
+  "call": [
+   [
+    "cutoff",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "RDCON_cutoff_scan_n4|debug_kwarg": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    4
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n4|extra_kwarg": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    4
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n4|full": {
+  "call": [
+   [
+    "cutoff",
+    [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "EQ",
+    4
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "RDCON_cutoff_scan_n4|prefix": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    4
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n4|quick": {
+  "call": [
+   [
+    "cutoff",
+    [
+     9,
+     10
+    ],
+    "EQ",
+    4
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "RDCON_cutoff_scan_n4|scan_vals": {
+  "call": [
+   [
+    "cutoff",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    4
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_cutoff_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "RDCON_nq_scan|debug_kwarg": {
+  "call": [
+   [
+    "nq",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/RDCON_nq_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "RDCON_nq_scan|extra_kwarg": {
+  "call": [
+   [
+    "nq",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/RDCON_nq_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "RDCON_nq_scan|full": {
+  "call": [
+   [
+    "nq",
+    [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_nq_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "RDCON_nq_scan|prefix": {
+  "call": [
+   [
+    "nq",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_nq_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "RDCON_nq_scan|quick": {
+  "call": [
+   [
+    "nq",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_nq_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "RDCON_nq_scan|scan_vals": {
+  "call": [
+   [
+    "nq",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/RDCON_nq_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "RDCON_solver_scan|debug_kwarg": {
+  "call": [
+   [
+    "solver",
+    [
+     "'LU'",
+     "'cholesky'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/solver_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "RDCON_solver_scan|extra_kwarg": {
+  "call": [
+   [
+    "solver",
+    [
+     "'LU'",
+     "'cholesky'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/solver_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "RDCON_solver_scan|full": {
+  "call": [
+   [
+    "solver",
+    [
+     "'LU'",
+     "'cholesky'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/solver_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "RDCON_solver_scan|prefix": {
+  "call": [
+   [
+    "solver",
+    [
+     "'LU'",
+     "'cholesky'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/solver_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "RDCON_solver_scan|quick": {
+  "call": [
+   [
+    "solver",
+    [
+     "'LU'",
+     "'cholesky'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/solver_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "RDCON_solver_scan|scan_vals": {
+  "call": [
+   [
+    "solver",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/solver_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "STRIDE_axis_mid_pt_skew_scan|debug_kwarg": {
+  "call": [
+   [
+    "axis_mid_pt_skew",
+    [
+     11.0,
+     12.0,
+     13.0
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/STRIDE_axis_mid_pt_skew_scan",
+    "run_pest3": false,
+    "run_rdcon": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "STRIDE_axis_mid_pt_skew_scan|extra_kwarg": {
+  "call": [
+   [
+    "axis_mid_pt_skew",
+    [
+     11.0,
+     12.0,
+     13.0
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/STRIDE_axis_mid_pt_skew_scan",
+    "run_pest3": false,
+    "run_rdcon": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "STRIDE_axis_mid_pt_skew_scan|full": {
+  "call": [
+   [
+    "axis_mid_pt_skew",
+    [
+     2.0,
+     4.0,
+     8.0,
+     10.0,
+     12.0,
+     14.0,
+     18.0,
+     20.0
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/STRIDE_axis_mid_pt_skew_scan",
+    "run_pest3": false,
+    "run_rdcon": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "STRIDE_axis_mid_pt_skew_scan|prefix": {
+  "call": [
+   [
+    "axis_mid_pt_skew",
+    [
+     11.0,
+     12.0,
+     13.0
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/STRIDE_axis_mid_pt_skew_scan",
+    "run_pest3": false,
+    "run_rdcon": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "STRIDE_axis_mid_pt_skew_scan|quick": {
+  "call": [
+   [
+    "axis_mid_pt_skew",
+    [
+     11.0,
+     12.0,
+     13.0
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/STRIDE_axis_mid_pt_skew_scan",
+    "run_pest3": false,
+    "run_rdcon": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "STRIDE_axis_mid_pt_skew_scan|scan_vals": {
+  "call": [
+   [
+    "axis_mid_pt_skew",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/STRIDE_axis_mid_pt_skew_scan",
+    "run_pest3": false,
+    "run_rdcon": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "edge_truncation_q_scan_no_wall|debug_kwarg": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "output_prefix": "no_wall_",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan_no_wall|extra_kwarg": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "output_prefix": "no_wall_",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan_no_wall|full": {
+  "call": [
+   [
+    "qhigh",
+    [
+     2.2,
+     3.2,
+     4.2,
+     5.2,
+     6.2,
+     7.2,
+     8.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "output_prefix": "no_wall_",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "edge_truncation_q_scan_no_wall|prefix": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "output_prefix": "no_wall_",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan_no_wall|quick": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "output_prefix": "no_wall_",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan_no_wall|scan_vals": {
+  "call": [
+   [
+    "qhigh",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "output_prefix": "no_wall_",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "edge_truncation_q_scan|debug_kwarg": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan|extra_kwarg": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan|full": {
+  "call": [
+   [
+    "qhigh",
+    [
+     2.2,
+     3.2,
+     4.2,
+     5.2,
+     6.2,
+     7.2,
+     8.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "edge_truncation_q_scan|prefix": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan|quick": {
+  "call": [
+   [
+    "qhigh",
+    [
+     6.2,
+     7.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "edge_truncation_q_scan|scan_vals": {
+  "call": [
+   [
+    "qhigh",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/edge_truncation_q_scan",
+    "psihigh": 0.9999,
+    "sas_flag": "f",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "edge_truncation_within_surface_scan_no_wall|debug_kwarg": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan_no_wall|extra_kwarg": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan_no_wall|full": {
+  "call": [
+   [
+    "dmlim",
+    [
+     1e-05,
+     0.1,
+     0.2,
+     0.3,
+     0.4,
+     0.5,
+     0.6,
+     0.7,
+     0.8,
+     0.9
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "edge_truncation_within_surface_scan_no_wall|prefix": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan_no_wall|quick": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan_no_wall|scan_vals": {
+  "call": [
+   [
+    "dmlim",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "edge_truncation_within_surface_scan|debug_kwarg": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "psihigh": 0.998,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan|extra_kwarg": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "psihigh": 0.998,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan|full": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.02,
+     0.1,
+     0.2,
+     0.3,
+     0.4,
+     0.5,
+     0.6,
+     0.7,
+     0.8,
+     0.9
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "psihigh": 0.998,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "edge_truncation_within_surface_scan|prefix": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "psihigh": 0.998,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan|psihigh": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "psihigh": 0.99,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "psihigh": 0.99,
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan|quick": {
+  "call": [
+   [
+    "dmlim",
+    [
+     0.15,
+     0.2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "psihigh": 0.998,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "edge_truncation_within_surface_scan|scan_vals": {
+  "call": [
+   [
+    "dmlim",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/edge_truncation_within_surface_scan",
+    "psihigh": 0.998,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "equilibrium_integrator_tolerance_scan|debug_kwarg": {
+  "call": [
+   [
+    "etol",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/equilibrium_integrator_tolerance_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "equilibrium_integrator_tolerance_scan|extra_kwarg": {
+  "call": [
+   [
+    "etol",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/equilibrium_integrator_tolerance_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "equilibrium_integrator_tolerance_scan|full": {
+  "call": [
+   [
+    "etol",
+    [
+     1e-06,
+     1e-07,
+     1e-08,
+     1e-09,
+     1e-10,
+     1e-11
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/equilibrium_integrator_tolerance_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "equilibrium_integrator_tolerance_scan|prefix": {
+  "call": [
+   [
+    "etol",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/equilibrium_integrator_tolerance_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "equilibrium_integrator_tolerance_scan|quick": {
+  "call": [
+   [
+    "etol",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/equilibrium_integrator_tolerance_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "equilibrium_integrator_tolerance_scan|scan_vals": {
+  "call": [
+   [
+    "etol",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/equilibrium_integrator_tolerance_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "fourier_mode_scan|debug_kwarg": {
+  "call": [
+   [
+    "delta_mhigh",
+    [
+     7,
+     8
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/fourier_mode_scan",
+    "set_delta_mlow_to_delta_mhigh": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "fourier_mode_scan|extra_kwarg": {
+  "call": [
+   [
+    "delta_mhigh",
+    [
+     7,
+     8
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/fourier_mode_scan",
+    "set_delta_mlow_to_delta_mhigh": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "fourier_mode_scan|full": {
+  "call": [
+   [
+    "delta_mhigh",
+    [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/fourier_mode_scan",
+    "set_delta_mlow_to_delta_mhigh": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "fourier_mode_scan|prefix": {
+  "call": [
+   [
+    "delta_mhigh",
+    [
+     7,
+     8
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/fourier_mode_scan",
+    "set_delta_mlow_to_delta_mhigh": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "fourier_mode_scan|quick": {
+  "call": [
+   [
+    "delta_mhigh",
+    [
+     7,
+     8
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/fourier_mode_scan",
+    "set_delta_mlow_to_delta_mhigh": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "fourier_mode_scan|scan_vals": {
+  "call": [
+   [
+    "delta_mhigh",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/fourier_mode_scan",
+    "set_delta_mlow_to_delta_mhigh": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "grid_type_scan|debug_kwarg": {
+  "call": [
+   [
+    "grid_type",
+    [
+     "'ldp'",
+     "'pow1'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/grid_pack_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "grid_type_scan|extra_kwarg": {
+  "call": [
+   [
+    "grid_type",
+    [
+     "'ldp'",
+     "'pow1'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/grid_pack_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "grid_type_scan|full": {
+  "call": [
+   [
+    "grid_type",
+    [
+     "'ldp'",
+     "'pow1'",
+     "'pow2'",
+     "'rho'",
+     "'original'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/grid_pack_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "grid_type_scan|prefix": {
+  "call": [
+   [
+    "grid_type",
+    [
+     "'ldp'",
+     "'pow1'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/grid_pack_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "grid_type_scan|quick": {
+  "call": [
+   [
+    "grid_type",
+    [
+     "'ldp'",
+     "'pow1'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/grid_pack_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "grid_type_scan|scan_vals": {
+  "call": [
+   [
+    "grid_type",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/grid_pack_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "integrator_tolerance_scan|debug_kwarg": {
+  "call": [
+   [
+    "tol_r",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/integrator_tolerance_scan",
+    "run_pest3": false,
+    "set_int_tolerances_equal": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "integrator_tolerance_scan|extra_kwarg": {
+  "call": [
+   [
+    "tol_r",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/integrator_tolerance_scan",
+    "run_pest3": false,
+    "set_int_tolerances_equal": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "integrator_tolerance_scan|full": {
+  "call": [
+   [
+    "tol_r",
+    [
+     1e-06,
+     1e-07,
+     1e-08,
+     1e-09,
+     1e-10,
+     1e-11
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/integrator_tolerance_scan",
+    "run_pest3": false,
+    "set_int_tolerances_equal": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "integrator_tolerance_scan|prefix": {
+  "call": [
+   [
+    "tol_r",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/integrator_tolerance_scan",
+    "run_pest3": false,
+    "set_int_tolerances_equal": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "integrator_tolerance_scan|quick": {
+  "call": [
+   [
+    "tol_r",
+    [
+     1e-09,
+     1e-10
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/integrator_tolerance_scan",
+    "run_pest3": false,
+    "set_int_tolerances_equal": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "integrator_tolerance_scan|scan_vals": {
+  "call": [
+   [
+    "tol_r",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/integrator_tolerance_scan",
+    "run_pest3": false,
+    "set_int_tolerances_equal": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "large_sol_extent_pest_scan|debug_kwarg": {
+  "call": [
+   [
+    "large_sol_extent_pest",
+    [
+     0.8,
+     0.9
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "gal_flag": "f",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/large_sol_extent_pest_scan",
+    "run_pest3": true,
+    "run_rdcon": true,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "large_sol_extent_pest_scan|extra_kwarg": {
+  "call": [
+   [
+    "large_sol_extent_pest",
+    [
+     0.8,
+     0.9
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "f",
+    "nx_extra": 64,
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/large_sol_extent_pest_scan",
+    "run_pest3": true,
+    "run_rdcon": true,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "large_sol_extent_pest_scan|full": {
+  "call": [
+   [
+    "large_sol_extent_pest",
+    [
+     0.05,
+     0.1,
+     0.2,
+     0.3,
+     0.4,
+     0.5,
+     0.6,
+     0.7,
+     0.8,
+     0.9,
+     0.95
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "f",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/large_sol_extent_pest_scan",
+    "run_pest3": true,
+    "run_rdcon": true,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "large_sol_extent_pest_scan|prefix": {
+  "call": [
+   [
+    "large_sol_extent_pest",
+    [
+     0.8,
+     0.9
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "f",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/large_sol_extent_pest_scan",
+    "run_pest3": true,
+    "run_rdcon": true,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "large_sol_extent_pest_scan|quick": {
+  "call": [
+   [
+    "large_sol_extent_pest",
+    [
+     0.8,
+     0.9
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "f",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/large_sol_extent_pest_scan",
+    "run_pest3": true,
+    "run_rdcon": true,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "large_sol_extent_pest_scan|scan_vals": {
+  "call": [
+   [
+    "large_sol_extent_pest",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "f",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/large_sol_extent_pest_scan",
+    "run_pest3": true,
+    "run_rdcon": true,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "mag_coord_type_scan|debug_kwarg": {
+  "call": [
+   [
+    "jac_type",
+    [
+     "'hamada'",
+     "'pest'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/mag_coord_type_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "mag_coord_type_scan|extra_kwarg": {
+  "call": [
+   [
+    "jac_type",
+    [
+     "'hamada'",
+     "'pest'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/mag_coord_type_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "mag_coord_type_scan|full": {
+  "call": [
+   [
+    "jac_type",
+    [
+     "'hamada'",
+     "'boozer'",
+     "'pest'",
+     "'equal_arc'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mag_coord_type_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "mag_coord_type_scan|prefix": {
+  "call": [
+   [
+    "jac_type",
+    [
+     "'hamada'",
+     "'pest'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mag_coord_type_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "mag_coord_type_scan|quick": {
+  "call": [
+   [
+    "jac_type",
+    [
+     "'hamada'",
+     "'pest'"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mag_coord_type_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "mag_coord_type_scan|scan_vals": {
+  "call": [
+   [
+    "jac_type",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mag_coord_type_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "matching_point_scan|debug_kwarg": {
+  "call": [
+   [
+    "dx0",
+    [
+     0.001,
+     0.002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/matching_point_scan",
+    "run_pest3": false,
+    "set_dx1dx2_dx0_mult": 2,
+    "set_singfac_min_to_dx": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "matching_point_scan|extra_kwarg": {
+  "call": [
+   [
+    "dx0",
+    [
+     0.001,
+     0.002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/matching_point_scan",
+    "run_pest3": false,
+    "set_dx1dx2_dx0_mult": 2,
+    "set_singfac_min_to_dx": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "matching_point_scan|full": {
+  "call": "NameError: name 'tps' is not defined",
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "matching_point_scan|prefix": {
+  "call": [
+   [
+    "dx0",
+    [
+     0.001,
+     0.002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/matching_point_scan",
+    "run_pest3": false,
+    "set_dx1dx2_dx0_mult": 2,
+    "set_singfac_min_to_dx": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "matching_point_scan|quick": {
+  "call": [
+   [
+    "dx0",
+    [
+     0.001,
+     0.002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/matching_point_scan",
+    "run_pest3": false,
+    "set_dx1dx2_dx0_mult": 2,
+    "set_singfac_min_to_dx": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "matching_point_scan|scan_vals": {
+  "call": [
+   [
+    "dx0",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/matching_point_scan",
+    "run_pest3": false,
+    "set_dx1dx2_dx0_mult": 2,
+    "set_singfac_min_to_dx": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "mpsi_scan_no_wall|debug_kwarg": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "mpsi_scan_no_wall|extra_kwarg": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "mpsi_scan_no_wall|full": {
+  "call": [
+   [
+    "mpsi",
+    [
+     70,
+     90,
+     129,
+     257,
+     513,
+     1025
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "mpsi_scan_no_wall|prefix": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "mpsi_scan_no_wall|quick": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "mpsi_scan_no_wall|scan_vals": {
+  "call": [
+   [
+    "mpsi",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "output_prefix": "no_wall_",
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "mpsi_scan|debug_kwarg": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "mpsi_scan|extra_kwarg": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "mpsi_scan|full": {
+  "call": [
+   [
+    "mpsi",
+    [
+     70,
+     90,
+     129,
+     257,
+     513,
+     1025
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "mpsi_scan|prefix": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "mpsi_scan|quick": {
+  "call": [
+   [
+    "mpsi",
+    [
+     257,
+     258,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "mpsi_scan|scan_vals": {
+  "call": [
+   [
+    "mpsi",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mpsi_scan",
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "mtheta_scan_no_wall|debug_kwarg": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "output_prefix": "no_wall_",
+    "pest_pull_mtheta": true,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "mtheta_scan_no_wall|extra_kwarg": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "output_prefix": "no_wall_",
+    "pest_pull_mtheta": true,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "mtheta_scan_no_wall|full": {
+  "call": [
+   [
+    "mtheta",
+    [
+     70,
+     90,
+     129,
+     257,
+     513,
+     1025
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "output_prefix": "no_wall_",
+    "pest_pull_mtheta": true,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "mtheta_scan_no_wall|prefix": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "output_prefix": "no_wall_",
+    "pest_pull_mtheta": true,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "mtheta_scan_no_wall|quick": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "output_prefix": "no_wall_",
+    "pest_pull_mtheta": true,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "mtheta_scan_no_wall|scan_vals": {
+  "call": [
+   [
+    "mtheta",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "output_prefix": "no_wall_",
+    "pest_pull_mtheta": true,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "mtheta_scan|debug_kwarg": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "pest_pull_mtheta": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "mtheta_scan|extra_kwarg": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "pest_pull_mtheta": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "mtheta_scan|full": {
+  "call": [
+   [
+    "mtheta",
+    [
+     70,
+     90,
+     129,
+     257,
+     513,
+     1025
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "pest_pull_mtheta": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "mtheta_scan|prefix": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "pest_pull_mtheta": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "mtheta_scan|quick": {
+  "call": [
+   [
+    "mtheta",
+    [
+     129,
+     130,
+     257,
+     513
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "pest_pull_mtheta": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "mtheta_scan|scan_vals": {
+  "call": [
+   [
+    "mtheta",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/mtheta_scan",
+    "pest_pull_mtheta": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "pest3_finite_element_scan|debug_kwarg": {
+  "call": [
+   [
+    "nx_string_pest",
+    [
+     "-k\"100 50 80 140\"",
+     "-k\"90 46 70 130\"",
+     "-k\"70 30 50 100\""
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "f",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "pest3_finite_element_scan|extra_kwarg": {
+  "call": [
+   [
+    "nx_string_pest",
+    [
+     "-k\"100 50 80 140\"",
+     "-k\"90 46 70 130\"",
+     "-k\"70 30 50 100\""
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "t",
+    "nx_extra": 64,
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "pest3_finite_element_scan|full": {
+  "call": [
+   [
+    "nx_pest",
+    [
+     30,
+     40,
+     50,
+     60,
+     70,
+     80,
+     90,
+     100,
+     120,
+     140,
+     160,
+     180,
+     200,
+     225,
+     257,
+     300,
+     400,
+     512
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "t",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "pest3_finite_element_scan|pest3_debug_full": {
+  "call": [
+   [
+    "nx_pest",
+    [
+     30,
+     40,
+     50,
+     60,
+     70,
+     80,
+     90,
+     100,
+     120,
+     140,
+     160,
+     180,
+     200,
+     225,
+     257,
+     300,
+     400,
+     512
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "f",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": false
+  }
+ },
+ "pest3_finite_element_scan|pest3_str_vals": {
+  "call": [
+   [
+    "nx_string_pest",
+    [
+     "-k\"1\""
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "t",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    "-k\"1\""
+   ]
+  }
+ },
+ "pest3_finite_element_scan|prefix": {
+  "call": [
+   [
+    "nx_string_pest",
+    [
+     "-k\"100 50 80 140\"",
+     "-k\"90 46 70 130\"",
+     "-k\"70 30 50 100\""
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "t",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "pest3_finite_element_scan|quick": {
+  "call": [
+   [
+    "nx_string_pest",
+    [
+     "-k\"100 50 80 140\"",
+     "-k\"90 46 70 130\"",
+     "-k\"70 30 50 100\""
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "t",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "pest3_finite_element_scan|scan_vals": {
+  "call": [
+   [
+    "nx_pest",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "gal_flag": "t",
+    "ode_flag": "f",
+    "output_location": "RES/1D_scans/nx_pest3_scan",
+    "run_pest3": true,
+    "run_rdcon": false,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "psilow_truncation_scan|debug_kwarg": {
+  "call": [
+   [
+    "psilow",
+    [
+     0.0001,
+     0.0002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/psilow_truncation_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "psilow_truncation_scan|extra_kwarg": {
+  "call": [
+   [
+    "psilow",
+    [
+     0.0001,
+     0.0002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/psilow_truncation_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "psilow_truncation_scan|full": {
+  "call": "NameError: name 'tps' is not defined",
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "psilow_truncation_scan|prefix": {
+  "call": [
+   [
+    "psilow",
+    [
+     0.0001,
+     0.0002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/psilow_truncation_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "psilow_truncation_scan|quick": {
+  "call": [
+   [
+    "psilow",
+    [
+     0.0001,
+     0.0002
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/psilow_truncation_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "psilow_truncation_scan|scan_vals": {
+  "call": [
+   [
+    "psilow",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/psilow_truncation_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "rdcon_finite_element_scan|debug_kwarg": {
+  "call": [
+   [
+    "nx",
+    [
+     257,
+     128
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/nx_rdcon_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "rdcon_finite_element_scan|extra_kwarg": {
+  "call": [
+   [
+    "nx",
+    [
+     257,
+     128
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/nx_rdcon_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "rdcon_finite_element_scan|full": {
+  "call": [
+   [
+    "nx",
+    [
+     60,
+     70,
+     80,
+     90,
+     100,
+     120,
+     257,
+     512
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/nx_rdcon_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "rdcon_finite_element_scan|prefix": {
+  "call": [
+   [
+    "nx",
+    [
+     257,
+     128
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/nx_rdcon_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "rdcon_finite_element_scan|quick": {
+  "call": [
+   [
+    "nx",
+    [
+     257,
+     128
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/nx_rdcon_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "rdcon_finite_element_scan|scan_vals": {
+  "call": [
+   [
+    "nx",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/nx_rdcon_scan",
+    "run_pest3": false,
+    "run_stride": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "regrid_flag_scan|debug_kwarg": {
+  "call": [
+   [
+    "regrid_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/regrid_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "regrid_flag_scan|extra_kwarg": {
+  "call": [
+   [
+    "regrid_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/regrid_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "regrid_flag_scan|full": {
+  "call": [
+   [
+    "regrid_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/regrid_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "regrid_flag_scan|prefix": {
+  "call": [
+   [
+    "regrid_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/regrid_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "regrid_flag_scan|quick": {
+  "call": [
+   [
+    "regrid_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/regrid_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "regrid_flag_scan|scan_vals": {
+  "call": [
+   [
+    "regrid_flag",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/regrid_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "sing1_flag_scan|debug_kwarg": {
+  "call": [
+   [
+    "sing1_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/sing1_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "sing1_flag_scan|extra_kwarg": {
+  "call": [
+   [
+    "sing1_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/sing1_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "sing1_flag_scan|full": {
+  "call": [
+   [
+    "sing1_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing1_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "sing1_flag_scan|prefix": {
+  "call": [
+   [
+    "sing1_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing1_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "sing1_flag_scan|quick": {
+  "call": [
+   [
+    "sing1_flag",
+    [
+     "t",
+     "f"
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing1_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "sing1_flag_scan|scan_vals": {
+  "call": [
+   [
+    "sing1_flag",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing1_flag_scan",
+    "run_pest3": false,
+    "run_rdcon": true,
+    "run_stride": true,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "sing_order_scan|debug_kwarg": {
+  "call": [
+   [
+    "sing_order",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/sing_order_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "sing_order_scan|extra_kwarg": {
+  "call": [
+   [
+    "sing_order",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/sing_order_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "sing_order_scan|full": {
+  "call": [
+   [
+    "sing_order",
+    [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing_order_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "sing_order_scan|prefix": {
+  "call": [
+   [
+    "sing_order",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing_order_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "sing_order_scan|quick": {
+  "call": [
+   [
+    "sing_order",
+    [
+     5,
+     6
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing_order_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "sing_order_scan|scan_vals": {
+  "call": [
+   [
+    "sing_order",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/sing_order_scan",
+    "run_pest3": false,
+    "vac_flag": "f"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "vacuum_mtheta_scan|debug_kwarg": {
+  "call": [
+   [
+    "mthvac",
+    [
+     960,
+     1200
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "a_wall": 0.1,
+    "debug": true,
+    "output_location": "RES/1D_scans/mthvac_scan",
+    "run_pest3": false,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "vacuum_mtheta_scan|extra_kwarg": {
+  "call": [
+   [
+    "mthvac",
+    [
+     960,
+     1200
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "a_wall": 0.1,
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/mthvac_scan",
+    "run_pest3": false,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "vacuum_mtheta_scan|full": {
+  "call": [
+   [
+    "mthvac",
+    [
+     80,
+     100,
+     200,
+     300,
+     400,
+     500,
+     600,
+     700,
+     800,
+     900,
+     1000,
+     1200,
+     1500,
+     2000
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "a_wall": 0.1,
+    "output_location": "RES/1D_scans/mthvac_scan",
+    "run_pest3": false,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "vacuum_mtheta_scan|prefix": {
+  "call": [
+   [
+    "mthvac",
+    [
+     960,
+     1200
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "a_wall": 0.1,
+    "output_location": "RES/1D_scans/mthvac_scan",
+    "run_pest3": false,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "vacuum_mtheta_scan|quick": {
+  "call": [
+   [
+    "mthvac",
+    [
+     960,
+     1200
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "a_wall": 0.1,
+    "output_location": "RES/1D_scans/mthvac_scan",
+    "run_pest3": false,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "vacuum_mtheta_scan|scan_vals": {
+  "call": [
+   [
+    "mthvac",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "a_wall": 0.1,
+    "output_location": "RES/1D_scans/mthvac_scan",
+    "run_pest3": false,
+    "vac_flag": "t"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "wall_radius_scan|debug_kwarg": {
+  "call": [
+   [
+    "a_wall",
+    [
+     0,
+     0.1,
+     21
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "debug": true,
+    "output_location": "RES/1D_scans/wall_scan"
+   }
+  ],
+  "kwargs": {
+   "debug": true,
+   "quick_test": true
+  }
+ },
+ "wall_radius_scan|extra_kwarg": {
+  "call": [
+   [
+    "a_wall",
+    [
+     0,
+     0.1,
+     21
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "nx_extra": 64,
+    "output_location": "RES/1D_scans/wall_scan"
+   }
+  ],
+  "kwargs": {
+   "nx_extra": 64,
+   "quick_test": true
+  }
+ },
+ "wall_radius_scan|full": {
+  "call": [
+   [
+    "a_wall",
+    [
+     0,
+     0.1,
+     0.2,
+     0.3,
+     0.4,
+     0.5,
+     0.6,
+     0.7,
+     0.8,
+     0.9,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     15,
+     21
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/wall_scan"
+   }
+  ],
+  "kwargs": {
+   "quick_test": false
+  }
+ },
+ "wall_radius_scan|prefix": {
+  "call": [
+   [
+    "a_wall",
+    [
+     0,
+     0.1,
+     21
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/wall_scan"
+   }
+  ],
+  "kwargs": {
+   "output_prefix": "pre_",
+   "quick_test": true
+  }
+ },
+ "wall_radius_scan|quick": {
+  "call": [
+   [
+    "a_wall",
+    [
+     0,
+     0.1,
+     21
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/wall_scan"
+   }
+  ],
+  "kwargs": {
+   "quick_test": true
+  }
+ },
+ "wall_radius_scan|scan_vals": {
+  "call": [
+   [
+    "a_wall",
+    [
+     1,
+     2
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/wall_scan"
+   }
+  ],
+  "kwargs": {
+   "scan_vals": [
+    1,
+    2
+   ]
+  }
+ },
+ "wall_radius_scan|superquick": {
+  "call": [
+   [
+    "a_wall",
+    [
+     0
+    ],
+    "EQ",
+    1
+   ],
+   {
+    "output_location": "RES/1D_scans/wall_scan"
+   }
+  ],
+  "kwargs": {
+   "superquick": true
+  }
+ }
+}

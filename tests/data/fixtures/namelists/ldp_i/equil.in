@@ -1,0 +1,28 @@
+&EQUIL_CONTROL
+    eq_type='ldp_i'
+    eq_filename='g147131.02300_DIIID_KEFIT'
+    jac_type='hamada'
+    power_bp=0
+    power_b=0
+    power_r=0
+    grid_type='ldp'
+    psilow=0.0001
+    psihigh=0.999
+    mpsi=257
+    mtheta=257
+    etol=1e-10
+    newq0=0
+    use_classic_splines =f
+    input_only=f
+/
+&EQUIL_OUTPUT
+    gse_flag=t
+    out_eq_1d=f
+    bin_eq_1d=f
+    out_eq_2d=f
+    bin_eq_2d=f
+    out_2d=f
+    bin_2d=f
+    dump_flag=f
+    out_ahg2msc=f
+/

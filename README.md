@@ -36,7 +36,7 @@ git clone https://github.com/MIT-PSFC/tearing-physics-suite.git
 uv sync
 uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py  
 source tearing_physics_suite_env.sh
-uv run tests/run_tests.py  
+uv run pytest  
 ```
 
 #### Medium version:
@@ -51,7 +51,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync 
 uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py
 source tearing_physics_suite_env.sh
-uv run tests/run_tests.py 
+uv run pytest 
 ```
 Complete install on Engaging from login node, requires ssh key permissions for git clone.
 ```
@@ -62,7 +62,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync 
 uv run tearing_physics_suite/wrappers/build/build_tearing_physics_suite.py
 source tearing_physics_suite_env.sh
-uv run tests/run_tests.py
+uv run pytest
 ```
 
 #### Long version: 
@@ -124,36 +124,25 @@ source path/to/tearing-physics-suite/tearing_physics_suite_env.sh
 
 6. Run tests:
 ```
-uv run path/to/tearing-physics-suite/tests/run_tests.py
+cd path/to/tearing-physics-suite
+uv run pytest                                   # fast unit tests (no Fortran)
+uv run pytest -m "fortran and not slow"         # RDCON/STRIDE/PEST3 runs and golden comparisons
+uv run pytest -m "parallel or slow"             # multi_run (>= 2 CPUs) and input scans
 ```
-&emsp;&emsp;will test the package's core functionalities. These tests include the examples listed below.    
+&emsp;&emsp;Markers: `fortran`, `julia`, `parallel`, `slow` (see `pyproject.toml`). Run the marked tests on a compute node.    
+&emsp;&emsp;The golden comparisons need a reference made by `tests/golden/cases.py` (set `TPS_GOLDEN_DIR`, or symlink `tests/data/golden`).
 
 #### For general use repeat steps 1, 3 & 5.
 
 # Examples
 
-For example calculations of linear and nonlinear plasma tearing stability (without rotation terms):  
-```
-uv run tests/tearing_physics_suite_tests.py
-```
+`tests/golden/cases.py` holds example calls, all on the test equilibrium in `tests/data/`:
+- `case_nonlinear_wall_rotation`: nonlinear tearing stability, with dimensionless rotation-decorrelation timescale ratios included;
+- `case_nonlinear_nowall`: nonlinear tearing stability without a wall;
+- `case_linear_wall`: linear (Delta' only) calculation;
+- `case_multi_run_zarr`: parallel runs (`multi_run_`) compiled into a zarr store.
 
-For an example calculation of the nonlinear tearing stability, with dimensionless rotation-decorrelation timescale ratios included:
-```
-uv run tests/rotation_tests.py
-```
-
-In a multi-CPU computational environment (default slurm) run parallel calculation examples using:
-```
-uv run tests/parallelisation_tests.py
-```
-
-To run example numerical sensitivity scans, and input variable scans:
-```
-uv run tests/input_test_runner_test.py
-```
-If you are in a multi-CPU computational environment, you can run multiple input sensitivity scans in parallel by setting run_parallel_tests to True in that file.
-
-Remaining tests ```tests/delta_prime_extraction_tests.py```, ```tests/fortran_wrappers_tests.py```, ```tests/mre_analysis_tests.py``` function as unit tests.
+Input sensitivity scans are listed in `tearing_physics_suite/drivers/input_test_suite.py` and run with `run_multiple_scans` (or `run_multiple_scans_parallel`) from `drivers/input_test_runner.py`; see `tests/integration/test_input_scans.py`.
 
 # Licensing
 

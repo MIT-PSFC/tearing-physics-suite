@@ -8,40 +8,8 @@ import xarray as xr
 import numpy as np
 
 home_dir = os.environ['TPSHOME']
-from tearing_physics_suite.drivers.input_test_suite import *
+from tearing_physics_suite.drivers.input_test_suite import SCANS, run_scan, scan_functions
 from tearing_physics_suite.utils import _get_num_cpus
-
-# Module-level map so it is picklable for multiprocessing workers
-_SCAN_FUNCTION_MAP = {
-    'fourier_mode_scan': fourier_mode_scan,
-    'sing_order_scan': sing_order_scan,
-    'matching_point_scan': matching_point_scan,
-    'psilow_truncation_scan': psilow_truncation_scan,
-    'equilibrium_integrator_tolerance_scan': equilibrium_integrator_tolerance_scan,
-    'mtheta_scan': mtheta_scan,
-    'mtheta_scan_no_wall': mtheta_scan_no_wall,
-    'mpsi_scan': mpsi_scan,
-    'mpsi_scan_no_wall': mpsi_scan_no_wall,
-    'edge_truncation_within_surface_scan': edge_truncation_within_surface_scan,
-    'edge_truncation_within_surface_scan_no_wall': edge_truncation_within_surface_scan_no_wall,
-    'rdcon_finite_element_scan': rdcon_finite_element_scan,
-    'pest3_finite_element_scan': pest3_finite_element_scan,
-    'integrator_tolerance_scan': integrator_tolerance_scan,
-    'mag_coord_type_scan': mag_coord_type_scan,
-    'grid_type_scan': grid_type_scan,
-    'vacuum_mtheta_scan': vacuum_mtheta_scan,
-    'RDCON_cutoff_scan_n1': RDCON_cutoff_scan_n1,
-    'RDCON_cutoff_scan_n4': RDCON_cutoff_scan_n4,
-    'RDCON_solver_scan': RDCON_solver_scan,
-    'STRIDE_axis_mid_pt_skew_scan': STRIDE_axis_mid_pt_skew_scan,
-    'large_sol_extent_pest_scan': large_sol_extent_pest_scan,
-    'RDCON_nq_scan': RDCON_nq_scan,
-    'sing1_flag_scan': sing1_flag_scan,
-    'regrid_flag_scan': regrid_flag_scan,
-    'edge_truncation_q_scan': edge_truncation_q_scan,
-    'edge_truncation_q_scan_no_wall': edge_truncation_q_scan_no_wall,
-    'wall_radius_scan': wall_radius_scan,
-}
 
 def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=os.path.join(home_dir, 'tests/test_results'), quick_test=True, verbose=True, debug=False, hotstart=''):
     """
@@ -67,7 +35,6 @@ def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=o
     scan_namelist : list
         The input scan name list
     """
-    scan_function_map = _SCAN_FUNCTION_MAP
     if len(hotstart) > 0:
         # Check if hotstart is in scan_namelist
         if hotstart not in scan_namelist:
@@ -83,13 +50,12 @@ def run_multiple_scans(eq_filename, scan_namelist=scan_functions,  results_dir=o
     failed_cases = []
     
     for scan_name in scan_namelist:
-        if scan_name not in scan_function_map:
+        if scan_name not in SCANS:
             print(f"Warning: Scan function '{scan_name}' not found. Skipping.")
             continue
 
-        scan_func = scan_function_map[scan_name]
         try:
-            result, message = scan_func(eq_filename, results_dir=results_dir, quick_test=quick_test, verbose=True)
+            result, message = run_scan(scan_name, eq_filename, results_dir=results_dir, quick_test=quick_test, verbose=True)
             messages.append(message)
             results[scan_name] = result
             if verbose:
@@ -169,8 +135,8 @@ def run_multiple_scans_parallel(eq_filename, master_working_dir, scan_namelist=s
     failed_cases : list of str
         Names of scans that raised exceptions.
     """
-    valid_scans = [(i, name) for i, name in enumerate(scan_namelist) if name in _SCAN_FUNCTION_MAP]
-    skipped = [name for name in scan_namelist if name not in _SCAN_FUNCTION_MAP]
+    valid_scans = [(i, name) for i, name in enumerate(scan_namelist) if name in SCANS]
+    skipped = [name for name in scan_namelist if name not in SCANS]
     if skipped:
         print(f"[run_multiple_scans_parallel] Skipping unknown scan names: {skipped}")
 
@@ -243,9 +209,9 @@ def _scan_worker_batch(args):
 
     run_results = []
     for idx, scan_name in batch:
-        scan_func = _SCAN_FUNCTION_MAP[scan_name]
         try:
-            result, message = scan_func(
+            result, message = run_scan(
+                scan_name,
                 eq_filename,
                 results_dir=results_dir,
                 quick_test=quick_test,

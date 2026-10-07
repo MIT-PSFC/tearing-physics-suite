@@ -189,8 +189,9 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
     #########################################################################################################
 
     os.chdir(working_dir)  # Change to the working directory
-    if fresh_start and os.path.exists(os.path.join(working_dir, 'pest3_n'+str(nn)+'.nc')):
-        os.remove(os.path.join(working_dir, 'pest3_n'+str(nn)+'.nc'))
+    # Always remove the previous pest3.nc: it is read straight after this run, so a leftover would be stale.
+    if os.path.exists(os.path.join(working_dir, 'pest3.nc')):
+        os.remove(os.path.join(working_dir, 'pest3.nc'))
         if verbose: print(f"Removed existing PEST3 output file from working directory before running pest3")
 
     os.system(input_string)
@@ -349,6 +350,9 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
         clean_netcdf=False,
         **pest3_kwargs_dict_local
     )
+    if not pest3_trunc_ran:
+        print("PEST3 truncation run failed.")
+        return 0, False
     if abs(pest3_xr['qa'].values[-1]-qlim_actual) < 0.01:
         return pest3_kwargs_dict_local['psihigh_pest'], True
     assert pest3_xr['qa'].values[-1] <= qlim_actual, "PEST3 initial run did not return a q value below qlim_actual. Check input parameters."
@@ -368,6 +372,10 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
             **pest3_kwargs_dict_local
         )
 
+        if not pest3_trunc_ran:
+            print("PEST3 truncation run failed.")
+            return 0, False
+
         if verbose:
             print(f"PEST3 run {trunci}: psihigh_pest = {pest3_kwargs_dict_local['psihigh_pest']}, qlim_actual = {qlim_actual}, qa = {pest3_xr['qa'].values[-1]}")
 
@@ -378,13 +386,11 @@ def pest3_special_truncation_loop(eq_filename, nn, qlim_actual, pest3_kwargs_dic
         else:
             psihigh_bounds[1] = pest3_kwargs_dict_local['psihigh_pest']
         pest3_kwargs_dict_local['psihigh_pest'] = psihigh_bounds[0]+(psihigh_bounds[1]-psihigh_bounds[0])/2.0
-
-        if not pest3_trunc_ran:
-            print("PEST3 truncation run failed.")
-            return 0, False
         trunci += 1
 
-    return psi_trunc_frac, pest3_trunc_ran
+    # Not converged: return the last psihigh known to give qa < qlim_actual.
+    print(f"WARNING: PEST3 truncation loop did not converge in {truncimax} iterations (psihigh_pest bounds {psihigh_bounds}).")
+    return psihigh_bounds[0], False
 
 def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_dict, output_prefix_special='', 
                                 mpsi_trunc=400, 

@@ -95,14 +95,11 @@ def _counts_along_dim(da, dim):
     other = [d for d in da.dims if d != dim]
     da = da.transpose(dim, *other)
     arr = da.values
-    n = arr.shape[0]
-    flat = arr.reshape(n, -1)                       # (n, M) — M = prod(other)
-    counts = np.empty_like(flat, dtype=int)
-    for j in range(flat.shape[1]):
-        _, inv, c = np.unique(flat[:, j], return_inverse=True,
-                              return_counts=True)
-        counts[:, j] = c[inv]
-    return counts.reshape(arr.shape), other
+    a, b = arr[:, None], arr[None, :]               # compare every pair along `dim`
+    same = a == b
+    if arr.dtype.kind in 'fc':
+        same |= np.isnan(a) & np.isnan(b)           # np.unique groups NaNs together
+    return same.sum(axis=1), other
 
 
 # Rational-surface access after _uniquify_r ('r'/'r_prime' are positional indices):

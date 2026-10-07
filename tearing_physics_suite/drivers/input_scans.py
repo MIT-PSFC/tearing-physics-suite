@@ -158,18 +158,11 @@ def extract_scanned_xrs(results, input_name, abs_threshold, rel_threshold, outpu
         if xarrays[i] is not None:
             if 'Delta_prime' in xarrays[i]:
                 xarrays_msg.append(xarrays[i])
-    if 'rdcon' in xarrays_msg[0].code:
-        if not np.isnan(xarrays_msg[0].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0)):
-            message+=str("   RDCON delta prime:"+str([xarrays_msg[i].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])+'\n')
-            deltaprimes.append([xarrays_msg[i].Delta_prime.sel(code='rdcon',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])
-    if 'stride' in xarrays_msg[0].code:
-        if not np.isnan(xarrays_msg[0].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0)):
-            message+=str("   STRIDE delta prime:"+str([xarrays_msg[i].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])+'\n')
-            deltaprimes.append([xarrays_msg[i].Delta_prime.sel(code='stride',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])
-    if 'pest3' in xarrays_msg[0].code:
-        if not np.isnan(xarrays_msg[0].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0)):
-            message+=str("   PEST3 delta prime:"+str([xarrays_msg[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])+'\n')
-            deltaprimes.append([xarrays_msg[i].Delta_prime.sel(code='pest3',i=0).isel(r=0,r_prime=0).values for i in range(len(xarrays_msg))])
+    for code in xarrays_msg[0].code.values:  # first-surface Delta' of each code across the scan
+        dp_first = [x.Delta_prime.sel(code=code, i=0).isel(r=0, r_prime=0).values for x in xarrays_msg]
+        if not np.isnan(dp_first[0]):
+            message += f"   {str(code).upper()} delta prime:{dp_first}\n"
+            deltaprimes.append(dp_first)
 
     #########################################################################################################
     # Add q-surface info to the message:

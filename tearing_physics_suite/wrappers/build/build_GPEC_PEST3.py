@@ -181,7 +181,7 @@ def is_pest3_built(build_dir=None, gpec_vacuum=None):
         return False
     if gpec_vacuum is None:
         return True
-    from tearing_physics_suite.PEST3_wrappers import pest3_has_gpec_vacuum
+    from tearing_physics_suite.wrappers.pest3 import pest3_has_gpec_vacuum
     return pest3_has_gpec_vacuum(str(found[0])) == gpec_vacuum
 
 
@@ -299,7 +299,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
         Link GPEC's VACUUM (pest3x -V, the TPS default vacuum). Needs a built GPEC.
     gpec_dir : str or Path, optional
         Built GPEC tree for gpec_vacuum (default: submodules/GPEC).
-    
+
     Returns:
     --------
     bool

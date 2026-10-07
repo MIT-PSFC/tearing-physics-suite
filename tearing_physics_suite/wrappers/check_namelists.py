@@ -136,33 +136,21 @@ def tps_gpec_inputs(configs=({},)):
     return out
 
 
-class _Captured(Exception):
-    pass
-
-
 def tps_pest3_command(**pest3_kwargs):
-    """The pest3x command line PEST3_resistive_calculation would run (captured, not run)."""
-    import tearing_physics_suite.wrappers.pest3 as pest3
-    cmd = {}
+    """The pest3x command line PEST3_resistive_calculation builds with its defaults (plus pest3_kwargs)."""
+    import inspect
 
-    def fake_system(c):
-        cmd['c'] = c
-        raise _Captured
-    with tempfile.TemporaryDirectory() as d:
-        Path(d, 'pest3x').write_text('')
-        eq = Path(d, EQ_NAME)
-        eq.write_text('')
-        old, cwd = pest3.os.system, os.getcwd()
-        pest3.os.system = fake_system
-        try:
-            pest3.PEST3_resistive_calculation(str(eq), 1, working_dir=os.path.join(d, 'work'), pest3_dir=d,
-                                              **pest3_kwargs)
-        except _Captured:
-            pass
-        finally:
-            pest3.os.system = old
-            os.chdir(cwd)
-    return cmd.get('c', '')
+    from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, build_pest3_command, pest3_vacuum_flag
+    k = {n: p.default for n, p in inspect.signature(PEST3_resistive_calculation).parameters.items()
+         if p.default is not inspect.Parameter.empty}
+    k.update(pest3_kwargs)
+    if k['nx_pest'] != 0:
+        k['nx_string_pest'] = ' -k' + str(k['nx_pest'])
+    vac = pest3_vacuum_flag(k['vacuum_source_pest'], k['a_wall_pest'], k['mthvac_pest'])
+    return build_pest3_command(EQ_NAME, 1, k['eq_type_pest'], k['a_wall_pest'], vac, k['kband_pest'],
+                               k['rational_surface_control_pest'], k['psilow_pest'], k['mtheta_pest'], k['mpsi_pest'],
+                               k['psihigh_pest'], k['nx_string_pest'], k['large_sol_extent_pest'], k['solver_pest'],
+                               extra_input_string_pest=k['extra_input_string_pest'])
 
 
 def pest3_command_flags(cmd):

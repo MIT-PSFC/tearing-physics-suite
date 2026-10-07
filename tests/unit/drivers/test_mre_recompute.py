@@ -7,7 +7,12 @@ import pytest
 import xarray as xr
 
 from tearing_physics_suite.drivers.mre_recompute import (
-    GLOBAL_OUTPUTS, K_OUTPUTS, check_recompute_inputs, dwdt_curves, recompute_mre_hyperparams)
+    GLOBAL_OUTPUTS,
+    K_OUTPUTS,
+    check_recompute_inputs,
+    dwdt_curves,
+    recompute_mre_hyperparams,
+)
 
 ZARR = 'work/multi_run_zarr/compiled_combined_xr.zarr'
 

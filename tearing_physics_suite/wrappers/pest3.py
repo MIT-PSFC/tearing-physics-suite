@@ -4,6 +4,7 @@ import copy
 import os
 import pickle as pkl
 import shutil
+import subprocess
 
 import numpy as np
 import xarray as xr
@@ -21,6 +22,38 @@ def pest3_has_gpec_vacuum(pest3_executable):
         with open(pest3_executable, 'rb') as fexe:
             _gpec_vac_built[key] = _GPEC_VAC_SYMBOL in fexe.read()
     return _gpec_vac_built[key]
+
+
+def pest3_vacuum_flag(vacuum_source_pest, a_wall_pest, mthvac_pest):
+    """' -V<mthvac_pest>' for GPEC's VACUUM, else '' (PEST3's own vacuum, or a_wall_pest <= 0: wall on plasma)."""
+    if vacuum_source_pest not in ('gpec', 'pest3'):
+        raise ValueError(f"vacuum_source_pest must be 'gpec' or 'pest3', not {vacuum_source_pest!r}")
+    return ' -V' + str(mthvac_pest) if vacuum_source_pest == 'gpec' and a_wall_pest > 0 else ''
+
+
+def build_pest3_command(eq_filename, nn, eq_type_pest, a_wall_pest, vacuum_string_pest, kband_pest,
+                        rational_surface_control_pest, psilow_pest, mtheta_pest, mpsi_pest, psihigh_pest,
+                        nx_string_pest, large_sol_extent_pest, solver_pest, terminal_output_control='',
+                        extra_input_string_pest=''):
+    """The pest3x command line run by PEST3_resistive_calculation (in its working directory)."""
+    return str('./pest3x -i' + str(eq_type_pest)
+                        + ' -f' + eq_filename
+                        + ' -n' + str(nn)
+                        + ' -b' + str(a_wall_pest)
+                        + vacuum_string_pest
+                        + ' -l' + str(kband_pest)
+                        + ' ' + rational_surface_control_pest
+                        + ' -a' + str(psilow_pest)
+                        + ' -P' + str(mtheta_pest)
+                        + ' -R' + str(mpsi_pest)
+                        + ' -E' + str(psihigh_pest)
+                        + ' ' + nx_string_pest
+                        + ' -d' + str(large_sol_extent_pest)
+                        + ' -s' + str(solver_pest)
+                        + ' -x0'
+                        + ' -a0.001'
+                        + ' ' + terminal_output_control
+                        + ' ' + extra_input_string_pest)
 
 
 def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_results_dir=True,
@@ -137,16 +170,13 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
     shutil.copy(pest3_executable, working_dir)
     assert os.path.isfile(working_dir+'/pest3x')
 
-    if vacuum_source_pest not in ('gpec', 'pest3'):
-        raise ValueError(f"vacuum_source_pest must be 'gpec' or 'pest3', not {vacuum_source_pest!r}")
-    vacuum_string_pest = ''
-    if vacuum_source_pest == 'gpec' and a_wall_pest > 0:  # a_wall_pest <= 0: wall on plasma, no vacuum
+    vacuum_string_pest = pest3_vacuum_flag(vacuum_source_pest, a_wall_pest, mthvac_pest)
+    if vacuum_string_pest:
         if not pest3_has_gpec_vacuum(pest3_executable):
             raise RuntimeError(f"{pest3_executable} was built without GPEC vacuum. Rebuild PEST3 with "
                                "gpec_vacuum=True, or pass vacuum_source_pest='pest3'.")
         if not os.path.isfile(os.path.join(working_dir, 'vac.in')):
             raise FileNotFoundError(f"vacuum_source_pest='gpec' needs vac.in in {working_dir} (written by the GPEC run).")
-        vacuum_string_pest = ' -V' + str(mthvac_pest)
 
     # Check if equilibrium file exists
     if not os.path.exists(eq_filename):
@@ -181,24 +211,10 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
     else:
         terminal_output_control = ''
 
-    input_string = str('./pest3x -i' + str(eq_type_pest)
-                        + ' -f' + eq_filename
-                        + ' -n' + str(nn)
-                        + ' -b' + str(a_wall_pest)
-                        + vacuum_string_pest
-                        + ' -l' + str(kband_pest)
-                        + ' ' + rational_surface_control_pest
-                        + ' -a' + str(psilow_pest)
-                        + ' -P' + str(mtheta_pest)
-                        + ' -R' + str(mpsi_pest)
-                        + ' -E' + str(psihigh_pest)
-                        + ' ' + nx_string_pest
-                        + ' -d' + str(large_sol_extent_pest)
-                        + ' -s' + str(solver_pest)
-                        + ' -x0'
-                        + ' -a0.001'
-                        + ' ' + terminal_output_control
-                        + ' ' + extra_input_string_pest)
+    input_string = build_pest3_command(eq_filename, nn, eq_type_pest, a_wall_pest, vacuum_string_pest, kband_pest,
+                                       rational_surface_control_pest, psilow_pest, mtheta_pest, mpsi_pest,
+                                       psihigh_pest, nx_string_pest, large_sol_extent_pest, solver_pest,
+                                       terminal_output_control, extra_input_string_pest)
 
     #########################################################################################################
     # Run PEST3:
@@ -210,7 +226,9 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
         os.remove(os.path.join(working_dir, 'pest3.nc'))
         if verbose: print("Removed existing PEST3 output file from working directory before running pest3")
 
-    os.system(input_string)
+    status = subprocess.call(input_string, shell=True)
+    if status != 0:
+        print(f"WARNING: pest3x exited with status {status}")
 
     #########################################################################################################
     # Create a dictionary of input parameters used for PEST3 calculation

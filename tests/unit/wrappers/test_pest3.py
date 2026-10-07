@@ -1,13 +1,11 @@
-# Unit tests for PEST3_wrappers that need no PEST3 binary (pytest).
+# Unit tests for wrappers.pest3 that need no PEST3 binary (pytest).
 import os
 import stat
 
-import numpy as np
-import xarray as xr
 import pytest
+import xarray as xr
 
-os.environ.setdefault('TPSHOME', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import tearing_physics_suite.PEST3_wrappers as p3w
+import tearing_physics_suite.wrappers.pest3 as p3w
 
 
 def _fake_pest3(tmp_path, body='exit 0'):

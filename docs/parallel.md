@@ -73,8 +73,9 @@ pads and concatenates the shot stores the same way.
 
 **Cost (omega, one CPU, production settings: n = 1-4, RDCON + STRIDE + jGPEC Galerkin, DIII-D wall).** About
 24 min per draw (RDCON ~7.5, STRIDE ~6.5, jGPEC Galerkin ~9 including ~1.5 min of JIT per item) and a peak of
-~21 GB per worker, set by jGPEC Galerkin at n = 4. Adding jGPEC Riccati makes it ~2.2 h per draw. Size workers per
-node by memory.
+~21 GB per worker, set by jGPEC Galerkin at n = 4. Adding jGPEC Riccati makes it ~2.2 h per draw. RDCON at n = 3 on a
+draw with 36 rational surfaces peaked at 26 GB; with ≥ 25 surfaces the RDCON in GPEC `OFT_interface` dfd771ca crashes
+writing `delta_gw.out` (fixed on GPEC `bugfix/rdcon-gal-format-width`). Size workers per node by memory.
 
 **Recommendations (Perlmutter).** Multi-node `regular` (or `preempt`, which every draw survives) jobs with one
 launcher per node, sized to the backlog; single-node jobs for trickles and tails. Workers per node:

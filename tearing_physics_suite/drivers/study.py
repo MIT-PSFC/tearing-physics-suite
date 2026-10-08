@@ -266,7 +266,7 @@ def _err(e):
 
 
 def cmd_run_item(a):
-    res = os.path.join(qroot(a.study), 'results', f'{a.item}.json')
+    res = a.result or os.path.join(qroot(a.study), 'results', f'{a.item}.json')
     os.makedirs(os.path.dirname(res), exist_ok=True)
     try:
         fq.write_json(res, run_item(a.study, a.item))
@@ -303,9 +303,9 @@ class Runner:
             os.makedirs(os.path.dirname(log), exist_ok=True)
             with open(log, 'a') as fh:
                 fh.write(f'\n=== {time.ctime()} {worker} attempt {q.n_attempts(uid)}\n')
+            res_path = os.path.join(q.root, 'results', f'{uid}.{worker}.{q.n_attempts(uid)}.json')
             argv = [sys.executable, '-m', 'tearing_physics_suite.drivers.study', 'run-item',
-                    '--study', self.study, '--item', uid]
-            res_path = os.path.join(q.root, 'results', f'{uid}.json')
+                    '--study', self.study, '--item', uid, '--result', res_path]
             try:
                 res = fq.run_child(argv, log, timeout=self.timeout, result_path=res_path)
             except RuntimeError:
@@ -383,14 +383,14 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
             new = sorted(k for k in draws if k not in seen)
             for key in new:
                 with xr.open_dataset(draws[key][0], engine='scipy') as ds:
-                    ds = store_ready(_unicode(ds.load()))
+                    ds = store_ready(_vlen_strings(ds.load().drop_encoding()))
                 sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
                 if state['signature'] is None:
                     state['signature'] = sig
                 if sig != state['signature']:
                     state['broken'].append(key)
                 else:
-                    ds = bare_episode(ds.assign(case_key=np.array(key)))
+                    ds = bare_episode(ds.assign(case_key=np.array(key, dtype=object)))
                     add_to_zarr_store(ds, zpath, episode_dim='run_idx')
                     state['compiled'].append(key)
                 fq.write_json(spath, state)
@@ -405,12 +405,18 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
     return state
 
 
-def _unicode(ds):
-    """String variables and coords as fixed-width unicode (scipy netCDF reads them back as bytes or objects)."""
+def _vlen_strings(ds):
+    """String variables and coords (scipy netCDF gives bytes, '<U' or objects) as object str arrays.
+
+    zarr appends need one dtype across runs: variable-length strings, not fixed-width ones. Call it on a
+    dataset without its netCDF encoding (which would write the strings back as chars).
+    """
     def is_str(v):
-        return v.dtype.kind == 'S' or (v.dtype.kind == 'O' and v.size and isinstance(v.values.flat[0], (bytes, str)))
+        return v.dtype.kind in 'SU' or (v.dtype.kind == 'O' and v.size and isinstance(v.values.flat[0], (bytes, str)))
+
     def conv(v):
-        return v.astype('S').astype(str) if v.dtype.kind == 'S' or isinstance(v.values.flat[0], bytes) else v.astype(str)
+        vals = [x.decode() if isinstance(x, bytes) else str(x) for x in np.asarray(v.values).ravel()]
+        return v.copy(data=np.array(vals, dtype=object).reshape(v.shape))
     return ds.assign_coords({k: conv(v) for k, v in ds.coords.items() if is_str(v)}).assign(
         {k: conv(v) for k, v in ds.data_vars.items() if is_str(v)})
 
@@ -523,7 +529,9 @@ def main(argv=None):
     p.add_argument('--feed-every', type=float, default=300, help='s; 0: no feeding from workers')
     p.add_argument('--allow-build-drift', action='store_true')
     p.add_argument('--no-compile', action='store_true', help="don't compile a shot's store when its items finish")
-    add('run-item', cmd_run_item).add_argument('--item', required=True)
+    p = add('run-item', cmd_run_item)
+    p.add_argument('--item', required=True)
+    p.add_argument('--result', default=None, help='result JSON for the parent worker')
     p = add('compile', cmd_compile)
     p.add_argument('--shots', type=int, nargs='*')
     p.add_argument('--finalize', action='store_true', help='rechunk the stores')

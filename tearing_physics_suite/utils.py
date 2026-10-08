@@ -139,13 +139,22 @@ def work_root():
     return os.environ.get('TPS_WORK_ROOT') or os.environ.get('TMPDIR') or '/tmp'
 
 
+def _die_with_parent():
+    """preexec_fn: SIGKILL the child when its parent dies (Linux), so a killed run leaves no orphan code."""
+    import ctypes
+    try:
+        ctypes.CDLL('libc.so.6', use_errno=True).prctl(1, signal.SIGKILL)   # PR_SET_PDEATHSIG
+    except OSError:
+        pass
+
+
 def run_code(cmd, shell=True):
     """subprocess.call in its own process group; the group is killed after $TPS_CODE_TIMEOUT s (unset: no limit).
 
     Raises TimeoutError on a timeout.
     """
     timeout = float(os.environ.get('TPS_CODE_TIMEOUT') or 0) or None
-    p = subprocess.Popen(cmd, shell=shell, start_new_session=True)
+    p = subprocess.Popen(cmd, shell=shell, start_new_session=True, preexec_fn=_die_with_parent)
     try:
         return p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

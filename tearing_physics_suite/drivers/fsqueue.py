@@ -126,12 +126,11 @@ class Queue:
         return self.path(kind, name)
 
     def beat(self, kind, name, t=None, check=False):
-        d = self._lease_dir(kind, name)
-        tmp = os.path.join(d, f'.hb.{_tag()}')
+        """Write the epoch into the lease's heartbeat file, in place (a rename would leave NFS readers
+        on the old inode until their directory cache expires)."""
         try:
-            with open(tmp, 'w') as fh:
+            with open(os.path.join(self._lease_dir(kind, name), 'heartbeat'), 'w') as fh:
                 fh.write(str(int(_now() if t is None else t)))
-            os.replace(tmp, os.path.join(d, 'heartbeat'))
         except OSError:
             if check:
                 raise
@@ -139,17 +138,22 @@ class Queue:
     def age(self, kind, name):
         """Seconds since the last heartbeat; the dir's mtime before the first; inf if gone."""
         d = self._lease_dir(kind, name)
+        t = 0.0
         try:
             with open(os.path.join(d, 'heartbeat')) as fh:
-                t = float(fh.read().strip())
+                txt = fh.read().strip()
+                t = float(txt) if txt else os.fstat(fh.fileno()).st_mtime   # caught mid-rewrite
         except (OSError, ValueError):
-            t = 0.0
+            pass
         if t <= 0:
             try:
                 t = os.stat(d).st_mtime
             except OSError:
                 return float('inf')
         return _now() - t
+
+    def owns(self, kind, name, owner):
+        return (read_json(os.path.join(self._lease_dir(kind, name), 'owner.json')) or {}).get('owner') == owner
 
     def _steal(self, kind, name):
         if self.age(kind, name) < self.STALE_S:
@@ -226,10 +230,14 @@ class Queue:
         self._record(uid, 'fail', dict(worker=worker, signature=sig, traceback=tb))
         return sig
 
-    def finish(self, uid, status='done', **info):
-        """Mark ``uid`` terminal and drop its claim."""
-        write_json(self.path('done', uid), dict(info, status=status, t=_now(), host=socket.gethostname()))
-        self.drop('claims', uid)
+    def finish(self, uid, status='done', owner=None, **info):
+        """Mark ``uid`` terminal and drop its claim (unless ``owner`` is given and no longer holds it).
+
+        A 'done' unit is never marked 'failed' (a late duplicate run failing after another finished)."""
+        if not (status == 'failed' and (self.outcome(uid) or {}).get('status') == 'done'):
+            write_json(self.path('done', uid), dict(info, status=status, t=_now(), host=socket.gethostname()))
+        if owner is None or self.owns('claims', uid, owner):
+            self.drop('claims', uid)
 
     def reopen(self, uid):
         """Make a terminal unit claimable again (clears its done marker and failure records)."""
@@ -426,14 +434,16 @@ def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=
             n_bad += 1
             log(f'[{worker}] {uid}: FAILED ({last}); {n_bad} in a row')
             if q.n_failures(uid) >= q.MAX_FAILURES:
-                q.finish(uid, 'failed', reason='max_failures', signature=last)
-            else:
+                q.finish(uid, 'failed', owner=worker, reason='max_failures', signature=last)
+            elif q.owns('claims', uid, worker):
                 q.drop('claims', uid)
             if n_bad >= q.MAX_CONSECUTIVE_FAILURES:
                 return done('broken')
             continue
         n_bad, n_ok = 0, n_ok + 1
-        q.finish(uid, 'done', worker=worker, **(info if isinstance(info, dict) else {}))
+        if not q.owns('claims', uid, worker):
+            log(f'[{worker}] {uid}: lease was taken over while running (a duplicate run)')
+        q.finish(uid, 'done', owner=worker, worker=worker, **(info if isinstance(info, dict) else {}))
         log(f'[{worker}] {uid}: done')
 
 
@@ -460,7 +470,8 @@ def run_child(argv, log_path, timeout=None, result_path=None, env=None, cwd=None
     t0 = _now()
     os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
     with open(log_path, 'a') as log:
-        p = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=env, cwd=cwd)
+        p = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=env, cwd=cwd,
+                             preexec_fn=die_with_parent)
         _CHILD['p'] = p
         try:
             rc = p.wait(timeout=timeout)
@@ -485,6 +496,17 @@ def _tail(path, n=8):
             return [ln.rstrip() for ln in fh.readlines()[-200:] if ln.strip()][-n:]
     except OSError:
         return []
+
+
+def die_with_parent():
+    """preexec_fn: SIGKILL this child when the process that started it dies (Linux), so a killed worker
+    leaves no orphan running a unit whose lease will be taken over."""
+    import ctypes
+    import signal
+    try:
+        ctypes.CDLL('libc.so.6', use_errno=True).prctl(1, signal.SIGKILL)   # PR_SET_PDEATHSIG
+    except OSError:
+        pass
 
 
 def kill_group(p, grace=10.0):

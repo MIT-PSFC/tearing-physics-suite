@@ -382,10 +382,14 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
                 state = dict(compiled=[], broken=[], signature=None)
             seen = set(state['compiled']) | set(state['broken'])
             draws = _shot_draws(study, cfg, shot)
+            codes = study_codes(cfg['tps_kwargs'])
             new = sorted(k for k in draws if k not in seen)
             for key in new:
                 with xr.open_dataset(draws[key][0], engine='scipy') as ds:
-                    ds = store_ready(_vlen_strings(ds.load().drop_encoding()))
+                    ds = ds.load().drop_encoding()
+                if 'code' in ds.dims:              # every run on the same codes: the store aligns by position
+                    ds = ds.reindex(code=codes)
+                ds = store_ready(_vlen_strings(ds))
                 sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
                 if state['signature'] is None:
                     state['signature'] = sig
@@ -407,6 +411,16 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
     return state
 
 
+def study_codes(tps_kwargs):
+    """The codes a study runs, in CODE_ORDER (run_resistive_calculation's defaults for unset flags)."""
+    from tearing_physics_suite.physics.combine import CODE_ORDER
+    k = tps_kwargs
+    on = {'rdcon': k.get('run_rdcon', True), 'stride': k.get('run_stride', True), 'pest3': k.get('run_pest3', True)}
+    if k.get('run_jgpec', False):
+        on.update({f'jGPEC_{s}': True for s in k.get('jgpec_solvers', ('galerkin',))})
+    return [c for c in CODE_ORDER if on.get(c)]
+
+
 def _vlen_strings(ds):
     """String variables and coords (scipy netCDF gives bytes, '<U' or objects) as object str arrays.
 
@@ -414,10 +428,12 @@ def _vlen_strings(ds):
     dataset without its netCDF encoding (which would write the strings back as chars).
     """
     def is_str(v):
-        return v.dtype.kind in 'SU' or (v.dtype.kind == 'O' and v.size and isinstance(v.values.flat[0], (bytes, str)))
+        return v.dtype.kind in 'SU' or (v.dtype.kind == 'O' and any(isinstance(x, (bytes, str))
+                                                                    for x in np.asarray(v.values).ravel()))
 
     def conv(v):
-        vals = [x.decode() if isinstance(x, bytes) else str(x) for x in np.asarray(v.values).ravel()]
+        vals = [x.decode() if isinstance(x, bytes) else x if isinstance(x, str) else ''
+                for x in np.asarray(v.values).ravel()]
         return v.copy(data=np.array(vals, dtype=object).reshape(v.shape))
     return ds.assign_coords({k: conv(v) for k, v in ds.coords.items() if is_str(v)}).assign(
         {k: conv(v) for k, v in ds.data_vars.items() if is_str(v)})

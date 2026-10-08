@@ -27,7 +27,7 @@ def study(tmp_path, monkeypatch):
     s = str(tmp_path / 'study')
     os.makedirs(s)
     cfg = tmp_path / 'cfg.json'
-    cfg.write_text(json.dumps(dict(draws_per_item=2, tps_kwargs=dict(nvec=[1]))))
+    cfg.write_text(json.dumps(dict(draws_per_item=2, tps_kwargs=dict(nvec=[1], run_pest3=False))))
     monkeypatch.setattr(st, 'versions', lambda: dict(tps='v1', gpec=None, jgpec=None))
     st.main(['init', '--study', s, '--config', str(cfg)])
     monkeypatch.setenv('TPS_WORK_ROOT', str(tmp_path / 'scratch'))
@@ -67,7 +67,10 @@ def _fake_pipeline(monkeypatch, behaviour):
             raise b
         if b == 'none':
             return None, {}
-        ds = multi_run._augment_combined_xr(_run_dataset(prof['bq_count']), label, prof, labels)
+        ds = _run_dataset(prof['bq_count'])
+        if prof['bq_count'] == 1:                         # a draw where STRIDE did not run
+            ds = ds.sel(code=['rdcon'])
+        ds = multi_run._augment_combined_xr(ds, label, prof, labels)
         ds.to_netcdf(nc_path, engine='scipy')
         return ds, dict(nn=1, vac_flag='t')
     monkeypatch.setattr(profile_read, 'read_bouquet_archive', read)
@@ -130,6 +133,8 @@ def test_compile_incremental(study, monkeypatch):
     np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0])
     assert set(ds.variant.values) == {'base'} and set(ds.t_ms.values) == {1500}
     assert list(ds.code.values) == ['rdcon', 'stride']
+    dp = ds.Delta_prime.isel(nn=0, r=0)                  # draw 1 had no STRIDE: NaN there, RDCON in place
+    assert dp.sel(code='rdcon').values[1] == 1.0 and np.isnan(dp.sel(code='stride').values[1])
     inputs = xr.open_dataset(st.shot_store(study, 100).removesuffix('.zarr') + '_inputs.nc')
     assert list(inputs.case_key.values) == list(ds.case_key.values) and set(inputs.vac_flag.values) == {'t'}
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # nothing new

@@ -546,12 +546,9 @@ def launch(root, n_workers, make_run, tag=None, policy=None, deadline=None, **wo
     s = slurm_info()
     tag = tag or f'{socket.gethostname()}.{s["job_id"] or os.getpid()}.{s["procid"] or 0}'
     ctx = multiprocessing.get_context('spawn')
-    reasons = ctx.Manager().dict()
-
-    def target(i):
-        return ctx.Process(target=_launch_one, args=(root, policy or {}, f'{tag}.w{i}', make_run,
-                                                     deadline, work_kw, reasons), name=f'w{i}')
-    procs = [target(i) for i in range(n_workers)]
+    names = [f'{tag}.w{i}' for i in range(n_workers)]
+    procs = [ctx.Process(target=_worker_main, args=(root, policy or {}, w, make_run, deadline, work_kw), name=w)
+             for w in names]
     for p in procs:
         p.start()
 
@@ -563,11 +560,11 @@ def launch(root, n_workers, make_run, tag=None, policy=None, deadline=None, **wo
     signal.signal(signal.SIGUSR1, forward)
     for p in procs:
         p.join()
-    out = {f'{tag}.w{i}': reasons.get(f'{tag}.w{i}', f'died (exit {p.exitcode})') for i, p in enumerate(procs)}
+    q = Queue(root, **(policy or {}))
+    out = {}
+    for w, p in zip(names, procs):
+        st = (read_json(q.path('workers', f'{w}.json')) or {}).get('state', '')
+        out[w] = st[len('exited: '):] if p.exitcode == 0 and st.startswith('exited: ') else f'died (exit {p.exitcode})'
     if out and all(v == 'broken' for v in out.values()):
-        Queue(root, **(policy or {})).mark_broken(tag, f'all {n_workers} workers broken')
+        q.mark_broken(tag, f'all {n_workers} workers broken')
     return out
-
-
-def _launch_one(root, policy, worker, make_run, deadline, work_kw, reasons):
-    reasons[worker] = _worker_main(root, policy, worker, make_run, deadline, work_kw)

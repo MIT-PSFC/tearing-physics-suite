@@ -22,6 +22,7 @@ import json
 import os
 import random
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -396,7 +397,8 @@ class Cursor:
 
 
 class Heartbeat:
-    """Context manager: beats ``claims/<uid>`` every HEARTBEAT_S in a thread; expires it on error."""
+    """Context manager: beats ``claims/<uid>`` every HEARTBEAT_S in a thread; failed or slow beats are logged
+    (a lease whose beats stall for STALE_S can be taken over while its owner still runs)."""
 
     def __init__(self, q, uid, kind='claims'):
         self.q, self.uid, self.kind = q, uid, kind
@@ -405,7 +407,14 @@ class Heartbeat:
 
     def _run(self):
         while not self._stop.wait(self.q.HEARTBEAT_S):
-            self.q.beat(self.kind, self.uid)
+            t0 = _now()
+            try:
+                self.q.beat(self.kind, self.uid, check=True)
+            except OSError as e:
+                print(f'[heartbeat] {self.uid}: {e}', file=sys.stderr, flush=True)
+            if _now() - t0 > self.q.HEARTBEAT_S:
+                print(f'[heartbeat] {self.uid}: a beat took {_now() - t0:.0f} s (slow filesystem)',
+                      file=sys.stderr, flush=True)
 
     def __enter__(self):
         self._t.start()

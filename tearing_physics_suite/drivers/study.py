@@ -343,6 +343,9 @@ def cmd_work(a):
                     on_idle=Feeder(a.study, a.feed_every) if a.feed_every else None)
     for w, why in sorted(out.items()):
         print(f'  {w}: {why}', flush=True)
+    if not a.no_compile:          # catch draws that finished while their shot was being compiled
+        fq.Queue(qroot(a.study)).periodic('compile_all', 600, lambda: [compile_shot(a.study, s)
+                                                                       for s in study_shots(a.study)])
 
 
 # --- compile -----------------------------------------------------------------------------------
@@ -451,11 +454,21 @@ def cmd_compile(a):
 
 
 def open_study(study, shots=None):
-    """Lazy dataset of every compiled shot store, concatenated along run_idx."""
+    """Lazy dataset of every compiled shot store, concatenated along run_idx.
+
+    Like the stores themselves (add_to_zarr_store), ragged dims are NaN-padded at the end and aligned by
+    position, not by coordinate value.
+    """
     import xarray as xr
     paths = [shot_store(study, s) for s in (shots or study_shots(study)) if os.path.exists(shot_store(study, s))]
-    return xr.concat([xr.open_zarr(p, consolidated=True) for p in paths], dim='run_idx', join='outer',
-                     data_vars='minimal', coords='minimal', compat='override')
+    dss = [xr.open_zarr(p, consolidated=True) for p in paths]
+    size = {}
+    for ds in dss:
+        for d, n in ds.sizes.items():
+            size[d] = max(size.get(d, 0), n)
+    dss = [ds.pad({d: (0, size[d] - n) for d, n in ds.sizes.items() if d != 'run_idx' and n < size[d]})
+           for ds in dss]
+    return xr.concat(dss, dim='run_idx', data_vars='minimal', coords='minimal', compat='override', join='override')
 
 
 # --- status ------------------------------------------------------------------------------------

@@ -285,6 +285,7 @@ class Runner:
     def __init__(self, a):
         self.study, self.timeout, self.min_left = a.study, a.item_timeout, a.min_left
         self.allow_drift, self.deadline = a.allow_build_drift, fq.job_deadline(0.0)
+        self.compile = not getattr(a, 'no_compile', False)
 
     def __call__(self, q, worker):
         cfg = load_config(self.study)
@@ -320,8 +321,19 @@ class Runner:
                     and len({u for _, u in recent}) >= 2):
                 raise fq.Broken(f'{recent.maxlen} draws in a row failed with: {recent[0][0]}')
             n = collections.Counter(d['status'] for d in res.get('draws', []))
+            if self.compile and _shot_finished(q, item['shot'], uid):
+                try:
+                    compile_shot(self.study, item['shot'], cfg)
+                except Exception as e:
+                    print(f'[{worker}] compile of shot {item["shot"]} failed: {fq.error_signature(e)}', flush=True)
             return dict(n_draws=len(res.get('draws', [])), **n)
         return run
+
+
+def _shot_finished(q, shot, current):
+    """True if every queued item of the shot except ``current`` is terminal."""
+    done = q.done_ids()
+    return all(uid in done for uid, it in q.units().items() if it.get('shot') == shot and uid != current)
 
 
 def cmd_work(a):
@@ -510,6 +522,7 @@ def main(argv=None):
     p.add_argument('--idle-exit', type=float, default=600)
     p.add_argument('--feed-every', type=float, default=300, help='s; 0: no feeding from workers')
     p.add_argument('--allow-build-drift', action='store_true')
+    p.add_argument('--no-compile', action='store_true', help="don't compile a shot's store when its items finish")
     add('run-item', cmd_run_item).add_argument('--item', required=True)
     p = add('compile', cmd_compile)
     p.add_argument('--shots', type=int, nargs='*')

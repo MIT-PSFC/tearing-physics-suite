@@ -141,7 +141,7 @@ def test_runner_breaker(study, monkeypatch):
     calls = iter([dict(draws=[dict(status='error', signature='E: rdcon missing', unit_id=u, draw=i)
                               for i in range(3)]) for u in ('a', 'b')])
     monkeypatch.setattr(fq, 'run_child', lambda *a, **k: next(calls))
-    a = type('A', (), dict(study=study, item_timeout=None, min_left=0, allow_build_drift=False))
+    a = type('A', (), dict(study=study, item_timeout=None, min_left=0, allow_build_drift=False, no_compile=True))
     run = st.Runner(a)(q, 'w')
     item = dict(shot=100, unit_id='a')
     assert run('a.c0', item) == dict(n_draws=3, error=3)

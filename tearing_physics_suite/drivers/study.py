@@ -39,7 +39,7 @@ DEFAULTS = dict(
     meta_data=False,            # bq_* per-draw metadata in the profile dicts
     keep_pickle=False,          # also keep multi_run-style result pickles
     code_timeout=3600,          # s per Fortran code run (TPS_CODE_TIMEOUT)
-    out_root=None,              # per-draw outputs under <out_root>/<shot>/tps (default: the study dir)
+    out_root=None,              # per-draw outputs under <out_root>/<shot>/tps (default: the study dir); $VARS expanded
     n_same_sig=6,               # this many draw failures in a row with one signature, over >= 2 units: worker broken
 )
 FINAL = ('ok', 'error', 'crashed')
@@ -65,8 +65,13 @@ def load_config(study):
     return cfg
 
 
+def out_root(study, cfg):
+    """Root of the per-draw outputs: cfg['out_root'] ($VARS expanded), else the study dir."""
+    return os.path.expandvars(cfg.get('out_root') or study)
+
+
 def unit_dir(study, cfg, shot, unit_id):
-    return os.path.join(cfg.get('out_root') or study, str(shot), 'tps', unit_id)
+    return os.path.join(out_root(study, cfg), str(shot), 'tps', unit_id)
 
 
 def shot_store(study, shot):
@@ -351,7 +356,7 @@ def cmd_work(a):
 def _shot_draws(study, cfg, shot):
     """{case_key: (nc path, status record)} of the shot's draws with status 'ok'."""
     out = {}
-    root = os.path.join(cfg.get('out_root') or study, str(shot), 'tps')
+    root = os.path.join(out_root(study, cfg), str(shot), 'tps')
     for p in glob.glob(os.path.join(root, '*', 'draws', '*.json')):
         r = fq.read_json(p) or {}
         if r.get('status') == 'ok':
@@ -465,7 +470,7 @@ def draw_status(study, cfg=None):
     """Counts of draw statuses per shot, and draw-failure signatures with counts and an example."""
     cfg = cfg or load_config(study)
     per_shot, sigs = {}, {}
-    for p in glob.glob(os.path.join(cfg.get('out_root') or study, '*', 'tps', '*', 'draws', '*.json')):
+    for p in glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json')):
         r = fq.read_json(p) or {}
         c = per_shot.setdefault(r.get('shot'), collections.Counter())
         c[r.get('status')] += 1

@@ -163,20 +163,14 @@ def feed(study, cfg=None):
 
 
 class Feeder:
-    """on_idle hook: feed under the 'feeder' lease, at most every ``every`` seconds."""
+    """on_idle hook: feed, unless any worker fed in the last ``every`` seconds."""
 
     def __init__(self, study, every):
-        self.study, self.every, self.last = study, every, 0.0
+        self.study, self.every = study, every
 
     def __call__(self):
-        if time.time() - self.last < self.every:
-            return False
-        self.last = time.time()
-        q = fq.Queue(qroot(self.study))
-        if q.age('leases', 'feeder') < self.every or not q.acquire('leases', 'feeder', socket.gethostname()):
-            return False
         try:
-            return feed(self.study) > 0
+            return bool(fq.Queue(qroot(self.study)).periodic('feeder', self.every, lambda: feed(self.study) > 0))
         except Exception as e:
             print(f'feeder failed: {fq.error_signature(e)}', flush=True)
             return False

@@ -25,6 +25,15 @@ def test_add_to_zarr_store_pads_ragged_dim(tmp_path):
     np.testing.assert_array_equal(ds.qlim.values, [3.0, 4.0, 5.0])
 
 
+def test_add_to_zarr_store_ragged_with_strings(tmp_path):
+    z = tmp_path / 's.zarr'
+    for i, n in enumerate((2, 3)):
+        ds = _run([1.0] * n, i).assign(label=('r', np.array(['ab'] * n, dtype=object)), key=np.array(f'k{i}', dtype=object))
+        add_to_zarr_store(ds, z, 'run_idx')
+    ds = xr.open_zarr(z).load()
+    assert ds.sizes['r'] == 3 and list(ds.key.values) == ['k0', 'k1'] and ds.label.values[1, 2] == 'ab'
+
+
 def test_meta_dict_to_dataset():
     x = np.linspace(0, 1, 11)
     meta = {'Zeff': 1.5, 'average_ion_mass': 2.5, 'te_keV_spline': CubicSpline(x, 1 - x),

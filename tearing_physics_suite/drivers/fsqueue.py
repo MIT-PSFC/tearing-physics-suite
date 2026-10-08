@@ -84,7 +84,7 @@ class Queue:
         self.policy = dict(DEFAULTS)
         self.policy.update({k: v for k, v in (read_json(self.path('config.json')) or {}).items() if k in DEFAULTS})
         self.policy.update({k: v for k, v in policy.items() if v is not None})
-        self._units, self._seen = {}, set()
+        self._units, self._seen, self._beats = {}, set(), {}
 
     def __getattr__(self, name):
         if name in DEFAULTS:
@@ -126,37 +126,58 @@ class Queue:
         return self.path(kind, name)
 
     def beat(self, kind, name, t=None, check=False):
-        """Write the epoch into the lease's heartbeat file, in place (a rename would leave NFS readers
-        on the old inode until their directory cache expires)."""
+        """Write the epoch into the lease's heartbeat file in place, and set the lease dir's mtime to it.
+
+        In place: a renamed file leaves NFS readers on the old inode until their directory cache expires.
+        The dir mtime is the fallback when a reader cannot read the file."""
+        d = self._lease_dir(kind, name)
+        t = int(_now() if t is None else t)
         try:
-            with open(os.path.join(self._lease_dir(kind, name), 'heartbeat'), 'w') as fh:
-                fh.write(str(int(_now() if t is None else t)))
+            with open(os.path.join(d, 'heartbeat'), 'w') as fh:
+                fh.write(str(t))
+            os.utime(d, (t, t))
         except OSError:
             if check:
                 raise
 
-    def age(self, kind, name):
-        """Seconds since the last heartbeat; the dir's mtime before the first; inf if gone."""
+    def _hb(self, kind, name):
+        """(heartbeat epoch or None, lease dir mtime or None when the lease is gone)."""
         d = self._lease_dir(kind, name)
-        t = 0.0
         try:
-            with open(os.path.join(d, 'heartbeat')) as fh:
-                txt = fh.read().strip()
-                t = float(txt) if txt else os.fstat(fh.fileno()).st_mtime   # caught mid-rewrite
-        except (OSError, ValueError):
-            pass
-        if t <= 0:
+            names = os.listdir(d)                      # also revalidates the dir on NFS
+            mtime = os.stat(d).st_mtime
+        except OSError:
+            return None, None
+        for _ in range(2 if 'heartbeat' in names else 0):
             try:
-                t = os.stat(d).st_mtime
-            except OSError:
-                return float('inf')
-        return _now() - t
+                with open(os.path.join(d, 'heartbeat')) as fh:
+                    return float(fh.read().strip()), mtime
+            except (OSError, ValueError):              # caught mid-rewrite
+                time.sleep(0.5)
+        return None, mtime
+
+    def age(self, kind, name):
+        """Seconds since the last heartbeat (file, else the lease dir's mtime); inf if the lease is gone."""
+        t, mtime = self._hb(kind, name)
+        return float('inf') if mtime is None else _now() - (t if t is not None else mtime)
+
+    def stale(self, kind, name):
+        """A lease may be stolen: expired on purpose, its heartbeat seen unchanged here for STALE_S (immune
+        to clock skew and NFS caching), or older than 3 x STALE_S by the clocks (a lease long dead)."""
+        t, mtime = self._hb(kind, name)
+        if mtime is None or (t is not None and t <= HEARTBEAT_EXPIRED):
+            return True
+        v, now = (t if t is not None else mtime), _now()
+        first = self._beats.get((kind, name))
+        if first is None or first[0] != v:
+            self._beats[(kind, name)] = first = (v, now)
+        return now - first[1] >= self.STALE_S or now - v >= 3 * self.STALE_S
 
     def owns(self, kind, name, owner):
         return (read_json(os.path.join(self._lease_dir(kind, name), 'owner.json')) or {}).get('owner') == owner
 
     def _steal(self, kind, name):
-        if self.age(kind, name) < self.STALE_S:
+        if not self.stale(kind, name):
             return False
         dead = self.path(kind, '.dead')
         os.makedirs(dead, exist_ok=True)
@@ -184,6 +205,26 @@ class Queue:
         except OSError:
             return False                    # stolen between mkdir and owner.json
         return True
+
+    def periodic(self, name, every, fn):
+        """Run ``fn()`` under lease ``name`` unless some worker ran it in the last ``every`` s (e.g. a feeder).
+
+        Returns fn's result, or None when skipped."""
+        last = self.path('leases', f'{name}.last')
+        try:
+            with open(last) as fh:
+                if _now() - float(fh.read().strip()) < every:
+                    return None
+        except (OSError, ValueError):
+            pass
+        if not self.acquire('leases', name, socket.gethostname()):
+            return None
+        try:
+            with open(last, 'w') as fh:
+                fh.write(str(int(_now())))
+            return fn()
+        finally:
+            self.drop('leases', name)
 
     def drop(self, kind, name):
         d = self._lease_dir(kind, name)

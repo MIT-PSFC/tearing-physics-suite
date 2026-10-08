@@ -137,6 +137,8 @@ def extend_zarr_along_dim(zarr_path: os.PathLike, dim: str, n_extend: int) -> No
     ds = ds.pad({dim: (0, n_extend)})
     ds_padding = ds.isel({dim: slice(-n_extend, None)})
     ds_padding = ds_padding.compute()  # Pull dataset into memory to avoid dask/chunking issues
+    # strings read back from zarr are numpy StringDType, which the store's object (vlen) arrays reject on append
+    ds_padding = ds_padding.assign({k: v.astype(object) for k, v in ds_padding.data_vars.items() if v.dtype.kind == 'T'})
     ds_padding.to_zarr(zarr_path, mode="a-", append_dim=dim, consolidated=True, align_chunks=True)
 
 

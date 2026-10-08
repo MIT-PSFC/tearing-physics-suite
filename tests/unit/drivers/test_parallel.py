@@ -1,4 +1,4 @@
-"""Study mode (drivers/study.py) without Fortran: feed, run_item with a fake pipeline, compile, the breaker."""
+"""Study mode (drivers/parallel.py) without Fortran: feed, run_item with a fake pipeline, compile, the breaker."""
 import json
 import os
 
@@ -8,7 +8,7 @@ import xarray as xr
 
 from tearing_physics_suite.drivers import fsqueue as fq
 from tearing_physics_suite.drivers import multi_run, profile_read
-from tearing_physics_suite.drivers import study as st
+from tearing_physics_suite.drivers import parallel as st
 
 
 def _record(study, shot, t_ms, variant='base', status='done', selected=(0, 1, 2, 3, 4)):
@@ -163,20 +163,25 @@ def test_build_drift(study, monkeypatch):
     st.check_build(cfg, allow_drift=True)
 
 
-def test_tau_e_table(study, monkeypatch, tmp_path):
-    (tmp_path / 'i3.csv').write_text('Shot,Interval start [s],Interval end [s],tau_e [s]\n100,1.48,1.52,0.08\n100,1.52,1.56,0.09\n')
-    look = st.tau_e_lookup(dict(path=str(tmp_path / 'i*.csv'), column='tau_e [s]'))
-    assert (look(100, 1.5), look(100, 1.53), look(100, 2.0), look(101, 1.5)) == (0.08, 0.09, None, None)
+def test_tau_e_from_i2(study, monkeypatch, tmp_path):
+    import xarray as xr
+    tau = np.full((2, 4), np.nan)
+    tau[0] = [0.07, 0.08, 0.09, np.nan]
+    xr.Dataset({'tau_e': (('shot', 'time_idx'), tau), 'time': ('time_idx', [1.4, 1.5, 1.6, 1.7])},
+               coords={'shot': [100, 101]}).to_netcdf(tmp_path / 'i2.nc')
+    look = st.tau_e_lookup(dict(path=str(tmp_path / 'i*.nc'), variable='tau_e'))
+    assert (look(100, 1.52), look(100, 1.64), look(100, 1.7), look(101, 1.5), look(102, 1.5)) == \
+        (0.08, 0.09, None, None, None)   # 1.7: its sample is NaN, the next is 100 ms away
     cfg = st.load_config(study)
-    cfg['tau_e_table'] = dict(path=str(tmp_path / 'i3.csv'), column='tau_e [s]')
+    cfg['tau_e'] = dict(path=str(tmp_path / 'i2.nc'), variable='tau_e')
     fq.write_json(st.config_path(study), cfg)
     seen = []
     uid = _record(study, 100, 1500, selected=(0,))
-    _record(study, 100, 1600, selected=(0,))
+    _record(study, 100, 3000, selected=(0,))
     st.feed(study)
     _fake_pipeline(monkeypatch, {})
     run_case = multi_run.run_case
     monkeypatch.setattr(multi_run, 'run_case', lambda *a, **k: seen.append(a[2]['energy_confinement_time']) or run_case(*a, **k))
     st.run_item(study, f'{uid}.c0')
     assert seen == [0.08]
-    assert st.run_item(study, '100_1600_base.c0')['draws'][0]['signature'].startswith('LookupError: no tau_e')
+    assert st.run_item(study, '100_3000_base.c0')['draws'][0]['signature'].startswith('LookupError: no tau_e')

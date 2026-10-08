@@ -1,10 +1,10 @@
 """Study mode: TPS on bouquet archives in a shared study dir, on any number of nodes and jobs.
 
-    python -m tearing_physics_suite.drivers.study init    --study S --config cfg.json
-    python -m tearing_physics_suite.drivers.study feed    --study S
-    python -m tearing_physics_suite.drivers.study work    --study S --workers W [--feed-every 300]
-    python -m tearing_physics_suite.drivers.study compile --study S [--shots ...] [--finalize]
-    python -m tearing_physics_suite.drivers.study status  --study S
+    python -m tearing_physics_suite.drivers.parallel init    --study S --config cfg.json
+    python -m tearing_physics_suite.drivers.parallel feed    --study S
+    python -m tearing_physics_suite.drivers.parallel work    --study S --workers W [--feed-every 300]
+    python -m tearing_physics_suite.drivers.parallel compile --study S [--shots ...] [--finalize]
+    python -m tearing_physics_suite.drivers.parallel status  --study S
 
 Work items (``<unit_id>.c<k>``, a chunk of one bouquet unit's draws) are claimed from the fsqueue at
 ``<study>/_queue/tps`` and run in child processes. Each draw writes ``draws/<count>.nc`` and, last,
@@ -41,8 +41,8 @@ DEFAULTS = dict(
     code_timeout=3600,          # s per Fortran code run (TPS_CODE_TIMEOUT)
     out_root=None,              # per-draw outputs under <out_root>/<shot>/tps (default: the study dir); $VARS expanded
     n_same_sig=6,               # this many draw failures in a row with one signature, over >= 2 units: worker broken
-    tau_e_table=None,           # {"path": CSV(s), ':'-separated globs, $VARS expanded, "column": name}: the energy
-                                # confinement time per draw, from the row whose interval holds the slice time
+    tau_e=None,                 # {"path": I2 netCDF(s), ':'-separated globs, $VARS expanded, "variable": name}: the
+                                # energy confinement time per draw (see tau_e_lookup)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -107,8 +107,8 @@ def cmd_init(a):
     unknown = set(cfg) - set(DEFAULTS)
     if unknown:
         raise SystemExit(f'unknown config keys {sorted(unknown)}')
-    if cfg['tau_e_table']:
-        tau_e_lookup(cfg['tau_e_table'])                 # fail now, not in every work item
+    if cfg['tau_e']:
+        tau_e_lookup(cfg['tau_e'])                       # fail now, not in every work item
     cfg['hash'] = hashlib.sha256(json.dumps(cfg, sort_keys=True, default=str).encode()).hexdigest()[:12]
     cfg['versions'] = versions()
     old = fq.read_json(config_path(a.study))
@@ -197,23 +197,40 @@ def _scalars(d):
 
 
 def tau_e_lookup(spec):
-    """(shot, t [s]) -> spec['column'] of the interval-table row of that shot whose [start, end] holds t, else None.
+    """(shot, t [s]) -> spec['variable'] of the I2 file(s) holding that shot, at the sample nearest t, else None.
 
-    Shot / interval start / end columns: spec['shot'|'start'|'end'], else the first column naming them."""
-    import pandas as pd
+    I2 (bouquet_prep_omega.sh): dims (shot, <base>_idx). The time base is spec['time'], else the variable named
+    '*time*' on that index ('time' for time_idx, 'eqdsk_time_efit01' for eqdsk_idx_efit01); 'ms' units are read from
+    its attrs (else s). Samples further than spec['tol_ms'] (default 50) from t give None.
+    """
+    import xarray as xr
     paths = sorted(p for pat in os.path.expandvars(spec['path']).split(':') for p in glob.glob(pat))
     if not paths:
-        raise FileNotFoundError(f"tau_e_table: no file matches {spec['path']}")
-    df = pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)
-    shot, start, end = (spec.get(k) or next(c for c in df.columns if k in c.lower()) for k in ('shot', 'start', 'end'))
-    if spec['column'] not in df:
-        raise KeyError(f"tau_e_table: no column {spec['column']!r} in {paths} (columns {list(df.columns)})")
-    rows = {s: g for s, g in df.groupby(shot)}
+        raise FileNotFoundError(f"tau_e: no file matches {spec['path']}")
+    var, tol = spec['variable'], spec.get('tol_ms', 50) / 1e3
+    files = {}
+    for p in paths:
+        ds = xr.open_dataset(p)
+        if var not in ds:
+            raise KeyError(f"tau_e: no variable {var!r} in {p}")
+        base = next(d for d in ds[var].dims if d != 'shot')
+        tname = spec.get('time') or next(v for v in ds.variables if 'time' in v and v != var
+                                         and ds[v].dims in ((base,), ('shot', base)))
+        files[p] = (ds, tname, 1e-3 if ds[tname].attrs.get('units') == 'ms' else 1.0,
+                    {int(x): i for i, x in enumerate(ds.shot.values)})
 
-    def lookup(s, t):
-        g = rows.get(s)
-        m = None if g is None else (g[start] - 1e-6 <= t) & (t <= g[end] + 1e-6)
-        return float(g.loc[m, spec['column']].iloc[0]) if m is not None and m.any() else None
+    def lookup(shot, t):
+        for ds, tname, scale, row in files.values():
+            if shot in row:
+                tv = ds[tname]
+                times = np.asarray((tv.isel(shot=row[shot]) if 'shot' in tv.dims else tv).values, float) * scale
+                vals = np.asarray(ds[var].isel(shot=row[shot]).values, float)
+                ok = np.isfinite(times) & np.isfinite(vals)
+                if not ok.any():
+                    return None
+                i = int(np.argmin(np.abs(times[ok] - t)))
+                return float(vals[ok][i]) if abs(times[ok][i] - t) <= tol else None
+        return None
     return lookup
 
 
@@ -237,8 +254,8 @@ def run_item(study, item_id):
     if not todo:
         return out
     kwargs = dict(cfg['tps_kwargs'])
-    if cfg.get('tau_e_table'):
-        kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e_table'])(it['shot'], it['t_ms'] / 1e3)
+    if cfg.get('tau_e'):
+        kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
     wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
     try:
         eqs, profs = read_bouquet_archive(it['archive'], selection='all', draw_counts=todo,
@@ -266,8 +283,8 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case):
     fq.write_json(stat, dict(rec, status='running'))
     os.makedirs(wd, exist_ok=True)
     try:
-        if cfg.get('tau_e_table') and kwargs.get('energy_confinement_time') is None:
-            raise LookupError(f"no {cfg['tau_e_table']['column']} for shot {it['shot']} at {it['t_ms']} ms")
+        if cfg.get('tau_e') and kwargs.get('energy_confinement_time') is None:
+            raise LookupError(f"no {cfg['tau_e']['variable']} for shot {it['shot']} at {it['t_ms']} ms")
         ds, inputs = run_case(eq, prof, kwargs, wd, nc_path=os.path.join(ddir, f'{c}.nc'),
                               pkl_path=os.path.join(ddir, f'{c}.pkl') if cfg['keep_pickle'] else None, label=key,
                               labels=dict(shot_id=it['shot'], t_ms=it['t_ms'], draw=c, variant=it['variant']))
@@ -333,7 +350,7 @@ class Runner:
             with open(log, 'a') as fh:
                 fh.write(f'\n=== {time.ctime()} {worker} attempt {q.n_attempts(uid)}\n')
             res_path = os.path.join(q.root, 'results', f'{uid}.{worker}.{q.n_attempts(uid)}.json')
-            argv = [sys.executable, '-m', 'tearing_physics_suite.drivers.study', 'run-item',
+            argv = [sys.executable, '-m', 'tearing_physics_suite.drivers.parallel', 'run-item',
                     '--study', self.study, '--item', uid, '--result', res_path]
             try:
                 res = fq.run_child(argv, log, timeout=self.timeout, result_path=res_path)

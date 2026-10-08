@@ -2,7 +2,7 @@
 
 Two ways:
 
-| | `multi_run_` (one node) | study mode (`drivers/study.py`, any number of nodes and jobs) |
+| | `multi_run_` (one node) | study mode (`drivers/parallel.py`, any number of nodes and jobs) |
 |---|---|---|
 | Input | a list of (equilibrium, profile dict) | bouquet archives in a study dir (Cluster_planning/INTERFACE.md) |
 | Scheduling | a `multiprocessing` pool, `imap_unordered` | claims on a shared-filesystem queue (`drivers/fsqueue.py`) |
@@ -29,18 +29,18 @@ Other parallel helpers: `mre_recompute.recompute_mre_hyperparams` (chunks of run
 ## Study mode
 
 ```bash
-python -m tearing_physics_suite.drivers.study init    --study S --config cfg.json   # pins settings + build
-python -m tearing_physics_suite.drivers.study feed    --study S                     # bouquet records -> items
-python -m tearing_physics_suite.drivers.study work    --study S --workers W         # one per node (srun)
-python -m tearing_physics_suite.drivers.study compile --study S [--finalize]        # per-shot zarr stores
-python -m tearing_physics_suite.drivers.study status  --study S [-v] [--json f]
-python -m tearing_physics_suite.drivers.study stop|drain|undrain --study S
+python -m tearing_physics_suite.drivers.parallel init    --study S --config cfg.json   # pins settings + build
+python -m tearing_physics_suite.drivers.parallel feed    --study S                     # bouquet records -> items
+python -m tearing_physics_suite.drivers.parallel work    --study S --workers W         # one per node (srun)
+python -m tearing_physics_suite.drivers.parallel compile --study S [--finalize]        # per-shot zarr stores
+python -m tearing_physics_suite.drivers.parallel status  --study S [-v] [--json f]
+python -m tearing_physics_suite.drivers.parallel stop|drain|undrain --study S
 ```
 
 `cfg.json` keys (`study.DEFAULTS`): `tps_kwargs` (for `nonlinear_resistive_calculation`), `variants`, `selection`,
 `eq_source`, `draws_per_item`, `code_timeout`, `out_root` (per-draw outputs, e.g. on scratch), `keep_pickle`,
-`ida_extra_keys`, `meta_data`, `n_same_sig`, `tau_e_table` (energy confinement time per draw from an interval CSV:
-`{"path": ..., "column": ...}`). Production sets `require_rdcon` in `tps_kwargs`, so a draw whose RDCON fails stops at
+`ida_extra_keys`, `meta_data`, `n_same_sig`, `tau_e` (energy confinement time per draw from the I2 netCDF of bouquet_prep:
+`{"path": ..., "variable": ...}`, see `parallel.tau_e_lookup`). Production sets `require_rdcon` in `tps_kwargs`, so a draw whose RDCON fails stops at
 once instead of running the other codes first. Workers refuse to run if the TPS/GPEC/jGPEC build differs from the one
 `init` recorded (`--allow-build-drift`).
 

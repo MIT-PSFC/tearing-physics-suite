@@ -1,9 +1,17 @@
 import os
+import time
 
 import numpy as np
 import pytest
 
-from tearing_physics_suite.utils import _get_num_cpus, create_dense_log_paramvals, eq_stem, run_code, trim_nans
+from tearing_physics_suite.utils import (
+    _get_num_cpus,
+    create_dense_log_paramvals,
+    eq_stem,
+    node_slot,
+    run_code,
+    trim_nans,
+)
 
 
 def test_trim_nans():
@@ -43,7 +51,6 @@ def test_get_num_cpus_slurm_forms(monkeypatch, val, n):
 
 
 def test_run_code_timeout_kills_group(monkeypatch, tmp_path):
-    import time
     monkeypatch.setenv('TPS_CODE_TIMEOUT', '1')
     assert run_code('exit 3') == 3
     t0 = time.time()
@@ -54,3 +61,26 @@ def test_run_code_timeout_kills_group(monkeypatch, tmp_path):
     time.sleep(0.5)
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+def test_node_slot_limits_concurrency(monkeypatch, tmp_path):
+    import threading
+    monkeypatch.setenv('TPS_WORK_ROOT', str(tmp_path))
+    active, peak, lock = [0], [0], threading.Lock()
+
+    def job():
+        with node_slot('x', 2, poll=0.01):
+            with lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(0.2)
+            with lock:
+                active[0] -= 1
+    ts = [threading.Thread(target=job) for _ in range(5)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert peak[0] == 2
+    with node_slot('x', None):
+        pass

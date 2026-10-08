@@ -1,9 +1,11 @@
 # Utilities for tearing physics suite
 
+import contextlib
 import math
 import os
 import signal
 import subprocess
+import time
 
 import numpy as np
 
@@ -137,6 +139,34 @@ def _get_num_cpus():
 def work_root():
     """Root for per-worker scratch dirs: $TPS_WORK_ROOT, else $TMPDIR, else /tmp (node-local where possible)."""
     return os.environ.get('TPS_WORK_ROOT') or os.environ.get('TMPDIR') or '/tmp'
+
+
+@contextlib.contextmanager
+def node_slot(name, n, poll=5.0):
+    """Hold one of ``n`` per-node slots called ``name`` (flock on files under work_root()); falsy n: no limit.
+
+    E.g. at most n concurrent jGPEC solves per node ($TPS_JGPEC_SLOTS), whose memory sets workers per node.
+    """
+    if not n:
+        yield
+        return
+    import fcntl
+    d = os.path.join(work_root(), f'.slots_{name}')
+    os.makedirs(d, exist_ok=True)
+    while True:
+        for i in range(int(n)):
+            fh = open(os.path.join(d, str(i)), 'w')
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                fh.close()
+                continue
+            try:
+                yield
+            finally:
+                fh.close()
+            return
+        time.sleep(poll)
 
 
 def _die_with_parent():

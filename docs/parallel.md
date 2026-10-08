@@ -62,6 +62,19 @@ Each run in a store has `case_key` (`<unit_id>_<count>`), `shot_id`, `t_ms`, `dr
   failing with one signature across two units mark the worker broken: it exits. When workers of
   `BROKEN_JOBS_STOP` jobs break within an hour, the queue writes `STOP`.
 
+**Leases and duplicates.** A worker holds a heartbeat lease on its item; a lease whose heartbeat is not seen to
+change for `STALE_S` (300 s; `_queue/tps/config.json`) is taken over. A live worker whose filesystem stalls that
+long can lose its lease, and the item then runs twice: harmless (each run writes its own files atomically, and a
+finished item is never marked failed), but logged ("lease was taken over").
+
+**Stores.** `compile` appends by position along ragged dims (NaN-padded), as `multi_compile_zarr` does; `open_study`
+pads and concatenates the shot stores the same way.
+
+**Cost (omega, one CPU, production settings: n = 1-4, RDCON + STRIDE + jGPEC Galerkin, DIII-D wall).** About
+24 min per draw (RDCON ~7.5, STRIDE ~6.5, jGPEC Galerkin ~9 including ~1.5 min of JIT per item) and a peak of
+~21 GB per worker, set by jGPEC Galerkin at n = 4. Adding jGPEC Riccati makes it ~2.2 h per draw. Size workers per
+node by memory.
+
 **Recommendations (Perlmutter).** Multi-node `regular` (or `preempt`, which every draw survives) jobs with one
 launcher per node, sized to the backlog; single-node jobs for trickles and tails. Workers per node:
 min(physical cores, memory / peak RSS per draw). Bouquet archives and the final zarr on CFS; `out_root` and worker

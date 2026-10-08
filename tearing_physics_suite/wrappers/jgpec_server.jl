@@ -24,6 +24,8 @@ for line in eachline(stdin)
     catch e
         status, msg = "err", replace(sprint(showerror, e), r"\s+" => " ")
     end
+    GC.gc(true)                                  # hand the solve's memory back while other codes run
+    ccall(:malloc_trim, Cint, (Cint,), 0)
     println("TPS_DONE $status $msg")
     flush(stdout)
 end

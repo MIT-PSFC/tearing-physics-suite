@@ -17,6 +17,7 @@ Other parallel helpers: `mre_recompute.recompute_mre_hyperparams` (chunks of run
 - `TPS_NUM_WORKERS`: worker count for `multi_run_` (default: the SLURM allocation on the node).
 - `TPS_WORK_ROOT`: node-local scratch for worker dirs (omega: `/tmp` or `$TMPDIR`, never NFS; Perlmutter: `/tmp`).
 - `TPS_CODE_TIMEOUT`: seconds per RDCON/STRIDE/PEST3 run; the code's process group is killed after it (`TimeoutError`).
+- `TPS_JGPEC_SLOTS`: at most this many concurrent jGPEC solves per node (`utils.node_slot`); unset: no limit.
 
 ## `multi_run_`
 - One spawn pool on one node; each worker keeps a private working dir and log; dynamic scheduling.

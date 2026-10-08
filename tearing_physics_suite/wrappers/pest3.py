@@ -4,13 +4,12 @@ import copy
 import os
 import pickle as pkl
 import shutil
-import subprocess
 
 import numpy as np
 import xarray as xr
 from scipy.interpolate import Akima1DInterpolator
 
-from tearing_physics_suite.utils import eq_stem, tps_home
+from tearing_physics_suite.utils import eq_stem, run_code, tps_home
 
 _GPEC_VAC_SYMBOL = b'vacuum_mod_MOD_mscvac'
 _gpec_vac_built = {}
@@ -226,7 +225,7 @@ def PEST3_resistive_calculation(eq_filename, nn, make_working_dir=True,make_resu
         os.remove(os.path.join(working_dir, 'pest3.nc'))
         if verbose: print("Removed existing PEST3 output file from working directory before running pest3")
 
-    status = subprocess.call(input_string, shell=True)
+    status = run_code(input_string)
     if status != 0:
         print(f"WARNING: pest3x exited with status {status}")
 

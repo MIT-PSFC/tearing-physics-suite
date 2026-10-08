@@ -6,6 +6,7 @@
 ## distributes the runs across available CPU cores, and collects the outputs into a list of xarrays and a list of input dicts.
 
 import gc
+import json
 import multiprocessing
 import os
 import pickle as pkl
@@ -237,7 +238,10 @@ def _init_multi_run_worker(worker_id_queue, master_working_dir):
     os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
     worker_id = worker_id_queue.get()
-    working_dir = os.path.join(master_working_dir, f'worker_{worker_id}')
+    # $TPS_WORK_ROOT: node-local scratch, one dir per multi_run_ call (the parent's pid)
+    root = os.environ.get('TPS_WORK_ROOT')
+    root = os.path.join(root, f'multi_run_{os.getppid()}') if root else master_working_dir
+    working_dir = os.path.join(root, f'worker_{worker_id}')
 
     if os.path.isdir(working_dir):
         shutil.rmtree(working_dir)
@@ -273,13 +277,46 @@ def _profile_kwargs(profile_dict, kwargs):
         out['energy_confinement_time'] = profile_dict[tau_e_label]
     return out
 
-def _augment_combined_xr(combined_xr, idx, profile_dict):
-    """Attach run_idx and per-case time/time_idx/shot_id labels."""
+def _augment_combined_xr(combined_xr, idx, profile_dict, labels=None):
+    """Attach run_idx, per-case time/time_idx/shot_id labels and any extra scalar labels."""
     combined_xr = combined_xr.assign_coords(run_idx=idx)
     for key in ('time', 'time_idx', 'shot_id'):
         if isinstance(profile_dict, dict) and key in profile_dict:
             combined_xr = combined_xr.assign({key: profile_dict[key]})
-    return combined_xr
+    return combined_xr.assign(labels or {})
+
+
+def run_case(eq_filename, profile_dict, kwargs, working_dir, nc_path, pkl_path=None, label=None, labels=None):
+    """Run nonlinear_resistive_calculation on one equilibrium; write its combined_xr to nc_path (tmp + rename).
+
+    pkl_path: also pickle the full result there (multi_run's result_{idx}.pkl). label: the run_idx value.
+    Returns (combined_xr, input_dict_out); combined_xr is None if the pipeline produced none (no nc written).
+    """
+    combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(
+        eq_filename,
+        profile_dict['ni_spline'],
+        profile_dict['ne_spline'],
+        profile_dict['te_keV_spline'],
+        profile_dict['ti_keV_spline'],
+        working_dir=working_dir,
+        **_profile_kwargs(profile_dict, kwargs)
+    )
+    if pkl_path is not None:
+        with open(pkl_path, 'wb') as f:
+            pkl.dump({
+                'idx': label,
+                'combined_xr': combined_xr,
+                'input_dict_out': input_dict_out,
+                'pest3_xr_vec': pest3_xr_vec,
+                'xarray_vec': xarray_vec,
+                'eq_filename': eq_filename,
+            }, f)
+    if combined_xr is not None:
+        combined_xr = _augment_combined_xr(combined_xr, label, profile_dict, labels)
+        tmp_path = f'{nc_path}.tmp.{os.getpid()}'
+        combined_xr.to_netcdf(tmp_path, engine="scipy")
+        os.replace(tmp_path, nc_path)
+    return combined_xr, input_dict_out
 
 def _run_one_eq(args):
     """Worker task: process a single equilibrium (idx).
@@ -301,7 +338,7 @@ def _run_one_eq(args):
     # --- Warm-start skip: validate (and repair) pre-existing output ---
     if warm_start:
         try:
-            if _validate_case(idx, master_working_dir, profile_dict):
+            if _validate_case(idx, master_working_dir, profile_dict, eq_filename=eq_filename):
                 print(f"[multi_run] Worker {worker_id}: Run {idx} "
                       f"({os.path.basename(eq_filename)}) already complete — skipping.")
                 return (idx, True, None)
@@ -309,40 +346,17 @@ def _run_one_eq(args):
             print(f"[multi_run] Worker {worker_id}: Run {idx} validation raised "
                   f"({e}) — recomputing.")
 
-    all_profile_kwargs = _profile_kwargs(profile_dict, kwargs)
-
+    error_path = os.path.join(master_working_dir, f'error_{idx}.json')
     try:
-        combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(
-            eq_filename,
-            profile_dict['ni_spline'],
-            profile_dict['ne_spline'],
-            profile_dict['te_keV_spline'],
-            profile_dict['ti_keV_spline'],
-            working_dir=working_dir,
-            **all_profile_kwargs
-        )
-        # Save result to master_working_dir so it persists after cleanup
-        result_path = os.path.join(master_working_dir, f'result_{idx}.pkl')
-        with open(result_path, 'wb') as f:
-            pkl.dump({
-                'idx': idx,
-                'combined_xr': combined_xr,
-                'input_dict_out': input_dict_out,
-                'pest3_xr_vec': pest3_xr_vec,
-                'xarray_vec': xarray_vec,
-                'eq_filename': eq_filename,
-            }, f)
+        run_case(eq_filename, profile_dict, kwargs, working_dir,
+                 nc_path=os.path.join(master_working_dir, f'combined_xr_{idx}.nc'),
+                 pkl_path=os.path.join(master_working_dir, f'result_{idx}.pkl'), label=idx)
+        if os.path.exists(error_path):
+            os.remove(error_path)
 
-        # Also save combined_xr directly as netCDF
-        if combined_xr is not None:
-            xr_path = os.path.join(master_working_dir, f'combined_xr_{idx}.nc')
-            combined_xr = _augment_combined_xr(combined_xr, idx, profile_dict)
-            tmp_path = xr_path + '.tmp'
-            combined_xr.to_netcdf(tmp_path, engine="scipy")
-            os.replace(tmp_path, xr_path)
-
-        # Completion marker written LAST — unambiguous "this idx is done" signal.
-        open(marker_path, 'w').close()
+        # Completion marker written LAST — unambiguous "this idx is done" signal; it names the equilibrium.
+        with open(marker_path, 'w') as f:
+            f.write(eq_filename)
 
         print(f"[multi_run] Worker {worker_id}: Run {idx} "
               f"({os.path.basename(eq_filename)}) completed successfully.")
@@ -352,6 +366,9 @@ def _run_one_eq(args):
         tb_str = traceback.format_exc()
         print(f"[multi_run] Worker {worker_id}: Run {idx} "
               f"({os.path.basename(eq_filename)}) failed: {e}\n{tb_str}")
+        with open(error_path, 'w') as f:
+            json.dump({'idx': idx, 'eq_filename': eq_filename, 'error': f'{type(e).__name__}: {e}',
+                       'traceback': tb_str}, f, indent=1)
         return (idx, False, f"{e}\n{tb_str}")
 
     finally:
@@ -418,15 +435,25 @@ def _remake_nc_from_pickle(idx, master_working_dir, profile_dict=None, nc_path=N
     os.replace(tmp_path, nc_path)
     return nc_path
 
-def _validate_case(idx, master_working_dir, profile_dict=None, psi_n_name='psi_n'):
+def _validate_case(idx, master_working_dir, profile_dict=None, psi_n_name='psi_n', eq_filename=None):
     """Confirm run *idx* is complete, repairing its .nc from pickle if needed.
+
+    A marker naming a different equilibrium (the input list changed) means not complete.
     """
     marker   = os.path.join(master_working_dir, f'done_{idx}.marker')
     nc_path  = os.path.join(master_working_dir, f'combined_xr_{idx}.nc')
 
     # 1) fast path
     if os.path.exists(marker):
-        return True
+        with open(marker) as f:
+            named = f.read().strip()
+        if eq_filename is None or not named or named == eq_filename:
+            return True
+        print(f"[validate] Run {idx}: marker is for {named}, not {eq_filename} — recomputing.")
+        for path in (marker, nc_path, os.path.join(master_working_dir, f'result_{idx}.pkl')):
+            if os.path.exists(path):
+                os.remove(path)
+        return False
 
     # 2) no netCDF at all -> nothing to validate, run must (re)compute
     if not os.path.exists(nc_path):
@@ -781,15 +808,10 @@ def multi_compile_zarr(
 
         eq_label = os.path.basename(eq_filenames[i])
 
-        ds = _zeff_on_psi_n_Zeff(ds)
+        ds = store_ready(ds)
         if spotted:
             codes = [str(c) for c in ds.code.values]
             ds["spot_check_flag"] = (("nn", "code"), sc.spot_check_flag(spot_ds, i, ds.nn.values, codes))
-
-        # Cast r / r_prime index coords to float to allow nans
-        for _dim in ("r", "r_prime"):
-            if _dim in ds.coords and np.issubdtype(ds[_dim].dtype, np.integer):
-                ds = ds.assign_coords({_dim: ds[_dim].astype("float64")})
 
         if meta_data_dicts:
             meta_ds = meta_dict_to_dataset(meta_data_dicts[i], ds=ds,
@@ -802,10 +824,7 @@ def multi_compile_zarr(
         # run_idx coordinate (esp. with string labels). So we feed run_idx in
         # as a BARE integer dimension (no coord) and carry the eq label as an
         # ordinary data variable that survives reset_coords() and the append.
-        if episode_dim in ds.coords:
-            ds = ds.reset_coords(episode_dim, drop=True)
-        if episode_dim not in ds.dims:
-            ds = ds.expand_dims(episode_dim)
+        ds = bare_episode(ds, episode_dim)
         # ds["eq_label"] = (episode_dim, np.array([eq_label], dtype=object))
         # -----------------------------------------------------------------
 
@@ -848,22 +867,7 @@ def multi_compile_zarr(
         print("[multi_compile] No successful runs to compile.")
         return None, None
 
-    # --- chunk + consolidate (so the store reads back efficiently) -------
-    ds_store = xr.open_zarr(zarr_path, consolidated=True)
-    bytes_per_episode = ds_store.isel({episode_dim: 0}).nbytes
-    mean_mb = bytes_per_episode / (1024 * 1024)
-    episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n_added)
-
-    chunk_spec = {episode_dim: episodes_per_chunk} | {
-        k: ds_store.sizes[k] for k in ds_store.dims if k != episode_dim
-    }
-    ds_store = zarr_chunk(ds_store, chunk_spec=chunk_spec)
-
-    tmp_path = zarr_path + ".tmp"
-    ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
-    shutil.rmtree(zarr_path)
-    os.rename(tmp_path, zarr_path)
-    zarr.consolidate_metadata(zarr_path)
+    rechunk_store(zarr_path, episode_dim, mb_per_chunk)
 
     # --- reopen lazily and attach run_idx labels from the in-memory list ---
     compiled_xr = xr.open_zarr(zarr_path, consolidated=True)  # lazy, not in RAM
@@ -903,6 +907,41 @@ def multi_compile_zarr(
 
     print(f"[multi_compile] Compiled {n_added} runs into {zarr_path}")
     return compiled_xr, compiled_inputs_xr
+
+def store_ready(ds):
+    """One run's dataset as the zarr store holds it: Zeff on psi_n_Zeff, float r/r_prime (NaN-paddable)."""
+    ds = _zeff_on_psi_n_Zeff(ds)
+    for _dim in ("r", "r_prime"):
+        if _dim in ds.coords and np.issubdtype(ds[_dim].dtype, np.integer):
+            ds = ds.assign_coords({_dim: ds[_dim].astype("float64")})
+    return ds
+
+
+def bare_episode(ds, episode_dim="run_idx"):
+    """episode_dim as a bare length-1 dim: add_to_zarr_store's reset_coords() would lose a run_idx coord."""
+    if episode_dim in ds.coords:
+        ds = ds.reset_coords(episode_dim, drop=True)
+    if episode_dim not in ds.dims:
+        ds = ds.expand_dims(episode_dim)
+    return ds
+
+
+def rechunk_store(zarr_path, episode_dim="run_idx", mb_per_chunk=10):
+    """Rewrite a store chunked along episode_dim (about mb_per_chunk MB per chunk) and consolidate it."""
+    ds_store = xr.open_zarr(zarr_path, consolidated=True)
+    n = ds_store.sizes[episode_dim]
+    mean_mb = ds_store.isel({episode_dim: 0}).nbytes / (1024 * 1024)
+    episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n)
+    chunk_spec = {episode_dim: episodes_per_chunk} | {
+        k: ds_store.sizes[k] for k in ds_store.dims if k != episode_dim
+    }
+    ds_store = zarr_chunk(ds_store, chunk_spec=chunk_spec)
+    tmp_path = zarr_path + ".tmp"
+    ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
+    shutil.rmtree(zarr_path)
+    os.rename(tmp_path, zarr_path)
+    zarr.consolidate_metadata(zarr_path)
+
 
 def _zeff_on_psi_n_Zeff(ds):
     """Put rdcon's Zeff profile on a 'psi_n_Zeff' dim (rdcon writes dims 'Zeff'/'psi_N_Zeff')."""

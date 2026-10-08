@@ -1,9 +1,10 @@
 """Helpers shared by the RDCON and STRIDE wrappers (stage, run, read, save)."""
 import os
 import shutil
-import subprocess
 
 import xarray as xr
+
+from tearing_physics_suite.utils import run_code
 
 
 def executable(gpec_dir, code):
@@ -33,10 +34,10 @@ def run_gpec_code(code, working_dir, nn, fresh_start=True, save_terminal_output=
         if verbose: print(f"Removed existing {code} output file from working directory before running {code}")
     if verbose: print(f"Running {code}...")
     if save_terminal_output:
-        status = subprocess.call(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt', shell=True)
+        status = run_code(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt')
         if verbose: print(f"{code} terminal output saved to {code}_terminal_output_n{nn}.txt")
     else:
-        status = subprocess.call(f'{working_dir}/{code}')
+        status = run_code(f'{working_dir}/{code}', shell=False)
     if status != 0 or not os.path.exists(out_nc):
         return None, False
     return xr.open_dataset(out_nc), True

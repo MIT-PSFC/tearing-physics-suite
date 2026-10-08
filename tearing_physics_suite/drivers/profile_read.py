@@ -238,7 +238,7 @@ def read_IDA_lite_all_times(filename, verbose=False, **kwargs):
 def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_dir=None,
                          ida_path=None, ida_extra_keys=None, ida_time_tol_ms=1.0,
                          meta_data=False, sample_limit=None, impurity_mass_amu=None,
-                         eq_source='geqdsk', verbose=False):
+                         eq_source='geqdsk', draw_counts=None, verbose=False):
     """Unpack a bouquet (schema v2) archive into multi_run_ inputs.
 
     Requires bouquet (branch bouquet_unified). Per draw: the equilibrium file is written
@@ -274,6 +274,11 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         Equilibrium written per draw: the g-file, or the OFT i-file (bouquet
         write_ifile=True runs; GPEC reads it as eq_type 'ldp_i', see
         run_resistive_calculation).
+    draw_counts : list of int or None
+        Read only these draws (by count), whatever their selection flag.
+
+    Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with that draw's g-file q.
+    Profile dicts carry shot_id / bq_unit_id / bq_variant when the archive's root attrs have them.
 
     Returns
     -------
@@ -296,11 +301,17 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
     if selection not in ('selected', 'all', 'excluded'):
         raise ValueError(f"selection must be 'selected'|'all'|'excluded', got {selection!r}")
 
+    import h5py
+    with h5py.File(ar.path, 'r') as hf:
+        root = dict(hf.attrs)
+    labels = {k: _scalar(root[a]) for k, a in (('shot_id', 'shot'), ('bq_unit_id', 'unit_id'),
+                                                ('bq_variant', 'variant')) if a in root}
+
     eq_filenames, profile_list = [], []
     for key in (ar.scan_keys if scan_keys is None else scan_keys):
         sc = ar[key]
         cfg = _bouquet_scan_config(bq, ar.path, key)
-        draws = getattr(sc, selection)
+        draws = getattr(sc, selection) if draw_counts is None else [d for d in sc.all if d.count in set(draw_counts)]
         if sample_limit is not None:
             draws = draws[:sample_limit]
         ida_extras = _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, ida_time_tol_ms, verbose)
@@ -308,9 +319,6 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         for d in draws:
             prof = d.profiles
             attrs = d.attrs
-            if attrs.get('profile_coord', 'psi_n') != 'psi_n':
-                raise NotImplementedError(f"Bouquet draw {key}/{d.count} has profile_coord="
-                                          f"{attrs['profile_coord']!r}; only psi_n archives are supported.")
             eq_bytes = d.eqdsk_bytes if eq_source == 'geqdsk' else d.ifile_bytes
             if eq_bytes is None:
                 raise KeyError(f"Bouquet draw {key}/{d.count} has no stored {eq_source} "
@@ -318,13 +326,54 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
             eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{d.count}.{eq_source}")
             with open(eq_path, 'wb') as fh:
                 fh.write(eq_bytes)
+            coord = attrs.get('profile_coord', 'psi_n')
+            if coord == 'phi_n':
+                prof = _phi_n_to_psi_n(prof, d.eqdsk_bytes)
+            elif coord != 'psi_n':
+                raise NotImplementedError(f"Bouquet draw {key}/{d.count} has profile_coord={coord!r}.")
             eq_filenames.append(eq_path)
-            profile_list.append(_bouquet_draw_profiles(prof, attrs, cfg, key, d.count, ida_extras,
-                                                       meta_data, impurity_mass_amu))
+            p = _bouquet_draw_profiles(prof, attrs, cfg, key, d.count, ida_extras, meta_data, impurity_mass_amu)
+            profile_list.append(dict(p, bq_profile_coord=coord, **labels))
         if verbose:
             print(f"[read_bouquet_archive] scan {key}: {len(draws)} draws unpacked to {eqdsk_out_dir}")
 
     return eq_filenames, profile_list
+
+def _scalar(v):
+    """h5 attribute as a plain python scalar/str."""
+    v = v.item() if isinstance(v, np.generic) else v
+    return v.decode() if isinstance(v, bytes) else v
+
+
+def gfile_q(eq_bytes):
+    """(psi_N, q) of a g-file given as bytes (uniform psi_N grid from 0 to 1)."""
+    lines = eq_bytes.decode().splitlines()
+    nw, nh = (int(v) for v in lines[0].split()[-2:])
+    need = 20 + 5*nw + nw*nh
+    vals = []
+    for line in lines[1:]:
+        vals += [float(line[i:i+16].replace('D', 'E')) for i in range(0, len(line), 16) if line[i:i+16].strip()]
+        if len(vals) >= need:
+            break
+    return np.linspace(0.0, 1.0, nw), np.abs(np.asarray(vals[need - nw:need]))
+
+
+def _phi_n_to_psi_n(prof, eq_bytes):
+    """Profiles of a Φ_N bouquet draw with their grids (psi_N, psi_N_kinetic) mapped to ψ_N.
+
+    Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's g-file (bouquet.coords.phi_n_from_q).
+    """
+    psi, q = gfile_q(eq_bytes)
+    phi = np.concatenate([[0.0], np.cumsum(0.5*(q[1:] + q[:-1])*np.diff(psi))])
+    phi /= phi[-1]
+    if not np.all(np.diff(phi) > 0):
+        raise ValueError("Φ_N(ψ_N) from the g-file q is not monotonic")
+    out = dict(prof)
+    for grid in ('psi_N', 'psi_N_kinetic'):
+        if grid in prof:
+            out[grid] = np.interp(np.asarray(prof[grid], dtype=float), phi, psi)
+    return out
+
 
 def _bouquet_scan_config(bq, path, key):
     """BouquetConfig for one scan key, or None for archives without stored config."""
@@ -400,16 +449,18 @@ def _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, tol_ms, verbose):
 
     with xr.open_dataset(ida_path, engine='h5netcdf') as ida:
         times = np.asarray(ida.time.values, dtype=float)
-        available = set(ida.variables)
-    time_idx = int(np.argmin(np.abs(times - t_ms)))
-    if abs(times[time_idx] - t_ms) > tol_ms:
-        warnings.warn(f"No IDA time within {tol_ms} ms of scan {key} ({t_ms} ms); skipping IDA extras.", stacklevel=2)
-        return {}
-
-    keys = [k for k in ('tau_e_basic', 'tau_th_basic') if k in available] + list(ida_extra_keys or [])
-    ida = read_IDA_lite(ida_path, time_idx=time_idx, extra_keys=keys, verbose=verbose)
-    extras = {'IDA_time': ida['time'], 'IDA_time_idx': time_idx}
-    for k in keys:
-        name = k if k in ('tau_e_basic', 'tau_th_basic') else 'IDA_' + k
-        extras[name] = ida[k]
+        time_idx = int(np.argmin(np.abs(times - t_ms)))
+        if abs(times[time_idx] - t_ms) > tol_ms:
+            warnings.warn(f"No IDA time within {tol_ms} ms of scan {key} ({t_ms} ms); skipping IDA extras.",
+                          stacklevel=2)
+            return {}
+        keys = [k for k in ('tau_e_basic', 'tau_th_basic') if k in ida.variables] + list(ida_extra_keys or [])
+        psi_n = np.asarray(ida.psi_n.values)
+        extras = {'IDA_time': times[time_idx], 'IDA_time_idx': time_idx}
+        for k in keys:
+            val = ida[k].isel(time=time_idx).values
+            name = k if k in ('tau_e_basic', 'tau_th_basic') else 'IDA_' + k
+            if np.ndim(val) > 0 and len(val) == len(psi_n) and np.all(np.isfinite(val)):
+                val = PchipInterpolator(psi_n, val, extrapolate=False)
+            extras[name] = val
     return extras

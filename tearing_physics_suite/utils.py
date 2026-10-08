@@ -2,6 +2,8 @@
 
 import math
 import os
+import signal
+import subprocess
 
 import numpy as np
 
@@ -124,13 +126,35 @@ def eq_stem(eq_filename):
 
 
 def _get_num_cpus():
-    """Get the number of available CPUs. Default is to use SLURM environment variables."""
-    for var in ['SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_JOB_CPUS_PER_NODE']:
+    """Number of worker processes: $TPS_NUM_WORKERS, else this node's SLURM allocation, else the affinity mask."""
+    for var in ['TPS_NUM_WORKERS', 'SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_JOB_CPUS_PER_NODE']:
         val = os.environ.get(var)
-        if val is not None:
-            return int(val)
-    # Fallback to OS-reported CPU count
+        if val:
+            return int(val.split('(')[0].split(',')[0])  # SLURM_JOB_CPUS_PER_NODE: '16(x2)' or '8,4'
     return len(os.sched_getaffinity(0))
+
+
+def work_root():
+    """Root for per-worker scratch dirs: $TPS_WORK_ROOT, else $TMPDIR, else /tmp (node-local where possible)."""
+    return os.environ.get('TPS_WORK_ROOT') or os.environ.get('TMPDIR') or '/tmp'
+
+
+def run_code(cmd, shell=True):
+    """subprocess.call in its own process group; the group is killed after $TPS_CODE_TIMEOUT s (unset: no limit).
+
+    Raises TimeoutError on a timeout.
+    """
+    timeout = float(os.environ.get('TPS_CODE_TIMEOUT') or 0) or None
+    p = subprocess.Popen(cmd, shell=shell, start_new_session=True)
+    try:
+        return p.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+        raise TimeoutError(f'{cmd!r} exceeded TPS_CODE_TIMEOUT={timeout:.0f} s') from None
+    except BaseException:
+        os.killpg(p.pid, signal.SIGKILL)
+        raise
 
 
 def tps_home():

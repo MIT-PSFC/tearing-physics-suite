@@ -52,3 +52,21 @@ def test_meta_dict_to_dataset():
     assert ds.chi_perp_spline.dims == ('run_idx', 'chi_perp_spline_knot')
     np.testing.assert_allclose(ds.chi_perp_spline_knot_x.squeeze().values, x[:6])  # stored per run
     np.testing.assert_allclose(ds.chi_perp_spline.squeeze().values, x[:6] ** 2)
+
+
+def test_multi_compile_zarr_aligns_codes_by_name(tmp_path):
+    import pickle as pkl
+
+    from tearing_physics_suite.drivers import multi_run as mr
+    runs = [['rdcon', 'stride', 'jGPEC_galerkin'], ['rdcon', 'jGPEC_galerkin'], ['rdcon', 'stride', 'jGPEC_galerkin']]
+    for i, codes in enumerate(runs):
+        val = [{'rdcon': 1.0, 'stride': 2.0, 'jGPEC_galerkin': 3.0}[c] for c in codes]
+        ds = xr.Dataset({'Delta_prime': (('nn', 'code'), [val])}, coords={'nn': [1], 'code': codes})
+        with open(tmp_path / f'result_{i}.pkl', 'wb') as f:
+            pkl.dump({'combined_xr': ds, 'input_dict_out': {'nx': 64}}, f)
+    out, _ = mr.multi_compile_zarr([f'eq{i}' for i in range(3)], str(tmp_path), report_errs=False)
+    out = out.load()
+    assert list(out.code.values) == ['rdcon', 'stride', 'jGPEC_galerkin']    # unused codes (pest3, ...) dropped
+    dp = out.Delta_prime.isel(nn=0)
+    np.testing.assert_array_equal(dp.sel(code='jGPEC_galerkin').values, [3.0, 3.0, 3.0])
+    assert np.isnan(dp.sel(code='stride').values[1]) and dp.sel(code='stride').values[0] == 2.0

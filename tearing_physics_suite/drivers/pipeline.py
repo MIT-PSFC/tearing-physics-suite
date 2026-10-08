@@ -433,6 +433,8 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     res = run_resistive_calculation(eq_filename,nn,**kwargs)
     rdcon_xr = res.rdcon_xr
+    if rdcon_xr is None:
+        raise RuntimeError(f'RDCON did not run for n={nn}: the MRE analysis needs its surface terms')
 
     input_dict = merge_input_dicts(res.rdcon_stride_input_dict, res.pest3_input_dict)
 

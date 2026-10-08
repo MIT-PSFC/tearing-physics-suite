@@ -39,7 +39,9 @@ python -m tearing_physics_suite.drivers.study stop|drain|undrain --study S
 
 `cfg.json` keys (`study.DEFAULTS`): `tps_kwargs` (for `nonlinear_resistive_calculation`), `variants`, `selection`,
 `eq_source`, `draws_per_item`, `code_timeout`, `out_root` (per-draw outputs, e.g. on scratch), `keep_pickle`,
-`ida_extra_keys`, `meta_data`, `n_same_sig`. Workers refuse to run if the TPS/GPEC/jGPEC build differs from the one
+`ida_extra_keys`, `meta_data`, `n_same_sig`, `tau_e_table` (energy confinement time per draw from an interval CSV:
+`{"path": ..., "column": ...}`). Production sets `require_rdcon` in `tps_kwargs`, so a draw whose RDCON fails stops at
+once instead of running the other codes first. Workers refuse to run if the TPS/GPEC/jGPEC build differs from the one
 `init` recorded (`--allow-build-drift`).
 
 **Units of work.** A bouquet unit `<shot>_<t_ms>_<variant>` (one archive) is cut into items `<unit_id>.c<k>`

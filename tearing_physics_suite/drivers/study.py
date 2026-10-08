@@ -41,6 +41,8 @@ DEFAULTS = dict(
     code_timeout=3600,          # s per Fortran code run (TPS_CODE_TIMEOUT)
     out_root=None,              # per-draw outputs under <out_root>/<shot>/tps (default: the study dir); $VARS expanded
     n_same_sig=6,               # this many draw failures in a row with one signature, over >= 2 units: worker broken
+    tau_e_table=None,           # {"path": CSV(s), ':'-separated globs, $VARS expanded, "column": name}: the energy
+                                # confinement time per draw, from the row whose interval holds the slice time
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -105,6 +107,8 @@ def cmd_init(a):
     unknown = set(cfg) - set(DEFAULTS)
     if unknown:
         raise SystemExit(f'unknown config keys {sorted(unknown)}')
+    if cfg['tau_e_table']:
+        tau_e_lookup(cfg['tau_e_table'])                 # fail now, not in every work item
     cfg['hash'] = hashlib.sha256(json.dumps(cfg, sort_keys=True, default=str).encode()).hexdigest()[:12]
     cfg['versions'] = versions()
     old = fq.read_json(config_path(a.study))
@@ -192,6 +196,27 @@ def _scalars(d):
             if isinstance(v, (bool, int, float, str, np.integer, np.floating))}
 
 
+def tau_e_lookup(spec):
+    """(shot, t [s]) -> spec['column'] of the interval-table row of that shot whose [start, end] holds t, else None.
+
+    Shot / interval start / end columns: spec['shot'|'start'|'end'], else the first column naming them."""
+    import pandas as pd
+    paths = sorted(p for pat in os.path.expandvars(spec['path']).split(':') for p in glob.glob(pat))
+    if not paths:
+        raise FileNotFoundError(f"tau_e_table: no file matches {spec['path']}")
+    df = pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)
+    shot, start, end = (spec.get(k) or next(c for c in df.columns if k in c.lower()) for k in ('shot', 'start', 'end'))
+    if spec['column'] not in df:
+        raise KeyError(f"tau_e_table: no column {spec['column']!r} in {paths} (columns {list(df.columns)})")
+    rows = {s: g for s, g in df.groupby(shot)}
+
+    def lookup(s, t):
+        g = rows.get(s)
+        m = None if g is None else (g[start] - 1e-6 <= t) & (t <= g[end] + 1e-6)
+        return float(g.loc[m, spec['column']].iloc[0]) if m is not None and m.any() else None
+    return lookup
+
+
 def run_item(study, item_id):
     """Run the draws of one work item that are not final yet. Returns a summary dict."""
     from tearing_physics_suite.drivers.multi_run import run_case
@@ -211,13 +236,16 @@ def run_item(study, item_id):
     out = dict(item=item_id, draws=[])
     if not todo:
         return out
+    kwargs = dict(cfg['tps_kwargs'])
+    if cfg.get('tau_e_table'):
+        kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e_table'])(it['shot'], it['t_ms'] / 1e3)
     wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
     try:
         eqs, profs = read_bouquet_archive(it['archive'], selection='all', draw_counts=todo,
                                           eqdsk_out_dir=os.path.join(wd, 'eq'), eq_source=cfg['eq_source'],
                                           ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'])
         for eq, prof in zip(eqs, profs):
-            out['draws'].append(_run_draw(it, cfg, ddir, eq, prof, states[prof['bq_count']][1] + 1,
+            out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
                                           os.path.join(wd, 'work'), run_case))
     finally:
         shutil.rmtree(wd, ignore_errors=True)
@@ -227,7 +255,7 @@ def run_item(study, item_id):
     return out
 
 
-def _run_draw(it, cfg, ddir, eq, prof, attempt, wd, run_case):
+def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case):
     c = prof['bq_count']
     key = f"{it['unit_id']}_{c}"
     stat = os.path.join(ddir, f'{c}.json')
@@ -238,7 +266,9 @@ def _run_draw(it, cfg, ddir, eq, prof, attempt, wd, run_case):
     fq.write_json(stat, dict(rec, status='running'))
     os.makedirs(wd, exist_ok=True)
     try:
-        ds, inputs = run_case(eq, prof, cfg['tps_kwargs'], wd, nc_path=os.path.join(ddir, f'{c}.nc'),
+        if cfg.get('tau_e_table') and kwargs.get('energy_confinement_time') is None:
+            raise LookupError(f"no {cfg['tau_e_table']['column']} for shot {it['shot']} at {it['t_ms']} ms")
+        ds, inputs = run_case(eq, prof, kwargs, wd, nc_path=os.path.join(ddir, f'{c}.nc'),
                               pkl_path=os.path.join(ddir, f'{c}.pkl') if cfg['keep_pickle'] else None, label=key,
                               labels=dict(shot_id=it['shot'], t_ms=it['t_ms'], draw=c, variant=it['variant']))
         rec.update(status='ok' if ds is not None else 'error', inputs=_scalars(inputs),
@@ -365,7 +395,13 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
     """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (single writer, under a lease)."""
     import xarray as xr
 
-    from tearing_physics_suite.drivers.multi_run import _zarr_signature, bare_episode, rechunk_store, store_ready
+    from tearing_physics_suite.drivers.multi_run import (
+        _zarr_signature,
+        align_codes,
+        bare_episode,
+        rechunk_store,
+        store_ready,
+    )
     from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study))
@@ -387,9 +423,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
             for key in new:
                 with xr.open_dataset(draws[key][0], engine='scipy') as ds:
                     ds = ds.load().drop_encoding()
-                if 'code' in ds.dims:              # every run on the same codes: the store aligns by position
-                    ds = ds.reindex(code=codes)
-                ds = store_ready(_vlen_strings(ds))
+                ds = store_ready(_vlen_strings(align_codes(ds, codes)))
                 sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
                 if state['signature'] is None:
                     state['signature'] = sig

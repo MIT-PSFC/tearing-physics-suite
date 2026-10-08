@@ -27,6 +27,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
         save_input=True,
         save_terminal_output=False,
         override_save=True,
+        require_rdcon=False,
         **kwargs):
     """
     Run GPEC resistive calculation by calling the rdcon and stride Fortran executables
@@ -121,6 +122,8 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
     os.chdir(working_dir)  # Change to the working directory
     run_opts = dict(fresh_start=fresh_start, save_terminal_output=save_terminal_output, verbose=verbose)
     rdcon_xr, rdcon_ran = rdcon_wrapper.run_rdcon(gpec_dir, working_dir, nn, **run_opts) if run_rdcon else (None, False)
+    if require_rdcon and run_rdcon and not rdcon_ran:
+        raise RuntimeError(f'RDCON failed for n={nn} (require_rdcon)')
     stride_xr, stride_ran = stride_wrapper.run_stride(gpec_dir, working_dir, nn, **run_opts) if run_stride else (None, False)
 
     #########################################################################################################

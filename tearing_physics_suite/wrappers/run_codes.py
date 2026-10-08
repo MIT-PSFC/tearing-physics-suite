@@ -46,6 +46,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         jgpec_solvers=('galerkin',), # Any of 'galerkin', 'riccati'; each is its own code (jGPEC_<solver>)
         jgpec_threads=1,
         jgpec_timeout=7200,       # Seconds per jGPEC run (the first run in a process includes Julia compilation)
+        require_rdcon=False,      # Raise as soon as RDCON fails (before STRIDE, jGPEC, PEST3): the MRE analysis needs it
         **kwargs):
     """
     Run resistive toroidal calculation for a single toroidal mode number by calling
@@ -120,7 +121,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         make_working_dir=make_working_dir, working_dir=working_dir, gpec_dir=gpec_dir,
         verbose=verbose, fresh_start=fresh_start, output_location=output_location,
         output_prefix=output_prefix, save_input=save_input, save_terminal_output=save_terminal_output,
-        **kwargs)
+        require_rdcon=require_rdcon, **kwargs)
 
     if debug_GPEC_resistive_calculation:
         return rdcon_xr, stride_xr, rdcon_ran, stride_ran, rdcon_stride_input_dict

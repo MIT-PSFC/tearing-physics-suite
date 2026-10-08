@@ -161,3 +161,22 @@ def test_build_drift(study, monkeypatch):
     with pytest.raises(fq.Broken, match='build differs'):
         st.check_build(cfg)
     st.check_build(cfg, allow_drift=True)
+
+
+def test_tau_e_table(study, monkeypatch, tmp_path):
+    (tmp_path / 'i3.csv').write_text('Shot,Interval start [s],Interval end [s],tau_e [s]\n100,1.48,1.52,0.08\n100,1.52,1.56,0.09\n')
+    look = st.tau_e_lookup(dict(path=str(tmp_path / 'i*.csv'), column='tau_e [s]'))
+    assert (look(100, 1.5), look(100, 1.53), look(100, 2.0), look(101, 1.5)) == (0.08, 0.09, None, None)
+    cfg = st.load_config(study)
+    cfg['tau_e_table'] = dict(path=str(tmp_path / 'i3.csv'), column='tau_e [s]')
+    fq.write_json(st.config_path(study), cfg)
+    seen = []
+    uid = _record(study, 100, 1500, selected=(0,))
+    _record(study, 100, 1600, selected=(0,))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    run_case = multi_run.run_case
+    monkeypatch.setattr(multi_run, 'run_case', lambda *a, **k: seen.append(a[2]['energy_confinement_time']) or run_case(*a, **k))
+    st.run_item(study, f'{uid}.c0')
+    assert seen == [0.08]
+    assert st.run_item(study, '100_1600_base.c0')['draws'][0]['signature'].startswith('LookupError: no tau_e')

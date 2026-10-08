@@ -22,6 +22,7 @@ from scipy.interpolate import Akima1DInterpolator, PPoly
 from tearing_physics_suite.drivers import spot_check as sc
 from tearing_physics_suite.drivers.pipeline import nonlinear_resistive_calculation
 from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, zarr_chunk
+from tearing_physics_suite.physics.combine import CODE_ORDER
 from tearing_physics_suite.utils import _get_num_cpus
 from tearing_physics_suite.wrappers.jgpec import precompile_jgpec
 
@@ -779,6 +780,7 @@ def multi_compile_zarr(
     store_dim_sizes = {}   # tracks current max size of each non-episode dim
     store_time_dim_size = None  # kept for add_to_zarr_store API compat
     n_added = 0
+    used_codes = set()          # codes that ran in some run; the store keeps only these (see align_codes)
 
     print("Beginning streaming concatenation into Zarr...")
     for i in range(n_runs):
@@ -809,6 +811,9 @@ def multi_compile_zarr(
         eq_label = os.path.basename(eq_filenames[i])
 
         ds = store_ready(ds)
+        if 'code' in ds.dims:
+            used_codes.update(str(c) for c in ds.code.values)
+            ds = align_codes(ds, all_codes(ds))
         if spotted:
             codes = [str(c) for c in ds.code.values]
             ds["spot_check_flag"] = (("nn", "code"), sc.spot_check_flag(spot_ds, i, ds.nn.values, codes))
@@ -867,7 +872,7 @@ def multi_compile_zarr(
         print("[multi_compile] No successful runs to compile.")
         return None, None
 
-    rechunk_store(zarr_path, episode_dim, mb_per_chunk)
+    rechunk_store(zarr_path, episode_dim, mb_per_chunk, codes=[c for c in all_codes() if c in used_codes])
 
     # --- reopen lazily and attach run_idx labels from the in-memory list ---
     compiled_xr = xr.open_zarr(zarr_path, consolidated=True)  # lazy, not in RAM
@@ -917,6 +922,18 @@ def store_ready(ds):
     return ds
 
 
+def all_codes(ds=None):
+    """CODE_ORDER, then any other code of ds (sorted)."""
+    extra = sorted({str(c) for c in ds.code.values} - set(CODE_ORDER)) if ds is not None else []
+    return list(CODE_ORDER) + extra
+
+
+def align_codes(ds, codes):
+    """ds on exactly these codes, by name (NaN for a code that did not run). The zarr store aligns runs by position
+    along every dim, so a run missing a code (combine_codes leaves it out) would shift the others."""
+    return ds.reindex(code=codes) if 'code' in ds.dims else ds
+
+
 def bare_episode(ds, episode_dim="run_idx"):
     """episode_dim as a bare length-1 dim: add_to_zarr_store's reset_coords() would lose a run_idx coord."""
     if episode_dim in ds.coords:
@@ -926,9 +943,13 @@ def bare_episode(ds, episode_dim="run_idx"):
     return ds
 
 
-def rechunk_store(zarr_path, episode_dim="run_idx", mb_per_chunk=10):
-    """Rewrite a store chunked along episode_dim (about mb_per_chunk MB per chunk) and consolidate it."""
+def rechunk_store(zarr_path, episode_dim="run_idx", mb_per_chunk=10, codes=None):
+    """Rewrite a store chunked along episode_dim (about mb_per_chunk MB per chunk) and consolidate it.
+
+    codes: keep only these entries of the 'code' dim."""
     ds_store = xr.open_zarr(zarr_path, consolidated=True)
+    if codes is not None and 'code' in ds_store.dims:
+        ds_store = ds_store.sel(code=codes)
     n = ds_store.sizes[episode_dim]
     mean_mb = ds_store.isel({episode_dim: 0}).nbytes / (1024 * 1024)
     episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n)

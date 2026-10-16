@@ -1,0 +1,707 @@
+import operator
+import xarray as xr
+import os
+import operator
+import time as _time
+import inspect
+import numpy as np
+import matplotlib.pyplot as plt
+from tearing_physics_suite.tearing_physics_suite import add_unique_label
+from tearing_physics_suite.plotter import dist_extractor, dist_plotter
+import sys
+import argparse
+
+home_dir = os.environ['TPSHOME']
+
+# ---- argument read-in ------------------------------------------------
+_parser = argparse.ArgumentParser()
+#_parser.add_argument('cfg_key', nargs='?', default='1')
+_parser.add_argument('--dir', type=int, choices=[1, 2, 3], required=True, dest='dirnum')
+_parser.add_argument('--wall', type=int, choices=[0, 1], required=True)
+_args, _ = _parser.parse_known_args()
+
+# ---- y-axis label helper -----------------------------------------------
+def _make_y_labels(var_name, r_value, nn):
+    m = int(r_value)
+    if var_name == 'Delta_prime_surf':
+        return (rf"$\Delta'_{{{m}/{nn}}}$","")
+                #r"[$\psi_n^{-2\sqrt{-D_i}}$]")
+    elif var_name == 'w_marg_surf':
+        return (rf"$w_{{m}}$ $({m}/{nn})$","")
+                #r"[$\psi_n$]")
+    elif var_name == 'dwdtau_max_surf':
+        return (rf"$(k_0/\eta^*)(dw/d\tau)_{{\mathrm{{max}}}}$ $({m}/{nn})$","")
+                #r"[$\psi_n^{{-1}}$]")
+    else:
+        return (var_name, '')
+    
+# ---- working dir configuration ------------------------------------------------
+
+dirnum = _args.dirnum
+
+master_working_dir1=os.path.join(
+    "/cscratch/benjamins/TMDB_v0/files/Laszlo_v0/",
+    "174956bigT250") # TPS_run_2
+master_working_dir2=os.path.join(
+    "/cscratch/benjamins/TMDB_v0/files/Laszlo_v0/",
+    "174990bigT250") # TPS_run_2
+master_working_dir3=os.path.join(
+    "/cscratch/benjamins/TMDB_v0/files/Laszlo_v0/",
+    "175028bigT125") # TPS_run_2
+
+if dirnum == 1:
+    master_working_dir=master_working_dir1
+    shotnum=174956
+elif dirnum == 2:
+    master_working_dir=master_working_dir2
+    shotnum=174990
+elif dirnum == 3:
+    master_working_dir=master_working_dir3
+    shotnum=175028
+
+wall = bool(_args.wall)
+if wall:
+    master_working_dir = os.path.join(master_working_dir, 'TPS_run_2D3Dwall')
+else:
+    master_working_dir = os.path.join(master_working_dir, 'TPS_run_2')
+
+# ---- solid configuration for delta-prime related things -----------------
+SHARED_SEL = {'code': 'rdcon'}
+
+SHARED_ISEL = {'Delta_prime_type': 0}
+SHARED_WHERE = {
+    'psi_n_rational':                 [{'op': '<', 'val': 0.8}],
+    'Delta_prime_ImRatio':            [{'op': '<', 'val': 5e-2}],
+    'nzero': 0,
+    'r_occ': 0,
+    '__cond_xy__': {
+        'or': [
+            {'var': 'Delta_prime_reldiff_across_GPEC', 'op': '<', 'val': 0.2},
+            {'var': 'Delta_prime_diff_across_GPEC', 'op': '<', 'val': 0.5},
+        ]
+    },
+}
+if wall:
+    SHARED_WHERE['total1']=[{'op': '>', 'val': 0.0}]
+
+
+# ---- dir 1, 2, 3, related m, n numbers -----------------------------------
+
+if dirnum==1:
+    _CONFIGS_1_wall = {
+        '1': ('Delta_prime_surf', [
+            {'nn': 1, 'r_value': 2.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-18,26],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 3.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 4.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 4, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+        ]),
+    }
+    """
+        '2': ('w_marg_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+        '3': ('dwdtau_max_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+    }"""
+    _CONFIGS_1_ = {
+        '1': ('Delta_prime_surf', [
+            {'nn': 1, 'r_value': 2.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 3.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 4.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 4, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+        ]),
+    }
+    """
+        '2': ('w_marg_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+        '3': ('dwdtau_max_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+    }"""
+    if wall:
+        _CONFIGS_=_CONFIGS_1_wall
+        
+    else:
+        _CONFIGS_=_CONFIGS_1_
+
+if dirnum==2:
+    _CONFIGS_2_wall = {
+        '1': ('Delta_prime_surf', [
+            {'nn': 1, 'r_value': 2.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 3.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 4.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 4, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+        ]),
+    }
+    """
+        '2': ('w_marg_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+        '3': ('dwdtau_max_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+    }"""
+    _CONFIGS_2_ = {
+        '1': ('Delta_prime_surf', [
+            {'nn': 1, 'r_value': 2.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 3.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 4.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 4, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+        ]),
+    }
+    """
+        '2': ('w_marg_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+        '3': ('dwdtau_max_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+    }"""
+    if wall:
+        _CONFIGS_=_CONFIGS_2_wall
+        
+    else:
+        _CONFIGS_=_CONFIGS_2_
+
+if dirnum==3:
+    _CONFIGS_3_wall = {
+        '1': ('Delta_prime_surf', [
+            {'nn': 1, 'r_value': 2.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 3.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 4.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 4, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+        ]),
+    }
+    """
+        '2': ('w_marg_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+        '3': ('dwdtau_max_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+    }"""
+    _CONFIGS_3_ = {
+        '1': ('Delta_prime_surf', [
+            {'nn': 1, 'r_value': 2.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 3.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 2, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                #'y_range':[-18,22],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 3, 'r_value': 4.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+            {'nn': 4, 'r_value': 5.0, 
+                'iterative_range':True,
+                'n_bins':80,
+                'hist_min_count':3,
+                'y_range':[-200,100],
+                'include_scatter':True,
+                'renorm':True,
+                'hist_frac':0.8},
+        ]),
+    }
+    """
+        '2': ('w_marg_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+        '3': ('dwdtau_max_surf', [
+            {'nn': 1, 'r_value': 2.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 3.0, 'y_range': [None, None]},
+            {'nn': 2, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 4.0, 'y_range': [None, None]},
+            {'nn': 3, 'r_value': 5.0, 'y_range': [None, None]},
+            {'nn': 4, 'r_value': 5.0, 'y_range': [None, None]},
+        ]),
+    }"""
+    if wall:
+        _CONFIGS_=_CONFIGS_3_wall
+        
+    else:
+        _CONFIGS_=_CONFIGS_3_
+
+
+SHARED_PLOT_KW = dict(
+    title_fontsize=10,
+    xlabel_fontsize=10,
+    ylabel_fontsize=11,
+    figsize=(8, 4),
+    point_size=3, 
+    iterative_range=True,
+    include_scatter=False,
+    range_buffer=0.1,
+    percent_bounds=[1, 99],
+    n_bins=50,
+    time_id=False,
+)
+OUT_DIR = os.path.join(master_working_dir,'TPS_figs_1')
+
+# ---- driver loop ---------------------------------------------------------
+_PLOTTER_PARAMS = set(inspect.signature(dist_plotter).parameters)
+_CASE_HANDLED = {'nn', 'r_value', 'x_range'}
+results = []
+for VAR_NAME, cases in _CONFIGS_.values():
+    xrange_xtr=[None,None]
+    for case in cases:
+        plot_input = dist_extractor(master_working_dir,
+            OUT_DIR,
+            VAR_NAME,
+            sel_option_dict={'nn': case['nn'], **SHARED_SEL},
+            where_option_dict={'r_value': case['r_value'], **SHARED_WHERE},
+            isel_option_dict=SHARED_ISEL,
+            debug=False,
+        )
+
+        total_finite = sum(
+            np.isfinite(np.asarray(vals, dtype=float)).sum()
+            for vals in plot_input['value_matrix']
+        )
+        print(f"[nn={case['nn']}, r={case['r_value']}] "
+            f"Total finite values in value_matrix: {total_finite}", flush=True)
+
+        plot_kw = dict(SHARED_PLOT_KW)
+        plot_kw['shotnum']=shotnum
+
+        # Add plot parameters from case: forward any case key that is a
+        # valid dist_plotter kwarg (except those handled explicitly elsewhere)
+        for key in _PLOTTER_PARAMS - _CASE_HANDLED:
+            if key in case:
+                plot_kw[key] = case[key]
+        
+        plot_kw['y_plot_name'], plot_kw['y_unit'] = _make_y_labels(
+            VAR_NAME, case['r_value'], case['nn']
+        )
+
+        _case_xrange = case.get('x_range', [None, None])
+        if _case_xrange[0] is not None or _case_xrange[1] is not None:
+            plot_kw['x_range'] = _case_xrange
+        elif xrange_xtr[0] is not None:
+            plot_kw['x_range'] = list(xrange_xtr)
+        fig, ax, outputs = dist_plotter(**plot_input, **plot_kw)
+        xrange_xtr = list(outputs[3])
+        results.append((fig, ax, outputs))
+
+print("finito", flush=True)
+import sys
+sys.exit()
+
+#_cfg_key = _args.cfg_key
+#if _cfg_key not in _CONFIGS:
+#    print(f"Usage: python runner_TPS_v0_plotter.py <1|2|3>  (got {_cfg_key!r})")
+#    sys.exit(1)
+#VAR_NAME, cases = _CONFIGS[_cfg_key]
+#print(f"[config] VAR_NAME={VAR_NAME!r}, {len(cases)} cases (arg={_cfg_key})", flush=True)
+
+var_name='omega_i_tdecorr_psisurf_Q0'
+plot_input = dist_extractor(
+    '/cscratch/benjamins/TMDB_v0/files/Laszlo_v0/174956bigT250/TPS_run_2/TPS_figs_test2',
+    xri,
+    #'w_marg_surf',
+    var_name,
+    sel_option_dict={
+        'code': 'rdcon',
+        'nn': 1,
+        'psi_surf_of_interest': 0.3
+    },
+    where_option_dict={
+        'r_value': 2.
+    }
+)
+fig, ax, outputs = dist_plotter(
+    **plot_input,
+    percent_bounds=[3, 93],
+    n_bins=100,
+    point_size=3,
+    angle_deg=0.0,
+    range_buffer=0.3,
+    save_name='omega_i_tdecorr_psisurf0p30_Q0'
+)
+
+var_name='omega_i_tdecorr_psisurf_Q0'
+plot_input = dist_extractor(
+    '/cscratch/benjamins/TMDB_v0/files/Laszlo_v0/174956bigT250/TPS_run_2/TPS_figs_test2',
+    xri,
+    #'w_marg_surf',
+    var_name,
+    sel_option_dict={
+        'code': 'rdcon',
+        'nn': 1,
+        'psi_surf_of_interest': 0.3
+    },
+    where_option_dict={
+        'r_value': 2.
+    }
+)
+fig, ax, outputs = dist_plotter(
+    **plot_input,
+    percent_bounds=[3, 93],
+    n_bins=100,
+    point_size=3,
+    angle_deg=0.0,
+    range_buffer=0.3,
+    save_name='omega_i_tdecorr_psisurf0p30_Q0'
+)
+
+var_name='omega_i_tdecorr_psisurf_Q0'
+plot_input = dist_extractor(
+    '/cscratch/benjamins/TMDB_v0/files/Laszlo_v0/174956bigT250/TPS_run_2/TPS_figs_test2',
+    xri,
+    #'w_marg_surf',
+    var_name,
+    sel_option_dict={
+        'code': 'rdcon',
+        'nn': 1,
+        'psi_surf_of_interest': 0.95
+    },
+    where_option_dict={
+        'r_value': 2.
+    }
+)
+fig, ax, outputs = dist_plotter(
+    **plot_input,
+    percent_bounds=[3, 93],
+    n_bins=100,
+    point_size=3,
+    angle_deg=0.0,
+    range_buffer=0.3,
+    save_name='omega_i_tdecorr_psisurf0p95_Q0'
+)
+
+var_name='Delta_prime_surf'
+plot_input = dist_extractor(
+    '/cscratch/benjamins/TMDB_v0/files/Laszlo_v0/174956bigT250/TPS_run_2/TPS_figs_test2',
+    xri,
+    #'w_marg_surf',
+    var_name,
+    sel_option_dict={
+        'code': 'rdcon',
+        'nn': 1,
+    },
+    where_option_dict={
+        'r_value': 2.,
+        # list => multiple conditions on the same coordinate
+        'psi_n_rational': [
+            {'op': '<',  'val': 0.95},
+        ],
+    },
+    isel_option_dict={
+        'Delta_prime_type': 0,
+    },
+)
+fig, ax, outputs = dist_plotter(
+    **plot_input,
+    percent_bounds=[1, 100],
+    n_bins=250,
+    point_size=3,
+    angle_deg=0.0,
+    range_buffer=0.3,
+    save_name='DP_21'
+)

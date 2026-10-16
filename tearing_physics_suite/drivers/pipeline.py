@@ -448,7 +448,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Fill out rdcon_xr with important MRE terms:
     #########################################################################################################
-    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline, ne_spline, te_keV_spline, ti_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline=ni_spline, ne_spline=ne_spline, ti_spline=ti_keV_spline, te_spline=te_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr)

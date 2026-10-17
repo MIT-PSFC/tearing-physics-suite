@@ -1,11 +1,14 @@
 """Study mode (drivers/parallel.py) without Fortran: feed, run_item with a fake pipeline, compile, the breaker."""
 import json
 import os
+import shutil
+import zipfile
 
 import numpy as np
 import pytest
 import xarray as xr
 
+from tearing_physics_suite.analysis.shot_data import open_shot
 from tearing_physics_suite.drivers import fsqueue as fq
 from tearing_physics_suite.drivers import multi_run, profile_read
 from tearing_physics_suite.drivers import parallel as st
@@ -158,6 +161,22 @@ def test_compile_incremental(study, monkeypatch):
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # nothing new
     assert st.open_study(study).sizes['run_idx'] == 3
 
+
+
+def test_open_study_reads_published_zip(tmp_path):
+    """A shot published as one <shot>.zarr.zip (directory store removed) reads like the directory store."""
+    ds = xr.Dataset({'Delta_prime': ('run_idx', [1.0, 2.0]), 'shot_id': ('run_idx', [100, 100]),
+                     't_ms': ('run_idx', [1500, 1600])})
+    z = st.shot_store(str(tmp_path), 100)
+    ds.to_zarr(z, consolidated=True)
+    with zipfile.ZipFile(z + '.zip', 'w') as f:
+        for root, _, files in os.walk(z):
+            for name in files:
+                f.write(os.path.join(root, name), os.path.relpath(os.path.join(root, name), z))
+    shutil.rmtree(z)
+    xr.testing.assert_equal(st.open_study(str(tmp_path)).load(), ds)
+    np.testing.assert_array_equal(open_shot(str(tmp_path), 100)['Delta_prime'].values, [1.0, 2.0])
+    np.testing.assert_array_equal(open_shot(z + '.zip', 100)['t_ms'].values, [1500, 1600])
 
 def test_runner_breaker(study, monkeypatch):
     q = fq.Queue(st.qroot(study))

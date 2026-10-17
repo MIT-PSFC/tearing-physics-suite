@@ -7,6 +7,7 @@ from tearing_physics_suite.drivers.mre_recompute import INPUTS, K_OUTPUTS, recom
 from tearing_physics_suite.drivers.store_schema import (
     KEEP_FLOAT64,
     blank_duplicates,
+    keep_least_stable_eigenvectors,
     drop_store_duplicates,
     prepare_for_store,
     to_float32,
@@ -145,3 +146,14 @@ def test_golden_multi_compile_zarr(golden_dir, tmp_path):
     assert ds.w_marg_surf.dtype == np.float32 and ds.Delta_prime_surf.dtype == np.float64
     old = xr.open_zarr(src / 'compiled_combined_xr.zarr')
     np.testing.assert_array_equal(ds.Delta_prime_surf.values, old.Delta_prime_surf.values)
+
+
+def test_eigenvectors_of_two_least_stable_modes():
+    mode, m = np.arange(1, 6), np.arange(-2, 3)
+    vec = np.random.default_rng(0).random((2, 5, 5))
+    ds = xr.Dataset({'W_t': (('i', 'mode', 'm'), vec), 'W_t_eigenvalue': (('i', 'mode'), vec[:, :, 0]),
+                     'W_t_eigenvector': (('i', 'mode', 'm'), vec)}, coords={'mode': mode, 'm': m})
+    out = keep_least_stable_eigenvectors(ds)
+    np.testing.assert_array_equal(out.W_t_eigenvector.values, vec[:, :2])
+    assert out.W_t_eigenvector.dims == ('i', 'eigvec_mode', 'm') and list(out.eigvec_mode.values) == [1, 2]
+    xr.testing.assert_identical(out[['W_t', 'W_t_eigenvalue']], ds[['W_t', 'W_t_eigenvalue']])

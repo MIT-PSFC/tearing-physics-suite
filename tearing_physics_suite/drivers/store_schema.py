@@ -12,6 +12,10 @@ from tearing_physics_suite.drivers.mre_recompute import INPUTS as RECOMPUTE_INPU
 # dwdt_surf is recomputable on demand: drivers.mre_recompute.dwdt_curves (P1). The Galerkin cell grid
 # (RDCON/STRIDE bookkeeping on icell) is read by nothing (user 10-17)
 STORE_DROP = ('dwdt_surf', 'interval_icell', 'iitvl', 'etypes', 'cell_x1', 'cell_x2')
+# W eigenvectors kept for the least-stable modes only (mode 1 is the least stable in RDCON and STRIDE, user 10-17);
+# W_t and the eigenvalues stay in full
+EIGVEC_VARS = ('W_t_eigenvector', 'W_p_eigenvector', 'W_v_eigenvector')
+EIGVEC_MODES = 2
 # k0/k1/C0 recompute inputs stay float64 when the store is float32 (P7)
 KEEP_FLOAT64 = frozenset(RECOMPUTE_INPUTS)
 # Never blanked as cross-code duplicates: every code keeps its own q (P9, user)
@@ -75,6 +79,12 @@ def drop_store_duplicates(ds):
     return ds.drop_vars(drop)
 
 
+def keep_least_stable_eigenvectors(ds, k=EIGVEC_MODES):
+    """W eigenvectors of modes 1..k only, on dim eigvec_mode (mode keeps its full length for W_t and the eigenvalues)."""
+    out = {v: ds[v].isel(mode=slice(0, k)).rename(mode='eigvec_mode') for v in EIGVEC_VARS if v in ds}
+    return ds.drop_vars(list(out)).assign(out)
+
+
 def to_float32(ds, keep=KEEP_FLOAT64):
     """float64 data variables as float32, except keep (P7). Coordinates are unchanged."""
     return ds.assign({v: ds[v].astype(np.float32) for v in ds.data_vars
@@ -82,8 +92,8 @@ def to_float32(ds, keep=KEEP_FLOAT64):
 
 
 def prepare_for_store(ds, store_float32=True, drop_duplicates=True):
-    """One run's combined dataset reduced for the compiled zarr (plans/F.md, P1/P6/P7/P9)."""
-    ds = ds.drop_vars([v for v in STORE_DROP if v in ds])
+    """One run's combined dataset reduced for the compiled zarr (plans/F.md, P1/P6/P7/P9; cell grid, W eigenvectors)."""
+    ds = keep_least_stable_eigenvectors(ds.drop_vars([v for v in STORE_DROP if v in ds]))
     if drop_duplicates:
         ds = blank_duplicates(drop_store_duplicates(ds))
     return to_float32(ds) if store_float32 else ds

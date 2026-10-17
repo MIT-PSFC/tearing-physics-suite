@@ -85,11 +85,13 @@ def dist_values(ds, var, sel=None, isel=None, where=None):
 def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_bins=40, hist_frac=0.65,
               hist_offset=0.2, point_size=8, percent_bounds=(0, 100), range_buffer=0.05, ylog=None,
               sample_size=1000, hist_min_count=1, include_scatter=True, renorm=False, y_label=None,
-              title='', figsize=(12, 6), random_seed=None, bands=None, amp=None):
+              title='', figsize=(12, 6), random_seed=None, bands=None, amp=None, axes=None):
     """dist_plotter: a horizontal histogram per time (shared bins; log for w_marg) right of that time's
     points (at most sample_size, randomly sampled). renorm: one count scale for all times, else each
     time's own. A time with a single run gets a hollow marker. bands: [(t0, t1, label, color)], shaded behind
-    the points and named in a strip below; amp: [(t_ms, y, label, lw)], a panel below (dB). Returns the figure."""
+    the points and named in a strip below; amp: [(t_ms, y, label, lw)], a panel below (dB). axes: draw into these
+    (main[, strip][, amp]) instead of a new figure, e.g. to stack other panels on the same time axis. Returns the
+    figure."""
     ylog = 'w_marg' in var if ylog is None else ylog
     rng = np.random.default_rng(random_seed)
     times = np.asarray(times, float)
@@ -114,8 +116,12 @@ def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_
     top = max((c.max() for c in counts if c.size), default=0)
 
     rows = [6] + [0.5] * bool(bands) + [2.5] * bool(amp)
-    fig, axs = plt.subplots(len(rows), 1, figsize=(figsize[0], figsize[1] * sum(rows) / 6), sharex=True,
-                            gridspec_kw=dict(height_ratios=rows, hspace=0.05), squeeze=False)
+    if axes is None:
+        fig, axs = plt.subplots(len(rows), 1, figsize=(figsize[0], figsize[1] * sum(rows) / 6), sharex=True,
+                                gridspec_kw=dict(height_ratios=rows, hspace=0.05), squeeze=False)
+    else:
+        axs = np.asarray(axes).reshape(-1, 1)
+        fig = axs[0, 0].figure
     ax = axs[0, 0]
     single = True
     for t, y, c in zip(times, ys, counts):
@@ -161,8 +167,9 @@ def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_
             pa.set_ylim(yy.min() - 2, yy.max() + 2)
             pa.legend(loc='upper left', fontsize=7, ncol=4)
         pa.set_ylabel('mode power [dB]')
-    axs[-1, 0].set_xlabel('t [ms]')
-    fig.tight_layout()
+    if axes is None:
+        axs[-1, 0].set_xlabel('t [ms]')
+        fig.tight_layout()
     return fig
 
 

@@ -1,9 +1,7 @@
 """Shared-filesystem work queue: many workers on many nodes claim units by ``mkdir``.
 
 Stdlib only. Correct on NFSv4 and Lustre: ``mkdir``'s EEXIST is the claim, ``rename`` is the
-single point that serialises stealing an expired lease. Vendored byte-identically as
-``bouquet/workqueue.py`` and ``tearing_physics_suite/drivers/fsqueue.py``; edit the eq_stab copy
-(``D3D_V1/FUSE_IDAlite_BOUQUET/common/fsqueue.py``) and copy it over.
+single point that serialises stealing an expired lease.
 
 Layout under ``root`` (one queue per tool)::
 
@@ -268,7 +266,7 @@ class Queue:
 
     def record_failure(self, uid, worker, exc=None, signature=None, detail=''):
         sig = signature or (error_signature(exc) if exc is not None else 'unknown')
-        tb = ''.join(traceback.format_exception(exc))[-8000:] if isinstance(exc, BaseException) else detail
+        tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-8000:] if isinstance(exc, BaseException) else detail
         self._record(uid, 'fail', dict(worker=worker, signature=sig, traceback=tb))
         return sig
 
@@ -282,9 +280,9 @@ class Queue:
             self.drop('claims', uid)
 
     def reopen(self, uid):
-        """Make a terminal unit claimable again (clears its done marker and failure records)."""
+        """Make a terminal unit claimable again, with a fresh attempt and failure budget."""
         for f in _ls(self.path('state', uid)):
-            if f.startswith('fail_'):
+            if f.startswith(('fail_', 'attempt_')):
                 os.remove(self.path('state', uid, f))
         try:
             os.remove(self.path('done', uid))

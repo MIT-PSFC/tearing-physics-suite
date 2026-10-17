@@ -419,8 +419,12 @@ def _shot_draws(study, cfg, shot):
     return out
 
 
-def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
-    """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (single writer, under a lease)."""
+def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32):
+    """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (single writer, under a lease).
+
+    Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
+    whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. With
+    ``finalize``, a lease held elsewhere is waited for (a dead one is stolen once stale) instead of skipped."""
     import xarray as xr
 
     from tearing_physics_suite.drivers.multi_run import (
@@ -430,13 +434,15 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
         rechunk_store,
         store_ready,
     )
-    from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store
+    from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, stack_episodes, truncate_zarr_store
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study))
     lease = f'compile_{shot}'
-    if not q.acquire('leases', lease, socket.gethostname()):
-        print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
-        return None
+    while not q.acquire('leases', lease, socket.gethostname()):
+        if not finalize:
+            print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
+            return None
+        time.sleep(q.HEARTBEAT_S)
     zpath = shot_store(study, shot)
     spath = os.path.join(os.path.dirname(zpath), 'compile_state.json')
     try:
@@ -444,23 +450,29 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
             state = fq.read_json(spath) or dict(compiled=[], broken=[], signature=None)
             if state['compiled'] and not os.path.exists(zpath):
                 state = dict(compiled=[], broken=[], signature=None)
+            elif os.path.exists(zpath):
+                truncate_zarr_store(zpath, 'run_idx', len(state['compiled']))
             seen = set(state['compiled']) | set(state['broken'])
             draws = _shot_draws(study, cfg, shot)
             codes = study_codes(cfg['tps_kwargs'])
             new = sorted(k for k in draws if k not in seen)
-            for key in new:
-                with xr.open_dataset(draws[key][0], engine='scipy') as ds:
-                    ds = ds.load().drop_encoding()
-                ds = store_ready(_vlen_strings(align_codes(ds, codes)))
-                sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
-                if state['signature'] is None:
-                    state['signature'] = sig
-                if sig != state['signature']:
-                    state['broken'].append(key)
-                else:
-                    ds = bare_episode(ds.assign(case_key=np.array(key, dtype=object)))
-                    add_to_zarr_store(ds, zpath, episode_dim='run_idx')
-                    state['compiled'].append(key)
+            for i in range(0, len(new), batch):
+                keys, dsets = [], []
+                for key in new[i:i + batch]:
+                    with xr.open_dataset(draws[key][0], engine='scipy') as ds:
+                        ds = ds.load().drop_encoding()
+                    ds = store_ready(_vlen_strings(align_codes(ds, codes)))
+                    sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
+                    if state['signature'] is None:
+                        state['signature'] = sig
+                    if sig != state['signature']:
+                        state['broken'].append(key)
+                    else:
+                        keys.append(key)
+                        dsets.append(bare_episode(ds.assign(case_key=np.array(key, dtype=object))))
+                if dsets:
+                    add_to_zarr_store(stack_episodes(dsets, 'run_idx'), zpath, episode_dim='run_idx')
+                    state['compiled'] += keys
                 fq.write_json(spath, state)
             if state['compiled']:
                 _write_inputs(zpath, state['compiled'], draws)

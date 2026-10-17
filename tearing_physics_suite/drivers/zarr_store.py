@@ -145,7 +145,7 @@ def extend_zarr_along_dim(zarr_path: os.PathLike, dim: str, n_extend: int) -> No
 def add_to_zarr_store(  # noqa: PLR0912
     ds: xr.Dataset, zarr_path: os.PathLike, episode_dim: str, time_dim: str | None = None, store_time_dim_size: int | None = None
 ) -> bool:
-    """Helper function to add a single xarray Dataset to a zarr store. Requires that the zarr store either doesn't exist or already contains all the dimensions in the provided Dataset."""
+    """Helper function to add an xarray Dataset (one episode, or several along episode_dim: see stack_episodes) to a zarr store. Requires that the zarr store either doesn't exist or already contains all the dimensions in the provided Dataset."""
 
     # We need to reset all the non-index coordinates to make sure they get vary across episodes.
     ds = ds.reset_coords()
@@ -157,12 +157,6 @@ def add_to_zarr_store(  # noqa: PLR0912
     if episode_dim not in ds.dims:
         ds = ds.set_coords(episode_dim)
         ds = ds.expand_dims(episode_dim)
-
-    if ds.sizes[episode_dim] > 1:
-        raise ValueError(
-            f"The dataset has more than one episode ({ds.sizes[episode_dim]}). "
-            f"Please ensure that the dataset is for a single episode before adding it to the Zarr store."
-        )
 
     # If only some of the variables have the episode dimension, we can't just expand the whole dataset.
     # We need to ensure that all variables have the episode dimension.
@@ -216,6 +210,41 @@ def add_to_zarr_store(  # noqa: PLR0912
         # Should re-consolidate between each addition.
         zarr.consolidate_metadata(zarr_path)
         return True
+
+
+def truncate_zarr_store(zarr_path: os.PathLike, episode_dim: str, n: int) -> None:
+    """Cut every array of the store back to n entries along episode_dim (undoing a killed append), and reconsolidate.
+
+    n == 0 removes the store (a killed creation)."""
+    if n == 0:
+        shutil.rmtree(zarr_path)
+        return
+    group = zarr.open_group(zarr_path, mode="r+", use_consolidated=False)
+    n_cut = 0
+    for _, arr in group.arrays():
+        dims = list(arr.metadata.dimension_names or ())
+        if episode_dim in dims and arr.shape[dims.index(episode_dim)] > n:
+            arr.resize(tuple(n if d == episode_dim else k for d, k in zip(dims, arr.shape)))
+            n_cut += 1
+    if n_cut:
+        loguru.logger.warning(f"{zarr_path}: {n_cut} arrays cut back to {n} entries along {episode_dim} (interrupted append).")
+    zarr.consolidate_metadata(zarr_path)
+
+
+def stack_episodes(dsets: list[xr.Dataset], episode_dim: str) -> xr.Dataset:
+    """Single-episode datasets stacked along episode_dim for one add_to_zarr_store call.
+
+    As the store does per episode: every variable gets episode_dim, ragged dims are NaN-padded at the end,
+    and index coordinates are taken from the first dataset (the store keeps its own)."""
+    dsets = [ds.reset_coords() for ds in dsets]
+    dsets = [ds if episode_dim in ds.dims else
+             (ds.set_coords(episode_dim) if episode_dim in ds else ds).expand_dims(episode_dim) for ds in dsets]
+    dsets = [ds.assign({v: ds[v].expand_dims(episode_dim) for v in ds.data_vars if episode_dim not in ds[v].dims})
+             for ds in dsets]
+    size = {d: max(ds.sizes.get(d, 0) for ds in dsets) for ds in dsets for d in ds.dims if d != episode_dim}
+    dsets = [ds.pad({d: (0, size[d] - n) for d, n in ds.sizes.items() if d != episode_dim and n < size[d]})
+             for ds in dsets]
+    return xr.concat(dsets, episode_dim, join="override", coords="minimal", compat="override")
 
 
 def zarr_chunk(ds: xr.Dataset, chunk_spec: dict) -> xr.Dataset:

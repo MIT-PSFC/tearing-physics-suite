@@ -159,6 +159,33 @@ def test_compile_incremental(study, monkeypatch):
     assert st.open_study(study).sizes['run_idx'] == 3
 
 
+def test_compile_repairs_an_interrupted_append(study, monkeypatch):
+    import zarr
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {3: ValueError('x')})
+    st.run_item(study, f'{uid}.c0')
+    st.compile_shot(study, 100)
+    z = st.shot_store(study, 100)
+    arr = zarr.open_group(z, mode='r+')['Delta_prime']        # a killed append: one array a run longer
+    arr.resize((3,) + arr.shape[1:])
+    st.run_item(study, f'{uid}.c1')
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']
+    ds = xr.open_zarr(z).load()
+    np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0])
+
+
+def test_compile_finalize_waits_for_a_dead_lease(study, monkeypatch):
+    uid = _record(study, 100, 1500, selected=(0,))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    st.run_item(study, f'{uid}.c0')
+    fq.write_json(os.path.join(st.qroot(study), 'config.json'), dict(STALE_S=0.3, HEARTBEAT_S=0.1))
+    assert fq.Queue(st.qroot(study)).acquire('leases', 'compile_100', 'killed job')   # never beats again
+    assert st.compile_shot(study, 100) is None
+    assert st.compile_shot(study, 100, finalize=True)['compiled'] == [f'{uid}_0']
+
+
 def test_runner_breaker(study, monkeypatch):
     q = fq.Queue(st.qroot(study))
     calls = iter([dict(draws=[dict(status='error', signature='E: rdcon missing', unit_id=u, draw=i)

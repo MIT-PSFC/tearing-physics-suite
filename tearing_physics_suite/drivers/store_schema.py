@@ -7,12 +7,12 @@ import warnings
 import numpy as np
 import xarray as xr
 
-from tearing_physics_suite.drivers.mre_recompute import INPUTS as RECOMPUTE_INPUTS
+from tearing_physics_suite.drivers.mre_recompute import INPUTS as RECOMPUTE_INPUTS, OPTIONAL_INPUTS
 
 # Recomputable on demand: drivers.mre_recompute.dwdt_curves (P1)
 STORE_DROP = ('dwdt_surf',)
 # k0/k1/C0 recompute inputs stay float64 when the store is float32 (P7)
-KEEP_FLOAT64 = frozenset(RECOMPUTE_INPUTS)
+KEEP_FLOAT64 = frozenset(RECOMPUTE_INPUTS + OPTIONAL_INPUTS)
 # Never blanked as cross-code duplicates: every code keeps its own q (P9, user)
 KEEP_ALWAYS = frozenset({'q', 'q0', 'q95', 'qmin', 'qmax', 'qlim', 'qa', 'q_pest3', 'q_rational'})
 # GPEC equil outputs that STRIDE reports as well as RDCON (P9). Blanked on STRIDE where equal to RDCON.

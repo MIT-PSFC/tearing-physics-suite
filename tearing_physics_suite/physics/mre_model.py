@@ -283,7 +283,8 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
     ----------
     rdcon_xarray_surf : xr.Dataset
         Single-surface slice with chi_perp_surf, chi_para_smfp_surf,
-        chi_para_lmfp_no_w_surf, Wc_prefac_m_surf, X0_surf.
+        chi_para_lmfp_no_w_surf, Wc_prefac_m_surf, X0_surf; with chi_ion_weight_surf != 0 also
+        chi_para_smfp_i_surf and chi_para_lmfp_no_w_i_surf (chi_para = (1 - f_i) chi_para,e + f_i chi_para,i).
     force_lmfp : bool
         Use only the long-mean-free-path chi_para (ignore smfp).
     iterator : bool
@@ -303,6 +304,24 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
     chi_para_lmfp_no_w = rdcon_xarray_surf['chi_para_lmfp_no_w_surf'].values
     Wc_prefac_m = rdcon_xarray_surf['Wc_prefac_m_surf'].values
     X0 = rdcon_xarray_surf['X0_surf'].values
+    # Ion share of the single-fluid chi_para (cross_field_transport.chi_ion_weight_on_modes); 0 = electron chi_para
+    f_i = rdcon_xarray_surf['chi_ion_weight_surf'].values.item() if 'chi_ion_weight_surf' in rdcon_xarray_surf else 0.0
+
+    def species_chi_para(lmfp_no_w, smfp, w_bar):
+        chi_para_lmfp = lmfp_no_w/w_bar
+        if force_lmfp:
+            return chi_para_lmfp
+        if not use_Fitz_formula:
+            return np.minimum(chi_para_lmfp, smfp)
+        return chi_para_lmfp*smfp/(chi_para_lmfp+smfp) # If the two are equal, it cuts chi_para in half, which I don't agree with.
+
+    def chi_para_at(w_bar):
+        chi_para = species_chi_para(chi_para_lmfp_no_w, chi_para_smfp, w_bar)
+        if f_i != 0:
+            chi_para_i = species_chi_para(rdcon_xarray_surf['chi_para_lmfp_no_w_i_surf'].values,
+                                          rdcon_xarray_surf['chi_para_smfp_i_surf'].values, w_bar)
+            chi_para = (1 - f_i)*chi_para + f_i*chi_para_i
+        return chi_para
 
     if not iterator: # I think this is more correct
         def wd_function(w_bar: float):
@@ -310,15 +329,7 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
             Takes in w_bar (island width in normalised poloidal flux) and returns wd_bar
             (Fitzpatrick island width in normalised poloidal flux).
             """
-            chi_para_lmfp = chi_para_lmfp_no_w/w_bar
-            if force_lmfp:
-                chi_para=chi_para_lmfp
-            else:
-                if not use_Fitz_formula:
-                    chi_para = np.minimum(chi_para_lmfp, chi_para_smfp)
-                else:
-                    chi_para = chi_para_lmfp*chi_para_smfp/(chi_para_lmfp+chi_para_smfp) # If the two are equal, it cuts chi_para in half, which I don't agree with.
-            chifrac = chi_perp/chi_para
+            chifrac = chi_perp/chi_para_at(w_bar)
             if Wc_prefac_m < 0:
                 return np.nan
             return (chifrac*Wc_prefac_m)**(1/4)
@@ -330,15 +341,7 @@ def generate_wd_function(rdcon_xarray_surf,force_lmfp=False,iterator=False,use_F
             """
             wd_bar4=X0**4
             for _ in range(10): #Iterate to convergence
-                chi_para_lmfp = chi_para_lmfp_no_w/(wd_bar4**(1/4))
-                if force_lmfp:
-                    chi_para=chi_para_lmfp
-                else:
-                    if not use_Fitz_formula:
-                        chi_para = np.minimum(chi_para_lmfp, chi_para_smfp)
-                    else:
-                        chi_para = chi_para_lmfp*chi_para_smfp/(chi_para_lmfp+chi_para_smfp)
-                chifrac = chi_perp/chi_para
+                chifrac = chi_perp/chi_para_at(wd_bar4**(1/4))
                 wd_bar4 = Wc_prefac_m*chifrac
             return wd_bar4**(1/4)
     return wd_function

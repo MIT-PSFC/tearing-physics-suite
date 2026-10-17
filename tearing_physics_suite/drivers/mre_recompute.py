@@ -24,6 +24,8 @@ SURFACE_INPUTS = ('psi_n_rational', 'Dr_surf', 'Di_surf', 'Dnc_surf', 'H_surf', 
                   'chi_perp_surf', 'chi_para_smfp_surf', 'chi_para_lmfp_no_w_surf', 'Wc_prefac_m_surf')
 SETTINGS = ('wd_static', 'force_lmfp', 'psi_pedestal_cutoff')
 INPUTS = ('Delta_prime_surf',) + SURFACE_INPUTS + SETTINGS
+# chi_model inputs (stores from before chi_model lack them: electron chi_par)
+OPTIONAL_INPUTS = ('chi_ion_weight_surf', 'chi_para_smfp_i_surf', 'chi_para_lmfp_no_w_i_surf')
 # Outputs that depend on k1, C0 (and k0 for prefac_surf)
 K_OUTPUTS = ('w_marg_surf', 'w_sat_surf', 'w_max_loc_surf', 'dwdtau_max_surf', 'wd_at_marg_surf',
              'X0_on_w_marg_surf', 'X0_on_wd_at_marg_surf', 'prefac_surf')
@@ -33,6 +35,11 @@ GLOBAL_OUTPUTS = ('min_w_marg_allsurf', 'max_dwdtau_allsurf', 'min_w_marg_rank',
 def check_recompute_inputs(ds):
     """Names in INPUTS missing from ds (empty if the MRE outputs can be recomputed)."""
     return [v for v in INPUTS if v not in ds.variables]
+
+
+def _inputs(ds):
+    """INPUTS plus the OPTIONAL_INPUTS present in ds."""
+    return list(INPUTS) + [v for v in OPTIONAL_INPUTS if v in ds.variables]
 
 
 def _flags(ds):
@@ -63,7 +70,8 @@ def recompute_run(run_ds, k0, k1, C0):
 def _recompute_chunk(args):
     """Worker: recompute runs [start, stop) of the input store and write them into the output store."""
     in_path, out_path, start, stop, k0, k1, C0 = args
-    ds = xr.open_zarr(in_path)[list(INPUTS)].isel(run_idx=slice(start, stop)).load()
+    src = xr.open_zarr(in_path)
+    ds = src[_inputs(src)].isel(run_idx=slice(start, stop)).load()
     runs = [recompute_run(ds.isel(run_idx=i), k0, k1, C0) for i in range(ds.sizes['run_idx'])]
     out = xr.concat(runs, dim='run_idx', coords='minimal', compat='override').transpose('run_idx', ...)
     out.drop_vars(list(out.coords)).to_zarr(out_path, region={'run_idx': slice(start, stop)})
@@ -74,7 +82,7 @@ def _template(in_path, k0, k1, C0):
     """Output dataset of NaNs (dask) with the full output shape, from recomputing the first run."""
     import dask.array as da
     src = xr.open_zarr(in_path)
-    first = recompute_run(src[list(INPUTS)].isel(run_idx=0).load(), k0, k1, C0)
+    first = recompute_run(src[_inputs(src)].isel(run_idx=0).load(), k0, k1, C0)
     n = src.sizes['run_idx']
     tmpl = xr.Dataset(coords={'run_idx': np.arange(n), **{d: first[d] for d in first.dims if d in first.coords}})
     for v in first.data_vars:

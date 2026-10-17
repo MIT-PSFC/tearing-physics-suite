@@ -46,15 +46,14 @@ def test_draw_transport_fields():
                 chi_perp_e=1 + x, chi_perp_i=2 + x)
     out = _bouquet_draw_profiles(prof, dict(tau_E_th=0.2, tau_E=0.25), None, '1500', 0, {}, False, None)
     assert out['tau_E_th'] == 0.2 and out['tau_E'] == 0.25
-    np.testing.assert_allclose(out['chi_perp_e_spline'](0.5), 1.5)
+    np.testing.assert_allclose(out['chi_perp_spline'](0.5), 1.5)
     np.testing.assert_allclose(out['chi_perp_i_spline'](0.5), 2.5)
     old = _bouquet_draw_profiles({k: v for k, v in prof.items() if 'chi' not in k}, {}, None, '1500', 0, {}, False, None)
-    assert not {'tau_E_th', 'tau_E', 'chi_perp_e_spline', 'chi_perp_i_spline'} & set(old)
+    assert not {'tau_E_th', 'tau_E', 'chi_perp_spline', 'chi_perp_i_spline'} & set(old)
 
 
 def test_profile_kwargs_labels():
-    prof = dict(tau_E_th=0.2, chi_perp_e_spline='S')
-    out = _profile_kwargs(prof, dict(tau_e_label='tau_E_th', chi_perp_label='chi_perp_e_spline'))
-    assert out == dict(energy_confinement_time=0.2, chi_perp_spline='S')
-    assert _profile_kwargs(prof, {}) == {}
-    assert _profile_kwargs(prof, dict(chi_perp_label='chi_perp_e_spline', chi_perp_spline='K')) == dict(chi_perp_spline='K')
+    prof = dict(tau_E_th=0.2, chi_perp_spline='S', chi_perp_i_spline='I')
+    out = _profile_kwargs(prof, dict(tau_e_label='tau_E_th'))
+    assert out == dict(energy_confinement_time=0.2, chi_perp_spline='S', chi_perp_i_spline='I')
+    assert _profile_kwargs(prof, dict(chi_perp_spline='K'))['chi_perp_spline'] == 'K'

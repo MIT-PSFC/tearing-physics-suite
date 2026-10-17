@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from tearing_physics_suite.drivers.mre_recompute import INPUTS, K_OUTPUTS, recompute_mre_hyperparams
+from tearing_physics_suite.drivers.mre_recompute import INPUTS, K_OUTPUTS, OPTIONAL_INPUTS, recompute_mre_hyperparams
 from tearing_physics_suite.drivers.store_schema import (
     KEEP_FLOAT64,
     blank_duplicates,
@@ -38,7 +38,7 @@ def test_dwdt_dropped_and_float32_except_recompute_inputs():
     assert out.w_marg_surf.dtype == np.float32 and out.f.dtype == np.float32
     assert out.Delta_prime_surf.dtype == np.float64  # k0/k1/C0 recompute input
     assert out.psi_n.dtype == np.float64 and out.mpsi.dtype == np.int64  # coords and ints unchanged
-    assert {'Delta_prime_surf', 'psi_n_rational', 'Dr_surf', 'wd_static'} <= KEEP_FLOAT64 == set(INPUTS)
+    assert {'Delta_prime_surf', 'psi_n_rational', 'Dr_surf', 'wd_static'} <= KEEP_FLOAT64 == set(INPUTS) | set(OPTIONAL_INPUTS)
 
 
 def test_options_off_keep_everything_but_dwdt():

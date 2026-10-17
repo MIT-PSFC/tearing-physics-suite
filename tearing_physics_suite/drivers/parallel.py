@@ -141,6 +141,19 @@ def check_build(cfg, allow_drift=False):
         raise fq.Broken(f'build differs from the study config: {drift} (--allow-build-drift to run anyway)')
 
 
+def spot_config(cfg):
+    """The study's SpotCheck, or None; unknown fields or scans raise."""
+    from tearing_physics_suite.drivers import spot_check as sc
+    s = cfg.get('spot_check')
+    if not s:
+        return None
+    spot = sc.SpotCheck() if s is True else sc.SpotCheck(**dict(s, scans=tuple(s['scans']) if s.get('scans') else None))
+    unknown = set(spot.scans or ()) - set(sc.SCANS)
+    if unknown:
+        raise ValueError(f'spot_check: unknown scans {sorted(unknown)}')
+    return spot
+
+
 # --- feed --------------------------------------------------------------------------------------
 
 def _archive_counts(path, selection):
@@ -205,19 +218,6 @@ class Feeder:
 
 # --- one item (child process) ------------------------------------------------------------------
 
-def spot_config(cfg):
-    """The study's SpotCheck, or None; unknown fields or scans raise."""
-    from tearing_physics_suite.drivers import spot_check as sc
-    s = cfg.get('spot_check')
-    if not s:
-        return None
-    spot = sc.SpotCheck() if s is True else sc.SpotCheck(**dict(s, scans=tuple(s['scans']) if s.get('scans') else None))
-    unknown = set(spot.scans or ()) - set(sc.SCANS)
-    if unknown:
-        raise ValueError(f'spot_check: unknown scans {sorted(unknown)}')
-    return spot
-
-
 def _spot_picked(spot, case_key):
     """A seeded coin per draw, so the same draws are checked however they are chunked or retried."""
     return np.random.default_rng([spot.seed, zlib.crc32(case_key.encode())]).random() < spot.fraction
@@ -233,14 +233,6 @@ def _run_spot_checks(spot, eq, kwargs, sdir, wd):
         except Exception as e:
             errors[f'{task[3]}_n{task[4]}'] = fq.error_signature(e)
     return errors
-
-
-def _spot_flag(nc_path, rec, nn, codes):
-    """spot_check_flag(nn, code) of one draw (-1 where it was not checked)."""
-    from tearing_physics_suite.drivers import spot_check as sc
-    sdir = nc_path[:-len('.nc')] + '.spot'
-    ds = sc.spot_dataset(sc.load_spot_results(sdir)) if 'spot_errors' in rec else None
-    return sc.spot_check_flag(ds, 0, nn, codes)
 
 
 def _draw_state(path):
@@ -470,6 +462,14 @@ def _shot_draws(study, cfg, shot):
         if r.get('status') == 'ok':
             out[r['case_key']] = (p[:-len('.json')] + '.nc', r)
     return out
+
+
+def _spot_flag(nc_path, rec, nn, codes):
+    """spot_check_flag(nn, code) of one draw (-1 where it was not checked)."""
+    from tearing_physics_suite.drivers import spot_check as sc
+    sdir = nc_path[:-len('.nc')] + '.spot'
+    ds = sc.spot_dataset(sc.load_spot_results(sdir)) if 'spot_errors' in rec else None
+    return sc.spot_check_flag(ds, 0, nn, codes)
 
 
 def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32):

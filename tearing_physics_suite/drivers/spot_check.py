@@ -176,15 +176,22 @@ def load_spot_results(master_working_dir):
     return sorted(out, key=lambda r: (r['run_idx'], r['scan'], r['nn']))
 
 
+def spot_dataset(results):
+    """The spot results as one dataset on dim 'spot' (None if there are none)."""
+    if not results:
+        return None
+    codes = list(dict.fromkeys(c for r in results for c in np.atleast_1d(r['DP_surf_xarray'].code.values).tolist()))
+    ds = xr.concat([_spot_dataset(r, codes) for r in results], dim='spot', join='outer', fill_value={
+        'rel_exceeded_psi95': -1, 'abs_exceeded_psi95': -1})
+    return ds.assign_coords(code=codes)
+
+
 def compile_spot_checks(master_working_dir, verbose=True):
     """Write spot_checks/spot_checks.zarr and report.txt from the spot pickles; returns (dataset, report)."""
     results = load_spot_results(master_working_dir)
     if not results:
         return None, 'No spot-check results.'
-    codes = list(dict.fromkeys(c for r in results for c in np.atleast_1d(r['DP_surf_xarray'].code.values).tolist()))
-    ds = xr.concat([_spot_dataset(r, codes) for r in results], dim='spot', join='outer', fill_value={
-        'rel_exceeded_psi95': -1, 'abs_exceeded_psi95': -1})
-    ds = ds.assign_coords(code=codes)
+    ds = spot_dataset(results)
     path = os.path.join(spot_dir(master_working_dir), 'spot_checks.zarr')
     ds.to_zarr(path, mode='w', consolidated=True)
     report = spot_report(ds, results, master_working_dir)

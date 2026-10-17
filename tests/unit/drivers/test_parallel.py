@@ -244,3 +244,34 @@ def test_tau_e_from_i2(study, monkeypatch, tmp_path):
     st.run_item(study, f'{uid}.c0')
     assert seen == [0.08]
     assert st.run_item(study, '100_3000_base.c0')['draws'][0]['signature'].startswith('LookupError: no tau_e')
+
+
+def test_spot_check_draws(study, monkeypatch):
+    from tearing_physics_suite.drivers import spot_check as sc
+    cfg = st.load_config(study)
+    cfg['spot_check'] = dict(fraction=0.5, scans=['mpsi_scan'])
+    fq.write_json(st.config_path(study), cfg)
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    tasks = []
+
+    def run_spot_task(task, wd, sdir):
+        tasks.append((os.path.basename(task[2]), task[3], task[4]))
+        if task[2].endswith('eq3'):
+            raise RuntimeError('scan failed')
+    monkeypatch.setattr(sc, 'run_spot_task', run_spot_task)
+    monkeypatch.setattr(sc, 'spot_dataset', lambda results: xr.Dataset(
+        {'rel_exceeded_psi95': (('spot', 'code'), [[0, 1]]), 'run_idx': ('spot', [0]), 'nn': ('spot', [1])},
+        coords={'code': ['rdcon', 'stride']}))
+    st.run_item(study, f'{uid}.c0')
+    st.run_item(study, f'{uid}.c1')
+    assert tasks == [('eq0', 'mpsi_scan', 1), ('eq3', 'mpsi_scan', 1)]        # the seeded coin picks draws 0 and 3
+    assert [_status(study, uid, c)['status'] for c in range(4)] == ['ok'] * 4   # a failed spot task never fails a draw
+    assert _status(study, uid, 0)['spot_errors'] == {} and 'spot_errors' not in _status(study, uid, 1)
+    assert _status(study, uid, 3)['spot_errors'] == {'mpsi_scan_n1': 'RuntimeError: scan failed'}
+    st.compile_shot(study, 100)
+    flag = xr.open_zarr(st.shot_store(study, 100)).spot_check_flag.load()
+    np.testing.assert_array_equal(flag.isel(nn=0).values, [[0, 1], [-1, -1], [-1, -1], [0, 1]])
+    with pytest.raises(ValueError, match='unknown scans'):
+        st.spot_config(dict(spot_check=dict(scans=['no_scan'])))

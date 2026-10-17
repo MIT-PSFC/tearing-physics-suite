@@ -1,6 +1,8 @@
 import numpy as np
 
-from tearing_physics_suite.physics.surface_terms import deltaprime_crit_on_modes, wc_prefac_m
+from tearing_physics_suite.drivers.profile_read import read_kin_file
+from tearing_physics_suite.physics.surface_terms import (deltaprime_crit_on_modes, mre_terms_on_modes, spitzer_zeff_factor,
+                                                         wc_prefac_m)
 
 
 def test_wc_cylinder_heat_balance_width():
@@ -39,3 +41,24 @@ def test_deltaprime_crit_per_psi_n(rdcon_surface_terms):
     rd['V_surf'] = rd['V_surf']*10
     for v in ('Delta_prime_crit', 'Delta_prime_tcrit'):
         np.testing.assert_array_equal(deltaprime_crit_on_modes(rd)[v], out[v])
+
+
+def test_spitzer_zeff_factor():
+    """Z N(Z)/N(1) against Spitzer & Harm: eta_par(Z)/eta_par(1) = Z alpha(Z)/alpha(1), alpha = 0.5129, 0.4408, 0.3752."""
+    z = np.array([1.0, 2.0, 4.0])
+    np.testing.assert_allclose(spitzer_zeff_factor(z), z*np.array([0.5129, 0.4408, 0.3752])/0.5129, rtol=0.02)
+    assert spitzer_zeff_factor(1.0) == 1.0
+
+
+def test_spitzer_eta_carries_zeff(code_fixture, kin_file):
+    p = read_kin_file(kin_file)
+
+    def run(zeff):
+        ds = code_fixture('rdcon')
+        ds.attrs['Zeff'] = [zeff, zeff]                                  # this fixture keeps the table as attributes
+        return mre_terms_on_modes(ds, ni_spline=p['ni_spline'], ne_spline=p['ne_spline'],
+                                  ti_spline=p['ti_keV_spline'], te_spline=p['te_keV_spline'], average_ion_mass=2.5)
+    a, b = run(1.0), run(2.0)
+    for v in ('eta_spitz_surf', 'eta_spitz'):
+        np.testing.assert_allclose(b[v].values, spitzer_zeff_factor(2.0)*a[v].values)
+    np.testing.assert_allclose(b.taue_surf.values, a.taue_surf.values)   # Zeff enters chi_para_smfp, not tau_e

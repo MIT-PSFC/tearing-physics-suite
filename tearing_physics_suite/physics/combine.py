@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import xarray as xr
 
@@ -231,15 +233,44 @@ def strip_inherited_attrs(ds):
     return ds.assign({v: ds[v].drop_attrs() for v in stale})
 
 
-def combine_codes(datasets, nn, debug=False, **concat_kwargs):
+# RDCON outputs (and attributes) that no other code writes (item F, P5); avg_* too
+RDCON_ONLY = ('Dnc', 'Hbs_prefac', 'Wc', 'W_t', 'ftr', 'h', 'mufrac', 'overbar_Rsq', 'tau_a', 'tau_r',
+              'bwall', 'volume', 'cpu_time', 'wall_time')
+
+
+def split_rdcon_only(datasets, rdcon_only=()):
+    """Take RDCON_ONLY, avg_* and rdcon_only out of RDCON's dataset, without its 'code' dim.
+
+    The names are fixed (not chosen by NaN content), so a run keeps its dims when another code fails.
+    A name that another code's dataset also carries keeps its 'code' dim, with a warning.
+    Returns (datasets without those variables, Dataset of them or None).
+    """
+    rdcon = datasets.get('rdcon')
+    if rdcon is None:
+        return datasets, None
+    wanted = set(RDCON_ONLY) | set(rdcon_only)
+    names = [v for v in rdcon.data_vars if v in wanted or v.startswith('avg_')]
+    shared = {v for code, ds in datasets.items() if code != 'rdcon' and ds is not None for v in names if v in ds}
+    if shared:
+        warnings.warn(f'kept on code (another code has them): {sorted(shared)}', stacklevel=2)
+    names = [v for v in names if v not in shared]
+    if not names:
+        return datasets, None
+    out = {code: ds if code != 'rdcon' else ds.drop_vars(names) for code, ds in datasets.items()}
+    return out, rdcon[names].squeeze('code', drop=True)
+
+
+def combine_codes(datasets, nn, debug=False, rdcon_only=(), **concat_kwargs):
     """Concatenate per-code datasets along 'code' (in dict order), then add a leading 'nn' dim.
 
     datasets: {code: Dataset with a 'code' dim, or None}.
+    RDCON-only variables (split_rdcon_only; rdcon_only adds names) are merged in without 'code'.
     If the concat fails, codes are added one at a time and any code that will not concatenate is
     left out, by name, with a warning. Breaks happen when codes have different rational surfaces at
     the axis (e.g. psilow != 0 while also running PEST3, which has no psilow truncation).
     Returns (combined_xr or None, dropped), dropped = {code: dataset left out}.
     """
+    datasets, rdcon_vars = split_rdcon_only(datasets, rdcon_only)
     items = [(code, ds) for code, ds in datasets.items() if ds is not None]
     combined, dropped = None, {}
     if items:
@@ -260,6 +291,8 @@ def combine_codes(datasets, nn, debug=False, **concat_kwargs):
             if not kept:
                 combined = None
     if combined is not None:
+        if rdcon_vars is not None and 'rdcon' in combined['code'].values:
+            combined = combined.merge(rdcon_vars, join='left')
         combined = strip_inherited_attrs(combined)
         assert 'nn' not in combined, 'nn already defined, debug this function.'
         if nn is None:

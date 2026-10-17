@@ -275,7 +275,7 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         write_ifile=True runs; GPEC reads it as eq_type 'ldp_i', see
         run_resistive_calculation).
     draw_counts : list of int or None
-        Read only these draws (by count), whatever their selection flag.
+        Read only these draws (by count), whatever their selection flag. -1 is the scan's baseline.
 
     Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with that draw's g-file q.
     Profile dicts carry shot_id / bq_unit_id / bq_variant when the archive's root attrs have them.
@@ -312,27 +312,30 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         sc = ar[key]
         cfg = _bouquet_scan_config(bq, ar.path, key)
         draws = getattr(sc, selection) if draw_counts is None else [d for d in sc.all if d.count in set(draw_counts)]
+        if draw_counts is not None and -1 in draw_counts:
+            draws = [sc.baseline_view()] + draws
         if sample_limit is not None:
             draws = draws[:sample_limit]
         ida_extras = _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, ida_time_tol_ms, verbose)
 
         for d in draws:
+            count = -1 if d.is_baseline else d.count
             prof = d.profiles
             attrs = d.attrs
             eq_bytes = d.eqdsk_bytes if eq_source == 'geqdsk' else d.ifile_bytes
             if eq_bytes is None:
-                raise KeyError(f"Bouquet draw {key}/{d.count} has no stored {eq_source} "
+                raise KeyError(f"Bouquet draw {key}/{count} has no stored {eq_source} "
                                f"(i-files need a bouquet run with write_ifile=True).")
-            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{d.count}.{eq_source}")
+            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{count}.{eq_source}")
             with open(eq_path, 'wb') as fh:
                 fh.write(eq_bytes)
             coord = attrs.get('profile_coord', 'psi_n')
             if coord == 'phi_n':
                 prof = _phi_n_to_psi_n(prof, d.eqdsk_bytes)
             elif coord != 'psi_n':
-                raise NotImplementedError(f"Bouquet draw {key}/{d.count} has profile_coord={coord!r}.")
+                raise NotImplementedError(f"Bouquet draw {key}/{count} has profile_coord={coord!r}.")
             eq_filenames.append(eq_path)
-            p = _bouquet_draw_profiles(prof, attrs, cfg, key, d.count, ida_extras, meta_data, impurity_mass_amu)
+            p = _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu)
             profile_list.append(dict(p, bq_profile_coord=coord, **labels))
         if verbose:
             print(f"[read_bouquet_archive] scan {key}: {len(draws)} draws unpacked to {eqdsk_out_dir}")

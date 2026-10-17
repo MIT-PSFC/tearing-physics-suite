@@ -38,6 +38,12 @@ def test_ion_chi_para_by_hand():
     assert 1e8 < s.chi_para_smfp_i_surf[0] < 1e10                   # ~1e9 m^2/s at 2 keV, 5e19 m^-3 (E6)
 
 
+def test_ion_chi_para_takes_species_main_mass():
+    dt = chi_para_ion_on_modes(_surfs().assign(main_ion_mass=2.5))          # species model (mre_terms_on_modes)
+    np.testing.assert_allclose(dt.v_ti_main_surf, np.sqrt(2*gv.e*1e3*dt.ti_keV_surf/(2.5*gv.amu)))
+    xr.testing.assert_identical(chi_para_ion_on_modes(_surfs(), main_ion_mass_amu=2.5), dt.drop_vars('main_ion_mass'))
+
+
 def test_ion_weight():
     s = _surfs()
     f = chi_ion_weight_on_modes(s, 'total').chi_ion_weight_surf.values

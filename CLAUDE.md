@@ -9,6 +9,8 @@
   `build/` builds the codes and libraries. Imports only `utils` and other `wrappers` modules.
 - `tearing_physics_suite/drivers/`: the run pipeline (`pipeline.py`), parallel runs and zarr compilation
   (`multi_run.py`, `zarr_store.py`), profile readers, input scans and the input test suite. May import anything.
+- `tearing_physics_suite/analysis/`: analysis of TPS results: one shot's runs (`shot_data.py`: study / compiled
+  zarr stores, run dirs) and its plots (`dist_plot.py`). Never runs a code. May import anything.
 - `tearing_physics_suite/utils.py`: small shared helpers (`tps_home()`, `eq_stem`, ...).
 - Spot-checks (`drivers/spot_check.py`, `multi_run_(spot_check=...)`) use the `spot_check_tests` group in
   `drivers/input_test_suite.py`; new scan groups go there too.

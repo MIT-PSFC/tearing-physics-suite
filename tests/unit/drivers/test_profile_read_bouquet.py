@@ -1,9 +1,10 @@
 """Bouquet-reader helpers: g-file q, the Φ_N -> ψ_N map, and multi_run's equilibrium-named markers."""
 import numpy as np
+import pytest
 from scipy.integrate import cumulative_trapezoid
 
 from tearing_physics_suite.drivers.multi_run import _validate_case
-from tearing_physics_suite.drivers.profile_read import _phi_n_to_psi_n, gfile_q
+from tearing_physics_suite.drivers.profile_read import _phi_n_to_psi_n, gfile_q, read_bouquet_archive
 
 
 def test_gfile_q(eq_file):
@@ -32,3 +33,8 @@ def test_marker_names_equilibrium(tmp_path):
     assert not (tmp_path / 'done_0.marker').exists() and not (tmp_path / 'combined_xr_0.nc').exists()
     (tmp_path / 'done_1.marker').write_text('')           # markers from before this change: accepted
     assert _validate_case(1, str(tmp_path), eq_filename='/a/eq3')
+
+
+def test_archive_needs_eqdsk_out_dir():
+    with pytest.raises(ValueError, match='eqdsk_out_dir'):
+        read_bouquet_archive('any.h5')

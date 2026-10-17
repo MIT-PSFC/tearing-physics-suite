@@ -254,8 +254,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         Scan keys (time slices, ms) to read. None reads all.
     selection : {'selected', 'all', 'excluded'}
         Which draws to read (bouquet filter flags).
-    eqdsk_out_dir : str or None
-        Where to write g-files. Defaults to '<archive dir>/TPS_eqdsks'.
+    eqdsk_out_dir : str
+        Where to write g-files (required: the archive's directory is a read-only study directory).
     ida_path : str or None
         IDA-lite file for scalar extras (tau_e_basic, tau_th_basic, ida_extra_keys).
         If None, the archive config's ida_path is used when present. Rotation is
@@ -285,6 +285,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
     eq_filenames : list of str
     profile_list : list of dict
     """
+    if eqdsk_out_dir is None:
+        raise ValueError("read_bouquet_archive: pass eqdsk_out_dir (the archive's directory is read-only study data)")
     try:
         import bouquet as bq
     except ImportError as e:
@@ -293,8 +295,6 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
 
     ar = bq.BouquetArchive(path)
     header = os.path.splitext(os.path.basename(ar.path))[0]
-    if eqdsk_out_dir is None:
-        eqdsk_out_dir = os.path.join(os.path.dirname(os.path.abspath(ar.path)), 'TPS_eqdsks')
     os.makedirs(eqdsk_out_dir, exist_ok=True)
     if eq_source not in ('geqdsk', 'ifile'):
         raise ValueError(f"eq_source must be 'geqdsk'|'ifile', got {eq_source!r}")

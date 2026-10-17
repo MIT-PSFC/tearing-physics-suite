@@ -29,14 +29,15 @@ def _run(codes=('rdcon', 'stride', 'pest3')):
          'Delta_prime_diff_across_code': (('r',), np.ones(3)),
          'Delta_prime_diff_across_GPECvsPEST': (('r',), np.ones(3)),
          'mpsi': (('code',), np.full(nc, 128)),
-         'cell_x1': (('code', 'icell'), np.zeros((nc, 6)))},
+         'cell_x1': (('code', 'icell'), np.zeros((nc, 6))),
+         'te_keV': (('psi_n',), psi + 1)},
         coords={'code': list(codes), 'psi_n': psi, 'r': r, 'r_prime': r})
     return _uniquify_r(ds)
 
 
 def test_dwdt_dropped_and_float32_except_recompute_inputs():
     out = prepare_for_store(_run())
-    assert 'dwdt_surf' not in out and 'cell_x1' not in out and 'icell' not in out.dims
+    assert 'dwdt_surf' not in out and 'cell_x1' not in out and 'icell' not in out.dims and 'te_keV' not in out
     assert out.w_marg_surf.dtype == np.float32 and out.f.dtype == np.float32
     assert out.Delta_prime_surf.dtype == np.float64  # k0/k1/C0 recompute input
     assert out.psi_n.dtype == np.float64 and out.mpsi.dtype == np.int64  # coords and ints unchanged
@@ -46,7 +47,7 @@ def test_dwdt_dropped_and_float32_except_recompute_inputs():
 def test_options_off_keep_everything_but_store_drop():
     ds = _run()
     out = prepare_for_store(ds, store_float32=False, drop_duplicates=False)
-    xr.testing.assert_identical(out, ds.drop_vars(['dwdt_surf', 'cell_x1']))
+    xr.testing.assert_identical(out, ds.drop_vars(['dwdt_surf', 'cell_x1', 'te_keV']))
 
 
 def test_stride_equil_copy_blanked_rdcon_kept():

@@ -13,5 +13,6 @@ everything except the renames in rows 1-3.
 | 6 | `Delta_prime_(rel)diff_across_GPECvsPEST(_2)` | not stored when the codes are only rdcon/stride/pest3 | equal to `*_across_code*` then |
 | 7 | STRIDE slice of GPEC `equil` outputs (`f`, `mu0p`, `dvdpsi`, `ca1`, `di`, `dr`, betas, `li*`, …; `store_schema.GPEC_EQUIL_VARS`) | NaN where equal to RDCON's | `dup_maxreldiff(dup_code, dup_var)` records the check; q quantities are never blanked |
 | 8 | float64 results | float32 | except `mre_recompute.INPUTS` (k0/k1/C0 recompute inputs) and coordinates; `store_float32=False` keeps float64 |
+| 10 | full-grid input profiles `ne_m3`, `ni_m3`, `te_keV`, `ti_keV`, `Er`, `omega_*`, `dq_dpsi_n`, `dmu0p_dpsi_n`, `eta_spitz`, `lnLamb_e*` `(…, psi_n)` | not stored | `store_schema.INPUT_PROFILES`; rerun `mre_terms_on_modes` on the run's input profiles; the `*_surf` values stay |
 
 Store attributes `store_float32`, `drop_duplicates` record the options used.

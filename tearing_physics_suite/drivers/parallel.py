@@ -82,6 +82,14 @@ def shot_store(study, shot):
     return os.path.join(study, str(shot), 'tps', f'{shot}.zarr')
 
 
+def open_store(path):
+    """A compiled store, from its published one-file copy `<path>.zip` when that exists, else the directory."""
+    import xarray as xr
+    import zarr
+    zp = path + '.zip'
+    return xr.open_zarr(zarr.storage.ZipStore(zp, mode='r') if os.path.exists(zp) else path, consolidated=True)
+
+
 def _describe(path):
     try:
         return subprocess.run(['git', '-C', path, 'describe', '--always', '--dirty'], capture_output=True,
@@ -550,8 +558,9 @@ def open_study(study, shots=None):
     position, not by coordinate value.
     """
     import xarray as xr
-    paths = [shot_store(study, s) for s in (shots or study_shots(study)) if os.path.exists(shot_store(study, s))]
-    dss = [xr.open_zarr(p, consolidated=True) for p in paths]
+    paths = [p for p in (shot_store(study, s) for s in (shots or study_shots(study)))
+             if os.path.exists(p) or os.path.exists(p + '.zip')]
+    dss = [open_store(p) for p in paths]
     size = {}
     for ds in dss:
         for d, n in ds.sizes.items():

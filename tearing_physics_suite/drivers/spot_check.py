@@ -66,7 +66,7 @@ def _not_inherited():
     keys = set()
     for func in (nonlinear_resistive_calculation, analyse_with_mre):
         keys |= {k for k, p in inspect.signature(func).parameters.items() if p.kind != p.VAR_KEYWORD}
-    return keys | {'tau_e_label', 'working_dir', 'output_location', 'output_prefix'}
+    return keys | {'tau_e_label', 'chi_perp_label', 'working_dir', 'output_location', 'output_prefix'}
 
 
 def resolve_spec(spec, db_kwargs, nn):

@@ -267,15 +267,19 @@ _PER_CASE_KEYS = ('Er_spline', 'omega_splines', 'Zeff', 'chi_perp_spline',
 def _profile_kwargs(profile_dict, kwargs):
     """Merge per-case profile_dict entries into kwargs (explicit kwargs win).
 
-    kwargs['tau_e_label'] names a profile_dict key to use as energy_confinement_time.
+    kwargs['tau_e_label'] names a profile_dict key to use as energy_confinement_time;
+    kwargs['chi_perp_label'] one to use as chi_perp_spline.
     """
     out = dict(kwargs)
     tau_e_label = out.pop('tau_e_label', None)
+    chi_perp_label = out.pop('chi_perp_label', None)
     for key in _PER_CASE_KEYS:
         if key not in out and key in profile_dict:
             out[key] = profile_dict[key]
     if 'energy_confinement_time' not in out and tau_e_label in profile_dict:
         out['energy_confinement_time'] = profile_dict[tau_e_label]
+    if 'chi_perp_spline' not in out and chi_perp_label in profile_dict:
+        out['chi_perp_spline'] = profile_dict[chi_perp_label]
     return out
 
 def _augment_combined_xr(combined_xr, idx, profile_dict, labels=None):

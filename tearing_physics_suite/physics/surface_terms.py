@@ -142,6 +142,15 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     return rdcon_xarray
 
 
+def wc_prefac_m(Wc_prefac, m):
+    """RDCON's Wc prefactor over m^2 (psi_n^4), with Schlutt & Hegna's angle-averaged overbars.
+
+    S-H (PoP 19, 082514, Eq. 15) average over radian angles: overbar{J f} = V'<f>/(2 pi)^2. RDCON
+    (rdcon/mercier.f) uses V'<f>, so its Wc is (2 pi)^4 too large (the width 2 pi too large).
+    """
+    return Wc_prefac/((2*np.pi)**4*m**2)
+
+
 def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=None,psi_surfs_of_interest=None,diamagnetic_rotation_ion_charge=None):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just
@@ -267,10 +276,9 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     m_ints = np.round(rdcon_xarray.n*rdcon_xarray['q_rational'].values).astype(int)
     rdcon_xarray = rdcon_xarray.assign(m_rational = like(m_ints, rdcon_xarray['psi_n_rational']))
 
-    # Add mode number m to Wc_prefacs
     # To get wd, just multiply Wc_prefac_m_surf by chi frac, then take to power (1/4):
     rdcon_xarray = rdcon_xarray.assign(
-        Wc_prefac_m_surf = rdcon_xarray['Wc_prefac_surf']/(rdcon_xarray['m_rational']**2)
+        Wc_prefac_m_surf = wc_prefac_m(rdcon_xarray['Wc_prefac_surf'], rdcon_xarray['m_rational'])
     )
 
     """ Sanity check comparing the formulas in GPEC/rdcon/resist.f to the Wesson formulas used above:

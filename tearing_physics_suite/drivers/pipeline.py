@@ -186,6 +186,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         # Settings the MRE outputs were computed with, so they can be recomputed from the dataset (drivers/mre_recompute.py)
         combined_xr = combined_xr.assign(
             wd_static=wd_static, force_lmfp=force_lmfp, psi_pedestal_cutoff=psi_pedestal_cutoff,
+            Wc_angle_average=True,  # Wc_prefac_m_surf carries S-H's (2 pi)^-4 (surface_terms.wc_prefac_m)
             dwdt_k0=float(np.atleast_1d(k0)[0]), dwdt_k1=float(np.atleast_1d(k1)[0]), dwdt_C0=float(np.atleast_1d(C0)[0]))
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec

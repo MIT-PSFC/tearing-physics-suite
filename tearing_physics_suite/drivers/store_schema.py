@@ -9,8 +9,9 @@ import xarray as xr
 
 from tearing_physics_suite.drivers.mre_recompute import INPUTS as RECOMPUTE_INPUTS
 
-# Recomputable on demand: drivers.mre_recompute.dwdt_curves (P1)
-STORE_DROP = ('dwdt_surf',)
+# dwdt_surf is recomputable on demand: drivers.mre_recompute.dwdt_curves (P1). The Galerkin cell grid
+# (RDCON/STRIDE bookkeeping on icell) is read by nothing (user 10-17)
+STORE_DROP = ('dwdt_surf', 'interval_icell', 'iitvl', 'etypes', 'cell_x1', 'cell_x2')
 # k0/k1/C0 recompute inputs stay float64 when the store is float32 (P7)
 KEEP_FLOAT64 = frozenset(RECOMPUTE_INPUTS)
 # Never blanked as cross-code duplicates: every code keeps its own q (P9, user)

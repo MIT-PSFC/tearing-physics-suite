@@ -180,9 +180,11 @@ def test_compile_finalize_waits_for_a_dead_lease(study, monkeypatch):
     st.feed(study)
     _fake_pipeline(monkeypatch, {})
     st.run_item(study, f'{uid}.c0')
-    fq.write_json(os.path.join(st.qroot(study), 'config.json'), dict(STALE_S=0.3, HEARTBEAT_S=0.1))
+    qcfg = os.path.join(st.qroot(study), 'config.json')
+    fq.write_json(qcfg, dict(STALE_S=60, HEARTBEAT_S=0.1))
     assert fq.Queue(st.qroot(study)).acquire('leases', 'compile_100', 'killed job')   # never beats again
     assert st.compile_shot(study, 100) is None
+    fq.write_json(qcfg, dict(STALE_S=0.3, HEARTBEAT_S=0.1))
     assert st.compile_shot(study, 100, finalize=True)['compiled'] == [f'{uid}_0']
 
 

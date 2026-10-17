@@ -13,6 +13,7 @@
     etol=1e-10
     newq0=0
     use_classic_splines =f
+    profile_source='integrate'
     input_only=f
 /
 &EQUIL_OUTPUT

@@ -39,6 +39,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         etol=1e-10,
         newq0=0,            #Grad-Shafranov solution invariant adjustment of the q profile to give the specified value of q at the axis. Default 0 uses input file value.
         use_classic_splines='f', # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
+        profile_source="""'integrate'""", # F and p from the g-file's FF' and p' integrated inward ('integrate') or its F and p columns ('values'). GPEC's default differs by branch, so always written.
         input_only='f',      #Generate information about the input and then quit with no further calculation
         #EQUIL_OUTPUT
         gse_flag='t',       #Produces diagnostic output for accuracy of solution to Grad-Shafranov equation
@@ -87,6 +88,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('    etol='+str(etol)+'\n')
     f.write('    newq0='+str(newq0)   +'\n') #Grad-Shafranov solution invariant adjustment of the q profile to give the specified value of q at the axis. Default 0 uses input file value.
     f.write('    use_classic_splines ='+use_classic_splines +'\n') # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
+    f.write('    profile_source='+profile_source+'\n')
 
     f.write('    input_only='+input_only+'\n') #Generate information about the input and then quit with no further calculation
     f.write('/'+'\n')
@@ -224,6 +226,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         'etol': etol,
         'newq0': newq0,
         'use_classic_splines': use_classic_splines,
+        'profile_source': profile_source,
         'input_only': input_only,
         'gse_flag': gse_flag,
         'out_eq_1d': out_eq_1d,

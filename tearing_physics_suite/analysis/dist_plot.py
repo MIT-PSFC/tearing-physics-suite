@@ -83,16 +83,18 @@ def dist_values(ds, var, sel=None, isel=None, where=None):
 def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_bins=40, hist_frac=0.65,
               hist_offset=0.2, point_size=8, percent_bounds=(0, 100), range_buffer=0.05, ylog=None,
               sample_size=1000, hist_min_count=1, include_scatter=True, renorm=False, y_label=None,
-              title='', figsize=(12, 6), random_seed=None, onset=None):
+              title='', figsize=(12, 6), random_seed=None, onset=None, activity_onset=None):
     """dist_plotter: a horizontal histogram per time (shared bins; log for w_marg) right of that time's
     points (at most sample_size, randomly sampled). renorm: one count scale for all times, else each
-    time's own. A time with a single run gets a hollow marker. onset [ms]: the mode's onset time (same m/|n|),
-    a vertical line. Returns the figure."""
+    time's own. A time with a single run gets a hollow marker. onset / activity_onset [ms]: first onset of the
+    labelled mode (same m/|n|) / of the labelled activity (same |n|, same m parity), vertical lines. Returns the
+    figure."""
     ylog = 'w_marg' in var if ylog is None else ylog
     rng = np.random.default_rng(random_seed)
     times = np.asarray(times, float)
     ys = [v if v.size <= sample_size else rng.choice(v, sample_size, replace=False) for v in values]
-    tx = times if onset is None else np.append(times, onset)
+    marks = [t for t in (onset, activity_onset) if t is not None]
+    tx = np.append(times, marks)
     span = np.ptp(tx) if tx.size > 1 else 1.0
     x_lo = tx.min() - 0.05 * span if x_range[0] is None else x_range[0]
     x_hi = tx.max() + 0.05 * span if x_range[1] is None else x_range[1]
@@ -136,17 +138,22 @@ def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_
     ax.set_ylabel(y_label or var)
     ax.set_title(title)
     if onset is not None:
-        ax.axvline(onset, color='tab:blue', ls='--', lw=1.5, zorder=4, label=f'mode onset {onset:g} ms')
-    if not single or onset is not None:
+        ax.axvline(onset, color='tab:blue', ls='--', lw=1.5, zorder=4, label=f'mode onset (m/|n|) {onset:g} ms')
+    if activity_onset is not None:
+        ax.axvline(activity_onset, color='tab:orange', ls=':', lw=1.8, zorder=4,
+                   label=f'activity onset (|n|, m parity) {activity_onset:g} ms')
+    if not single or marks:
         ax.legend(loc='best', fontsize=8)
     fig.tight_layout()
     return fig
 
 
-def plot_shot(source, shot, out_dir, cases=CASES, t_ms=None, draws=None, fmt='pdf', onsets=None, **kw):
+def plot_shot(source, shot, out_dir, cases=CASES, t_ms=None, draws=None, fmt='pdf', onsets=None, activity=None,
+              **kw):
     """One dist_plot per case (variable, n, m) present in the shot's runs, unique surfaces only (r_occ 0),
     to <out_dir>/<shot>_<var>_m<m>n<n>.<fmt>; y-range from the 2-98th percentiles unless kw says.
-    onsets: {(m, |n|): onset t_ms}, drawn on that helicity's plots. Returns the paths."""
+    onsets: {(m, |n|): onset t_ms}, activity: {(|n|, m % 2): onset t_ms}, drawn on the matching plots.
+    Returns the paths."""
     kw.setdefault('percent_bounds', (2, 98))
     variables = sorted({c[0] for c in cases} | {'r_value', 'r_occ'})
     ds = select(open_shot(source, shot, variables), t_ms, draws)
@@ -160,7 +167,8 @@ def plot_shot(source, shot, out_dir, cases=CASES, t_ms=None, draws=None, fmt='pd
             continue
         fig = dist_plot(times, vals, var, title=f'shot {shot}  {m}/{n}  {var}  (rdcon, single helicity; '
                                                 f'{ds.sizes["run_idx"]} runs)',
-                        onset=(onsets or {}).get((m, abs(n))), **kw)
+                        onset=(onsets or {}).get((m, abs(n))), activity_onset=(activity or {}).get((abs(n), m % 2)),
+                        **kw)
         paths.append(os.path.join(out_dir, f'{shot}_{var}_m{m}n{n}.{fmt}'))
         fig.savefig(paths[-1])
         plt.close(fig)
@@ -175,10 +183,13 @@ def main(argv=None):
     p.add_argument('--vars', default='', help='comma-separated subset of the CASES variables')
     p.add_argument('--fmt', default='pdf', choices=('pdf', 'svg'))
     p.add_argument('--onsets', default='', help='mode onset times, m/|n|:t_ms, comma-separated (e.g. 2/1:1650,3/2:1400)')
+    p.add_argument('--activity', default='', help='activity onset times, |n|/odd|even:t_ms (e.g. 1/odd:1600,2/even:1450)')
     a = p.parse_args(argv)
     cases = [c for c in CASES if not a.vars or c[0] in a.vars.split(',')]
     onsets = {tuple(int(x) for x in mn.split('/')): float(t) for mn, t in (o.split(':') for o in a.onsets.split(',') if o)}
-    for path in plot_shot(a.source, a.shot, a.out, cases=cases, fmt=a.fmt, onsets=onsets):
+    activity = {(int(n), ('even', 'odd').index(par)): float(t)
+                for nk, t in (o.split(':') for o in a.activity.split(',') if o) for n, par in [nk.split('/')]}
+    for path in plot_shot(a.source, a.shot, a.out, cases=cases, fmt=a.fmt, onsets=onsets, activity=activity):
         print(path)
 
 

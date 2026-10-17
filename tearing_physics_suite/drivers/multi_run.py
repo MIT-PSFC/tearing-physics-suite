@@ -263,7 +263,7 @@ def _init_multi_run_worker(worker_id_queue, master_working_dir):
     })
 
 _PER_CASE_KEYS = ('Er_spline', 'omega_splines', 'Zeff', 'chi_perp_spline', 'chi_perp_i_spline',
-                  'energy_confinement_time', 'average_ion_mass')
+                  'energy_confinement_time', 'average_ion_mass', 'species')
 
 def _profile_kwargs(profile_dict, kwargs):
     """Merge per-case profile_dict entries into kwargs (explicit kwargs win).

@@ -9,16 +9,9 @@ import xarray as xr
 from scipy.interpolate import PchipInterpolator
 
 
-def _average_ion_mass(psi_n, n_main, n_imp, main_mass_amu=2.0, imp_mass_amu=12.0):
-    """rho-weighted (area-like) mean thermal ion mass [AMU] over psi_n <= 1."""
-    psi_n = np.asarray(psi_n, dtype=float)
-    mask = (psi_n >= 0) & (psi_n <= 1.0)
-    rho = np.sqrt(psi_n[mask])
-    n_main = np.asarray(n_main, dtype=float)[mask]
-    n_imp = np.asarray(n_imp, dtype=float)[mask]
-    mass = np.trapezoid(rho*(main_mass_amu*n_main + imp_mass_amu*n_imp), rho)
-    dens = np.trapezoid(rho*(n_main + n_imp), rho)
-    return float(mass/dens)
+def _species(impurity_Z, impurity_mass, main_mass=2.0):
+    """Deuterium main ions and one fully stripped impurity (masses in amu), for mre_terms_on_modes(species=...)."""
+    return dict(main_mass=float(main_mass), impurity_Z=float(impurity_Z), impurity_mass=float(impurity_mass))
 
 def read_kin_file(filename):
     """Read a .kin profile file and create splines for kinetic profiles.
@@ -87,7 +80,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
     dict
         Keys include ne_spline, te_keV_spline, ni_spline, ti_keV_spline,
         omega_tor_12C6_spline, v_pol_spline, Er_spline, time, time_idx,
-        omega_splines, average_ion_mass (D + C), extra_keys, and optionally shot_id.
+        omega_splines, species (deuterium + carbon), extra_keys, and optionally shot_id.
         If time_idx is None, returns a list of such dicts (one per time).
     """
 
@@ -140,7 +133,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
             omega_tor_spline = PchipInterpolator(psi_n_vals, omega_tor_12C6_vals, extrapolate=False)
             v_pol_spline = PchipInterpolator(psi_n_vals, v_pol_vals, extrapolate=False)
             Er_spline = PchipInterpolator(psi_n_vals, E_r_vals, extrapolate=False)
-            average_ion_mass = _average_ion_mass(psi_n_vals, n_i_vals, n_iC12_vals) # n_i assumed deuterium
+            species = _species(6, 12)  # n_i = n_e - 6 n_C: deuterium and carbon
             extra_key_vals = [rotation_xr[key].isel(time=time_idx).values for key in extra_keys]
             time_val = rotation_xr.time.values[time_idx]
 
@@ -178,7 +171,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
         'omega_splines': {
             'omega_tor_12C6': omega_tor_spline
         },
-        'average_ion_mass': average_ion_mass,
+        'species': species,
     }
 
     for key, val in zip(extra_keys, extra_key_vals):
@@ -269,7 +262,7 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
     sample_limit : int or None
         Max draws per scan key.
     impurity_mass_amu : float or None
-        Impurity mass for average_ion_mass. Default 2*Z_imp.
+        Impurity mass for the species model (mre_terms_on_modes). Default 2*Z_imp.
     eq_source : {'geqdsk', 'ifile'}
         Equilibrium written per draw: the g-file, or the OFT i-file (bouquet
         write_ifile=True runs; GPEC reads it as eq_type 'ldp_i', see
@@ -421,11 +414,10 @@ def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, 
         if name in attrs:
             out[name] = float(attrs[name])
 
-    # Single fully-stripped impurity: n_imp = (n_e - n_i)/Z_imp
+    # Single fully-stripped impurity: n_imp = (n_e - n_i)/Z_imp (in mre_terms_on_modes)
     Z_imp = attrs.get('Z_imp', getattr(getattr(cfg, 'source', None), 'impurity_Z', 6.0))
     imp_mass = 2.0*Z_imp if impurity_mass_amu is None else impurity_mass_amu
-    n_imp = np.clip((prof['n_e'] - prof['n_i'])/Z_imp, 0.0, None)
-    out['average_ion_mass'] = _average_ion_mass(psi_k, prof['n_i'], n_imp, imp_mass_amu=imp_mass)
+    out['species'] = _species(Z_imp, imp_mass)
 
     out.update(ida_extras)
 

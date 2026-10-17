@@ -1,5 +1,6 @@
 import numpy as np
 
+import tearing_physics_suite.physics.constants as gv
 from tearing_physics_suite.drivers.profile_read import read_kin_file
 from tearing_physics_suite.physics.surface_terms import (deltaprime_crit_on_modes, mre_terms_on_modes, spitzer_zeff_factor,
                                                          wc_prefac_m)
@@ -62,3 +63,22 @@ def test_spitzer_eta_carries_zeff(code_fixture, kin_file):
     for v in ('eta_spitz_surf', 'eta_spitz'):
         np.testing.assert_allclose(b[v].values, spitzer_zeff_factor(2.0)*a[v].values)
     np.testing.assert_allclose(b.taue_surf.values, a.taue_surf.values)   # Zeff enters chi_para_smfp, not tau_e
+
+
+def test_single_impurity_species(code_fixture, kin_file):
+    """species: rho = m_D n_i + m_C n_C + m_e n_e with n_C = (n_e - n_i)/6, v_ti and omega*_i of the main ions (Z = 1)."""
+    p = read_kin_file(kin_file)
+    kw = dict(ni_spline=p['ni_spline'], ne_spline=p['ne_spline'], ti_spline=p['ti_keV_spline'], te_spline=p['te_keV_spline'])
+    ni_scaled = lambda x, nu=0: 0.7*p['ne_spline'](x, nu)              # n_i = 0.7 n_e: carbon makes up the rest
+    ds = mre_terms_on_modes(code_fixture('rdcon'), **dict(kw, ni_spline=ni_scaled),
+                            species=dict(main_mass=2.0, impurity_Z=6.0, impurity_mass=12.0))
+    ne, ni = ds.ne_m3_surf.values, ds.ni_m3_surf.values
+    nc = (ne - ni)/6
+    np.testing.assert_allclose(ds.nimp_m3_surf.values, nc)
+    np.testing.assert_allclose(ds.rho_surf.values, (2*ni + 12*nc)*gv.amu + ne*gv.me)
+    np.testing.assert_allclose(ds.Zeff_species_surf.values, (ni + 36*nc)/ne)
+    np.testing.assert_allclose(ds.v_ti_surf.values, np.sqrt(2*gv.e*1e3*ds.ti_keV_surf.values/(2*gv.amu)))
+    assert float(ds.ne_on_ni_axis) == 1.0
+    old = mre_terms_on_modes(code_fixture('rdcon'), **kw, average_ion_mass=2.5)   # one ion species, as before
+    np.testing.assert_allclose(old.rho_surf.values, old.ni_m3_surf.values*2.5*gv.amu + old.ne_m3_surf.values*gv.me)
+    assert 'nimp_m3_surf' not in old and float(old.ne_on_ni_axis) != 1.0

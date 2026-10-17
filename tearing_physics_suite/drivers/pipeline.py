@@ -34,6 +34,7 @@ from tearing_physics_suite.wrappers.run_codes import run_resistive_calculation
 def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
     Zeff = None,
     average_ion_mass = None,
+    species=None,
     diamagnetic_rotation_ion_charge=None,
     # Rotation splines
     Er_spline=None, # Assuming input units of V/m
@@ -73,7 +74,9 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         Effective ion charge (for chi_para and bootstrap current).
         If dict, 'x' are psi_n values, 'y' are Zeff(psi_n) values.
     average_ion_mass : float
-        Mean ion mass in AMU (for Alfven speed / mass density).
+        Mean ion mass in AMU (for Alfven speed / mass density) of a single ion species.
+    species : dict or None
+        Main ions + one impurity instead: {'main_mass', 'impurity_Z', 'impurity_mass'} (see mre_terms_on_modes).
     nvec : list of int
         Toroidal mode numbers to analyse.
     **kwargs
@@ -102,8 +105,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     if Zeff is None:
         raise ValueError("Zeff must be provided for nonlinear resistive calculation.")
     Zeff = zeff_dict(Zeff)
-    if average_ion_mass is None:
-        raise ValueError("average_ion_mass must be provided for nonlinear resistive calculation.")
+    if average_ion_mass is None and species is None:
+        raise ValueError("average_ion_mass or species must be provided for nonlinear resistive calculation.")
 
     xarray_vec = []
     pest3_xr_vec = []
@@ -132,6 +135,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
             wd_static=wd_static,
             Zeff=Zeff,
             average_ion_mass=average_ion_mass,
+            species=species,
             diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge,
             force_lmfp=force_lmfp,
             **kwargs)
@@ -402,6 +406,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         debug=False,
         delete_attrs=True,
         average_ion_mass=2.5, # Average ion mass in amu, used for alfven time calculation
+        species=None, # Or main ions + one impurity: {'main_mass', 'impurity_Z', 'impurity_mass'} (see mre_terms_on_modes)
         force_lmfp=False, # Default False <=> whichever parallel transport calculation is more physical, lmfp or smfp, is used. Set True to always use lmfp.
         Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces.
         eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
@@ -455,7 +460,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Fill out rdcon_xr with important MRE terms:
     #########################################################################################################
-    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline=ni_spline, ne_spline=ne_spline, ti_spline=ti_keV_spline, te_spline=te_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline=ni_spline, ne_spline=ne_spline, ti_spline=ti_keV_spline, te_spline=te_keV_spline, average_ion_mass=average_ion_mass, species=species, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr)

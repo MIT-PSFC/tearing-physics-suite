@@ -163,7 +163,7 @@ def wc_prefac_m(Wc_prefac, m):
     return Wc_prefac/((2*np.pi)**4*m**2)
 
 
-def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=None,psi_surfs_of_interest=None,diamagnetic_rotation_ion_charge=None):
+def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,average_ion_mass=2.5,species=None,Coulomb_logarithm=None,eta_fac=1.0,Er_spline=None,omega_splines=None,q_surfs_of_interest=None,psi_surfs_of_interest=None,diamagnetic_rotation_ion_charge=None):
     """
     Calculate the MRE terms on modes using the provided xarray data and splines. This just
     deals with values out of rdcon_xarray, and natural flux coordinates. Requires mre_flag & geom_flag='t' (as per default)
@@ -180,6 +180,12 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
         Spline for ion temperature in KeV on normalised poloidal flux.
     te_spline : 1DSpline
         Spline for electron temperature in KeV on normalised poloidal flux.
+    average_ion_mass : float
+        Mean ion mass in amu of a single ion species of density ni (used when species is None).
+    species : dict or None
+        {'main_mass', 'impurity_Z', 'impurity_mass'} (amu): ni is the main-ion (charge 1) density and one fully
+        stripped impurity has n_imp = (ne - ni)/impurity_Z. Sets the mass density, v_ti (main ions) and, unless
+        diamagnetic_rotation_ion_charge is given, the omega*_i charge (1).
 
     Returns:
     rdcon_xarray : xarray.DataArray
@@ -228,9 +234,23 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                                         ti1_keV_surf = like(np.array(ti_spline(rdcon_xarray['psi_n_rational'].values,1)), rdcon_xarray['psi_n_rational']),
                                         te1_keV_surf = like(np.array(te_spline(rdcon_xarray['psi_n_rational'].values,1)), rdcon_xarray['psi_n_rational']))
 
-    # Check if average_ion_mass is in rdcon_xarray:
-    if 'average_ion_mass' not in rdcon_xarray:
-        rdcon_xarray = rdcon_xarray.assign(average_ion_mass=average_ion_mass) # Mass in units amu
+    if species is not None:
+        # Main ions (charge 1) and one fully stripped impurity, its density from quasi-neutrality
+        rdcon_xarray = rdcon_xarray.assign(
+            main_ion_mass=species['main_mass'], impurity_Z=species['impurity_Z'], impurity_mass=species['impurity_mass'],
+            nimp_m3_surf=np.clip(rdcon_xarray['ne_m3_surf'] - rdcon_xarray['ni_m3_surf'], 0, None)/species['impurity_Z'])
+        rdcon_xarray = rdcon_xarray.assign(Zeff_species_surf=(rdcon_xarray['ni_m3_surf'] + species['impurity_Z']**2
+                                                              *rdcon_xarray['nimp_m3_surf'])/rdcon_xarray['ne_m3_surf'])
+        ion_mass = rdcon_xarray['main_ion_mass']
+        rho_ions = rdcon_xarray['ni_m3_surf']*species['main_mass'] + rdcon_xarray['nimp_m3_surf']*species['impurity_mass']
+        if diamagnetic_rotation_ion_charge is None:
+            diamagnetic_rotation_ion_charge = 1.0
+    else:
+        # Check if average_ion_mass is in rdcon_xarray:
+        if 'average_ion_mass' not in rdcon_xarray:
+            rdcon_xarray = rdcon_xarray.assign(average_ion_mass=average_ion_mass) # Mass in units amu
+        ion_mass = rdcon_xarray['average_ion_mass']
+        rho_ions = rdcon_xarray['ni_m3_surf']*ion_mass
 
     # Thermal velocities in m/s. Note eV*e = joules, using Fitzpatrick 2023 Eq. 1.71-1.72 definition of thermal velocities
     rdcon_xarray = rdcon_xarray.assign(
@@ -239,7 +259,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                             / gv.me), # Electron mass in kg
         v_ti_surf = np.sqrt(2*
                             gv.e*(1e3*rdcon_xarray['ti_keV_surf']) #Ion temp in joules
-                            / (rdcon_xarray.average_ion_mass.values*gv.amu))) # Average ion mass in kg
+                            / (ion_mass.values*gv.amu))) # Main (or average) ion mass in kg
 
     rdcon_xarray = res_func(rdcon_xarray, eta_fac=eta_fac, Coulomb_logarithm=Coulomb_logarithm)
 
@@ -266,7 +286,7 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
 
     # Mass density in kg/m^3
     rdcon_xarray = rdcon_xarray.assign(
-        rho_surf = rdcon_xarray['ni_m3_surf']*rdcon_xarray['average_ion_mass']*gv.amu + rdcon_xarray['ne_m3_surf']*gv.me) # kg/m^3
+        rho_surf = rho_ions*gv.amu + rdcon_xarray['ne_m3_surf']*gv.me) # kg/m^3
 
     # The following are from Glasser et al. 2016 Appendix A12-A16:
     #  Resistive diffusion time in seconds

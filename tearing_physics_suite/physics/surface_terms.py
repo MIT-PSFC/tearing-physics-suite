@@ -381,7 +381,10 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
 
     Implements two formulations:
     1. Glasser, Greene & Johnson, Phys. Fluids 1975, Eq. 111
-    2. Connor, Hastie & Helander, PPCF 2015, Eq. 59
+    2. Connor, Ham, Hastie & Liu, PPCF 57 065001 (2015), Eq. 59
+
+    Both give Delta' in GGJ's Y = (V - V_s)/V_s; it is returned per psi_n, as RDCON's Delta' (sing_get_ua),
+    i.e. times (V'/V_s)^(1-2H), so the arbitrary V_s cancels. X0_surf is in psi_n.
 
     Parameters
     ----------
@@ -404,7 +407,6 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     Hs = rdcon_xarray['H_surf'].values
     Drs = rdcon_xarray['Dr_surf'].values
     X0s = rdcon_xarray['X0_surf'].values
-    v_rationals = rdcon_xarray['V_surf'].values
     v1_rationals = rdcon_xarray['dvdpsi_n_surf'].values
     q1_rationals = rdcon_xarray['dq_dpsi_n_surf'].values
     # For Connor et al. 2015:
@@ -426,14 +428,14 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     DeltaPrimeCrits15_no_chifrac = np.full_like(Hs, np.nan)
 
     for i in range(len(Hs)):
-        if not (Hs[i] < 0.5 or Hs[i] > -5/2): # Condition for validity for these formulas
+        if not -5/2 < Hs[i] < 1/2: # Condition for validity for these formulas
             continue
     #########################################################################################################
     # Glasser et al. Phys. Fluids 1975, Eq 111:
     #########################################################################################################
         Qcrit=abs(math.gamma(3/4)*math.gamma(1/2-Hs[i]/4)**2*math.gamma(1/4-Hs[i]/2)*math.sin((1-2*Hs[i])*math.pi/8)*Drs[i]/
                 (math.gamma(1/4)*math.gamma(1-Hs[i]/4)**2*math.gamma(3/4-Hs[i]/2)*math.sin((5+2*Hs[i])*math.pi/8)*4))**(2.0/3.0)
-        surface_factor = 2*v_rationals[i]/(X0s[i]*v1_rationals[i])
+        surface_factor = 2/X0s[i]
         DeltaPrimeCrits75[i]=math.pi*surface_factor**(1-2*Hs[i])*math.gamma(1/4)*math.gamma(1-Hs[i]/4)**2*math.gamma(3/4-Hs[i]/2)*Qcrit**((2*Hs[i]+5)/4)/((np.sqrt(2)*(1-2*Hs[i])*math.sin((1-2*Hs[i])*math.pi/8))*(1-Hs[i]/2)*(math.cos(Hs[i]*math.pi/2)*math.gamma((1+Hs[i])/4)*math.gamma(1-Hs[i]))**2)
         DeltaPrimeCrits75_no_X0[i] = DeltaPrimeCrits75[i]*(X0s[i]**(1-2*Hs[i]))
         Qcrits[i] = Qcrit
@@ -449,7 +451,7 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
         else:
             chi_para = chi_para_lmfp_noisland_surf[i]
         chi_frac_noisland = chi_para / chi_perp_surf[i]
-        DeltaPrimeCrits15[i] = (1/2)*np.pi**(3/2)*chi_frac_noisland**(1/4)*v_rationals[i]*(-Drs[i])*(alpha*alpha*Lambda*Lambda/(avg_Bsq_surf[i]*avg_dVsq))**(1/4)
+        DeltaPrimeCrits15[i] = (1/2)*np.pi**(3/2)*chi_frac_noisland**(1/4)*v1_rationals[i]*(-Drs[i])*(alpha*alpha*Lambda*Lambda/(avg_Bsq_surf[i]*avg_dVsq))**(1/4)
         DeltaPrimeCrits15_no_chifrac[i] = DeltaPrimeCrits15[i]/(chi_frac_noisland**(1/4))
 
     rdcon_xarray = rdcon_xarray.assign(

@@ -179,7 +179,7 @@ def build_all(
     gpec_single_threaded=False,
     legacy_gpec_test=True,
     work_dir=None,
-    gpec_branch="OFT_interface",
+    gpec_branch="pr_pchip_profiles",
     pest3_gpec_vacuum=True,
     jgpec_home=None,
 ):
@@ -415,8 +415,8 @@ def main():
     parser.add_argument(
         "--gpec-branch",
         type=str,
-        default="OFT_interface",
-        help="GPEC branch to clone if submodules/GPEC is missing and TPS is not a git checkout (default: OFT_interface)",
+        default="pr_pchip_profiles",
+        help="GPEC branch to clone if submodules/GPEC is missing and TPS is not a git checkout (default: pr_pchip_profiles)",
     )
 
     # Skip flags

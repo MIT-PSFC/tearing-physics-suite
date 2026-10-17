@@ -67,7 +67,7 @@ GPEC_LEGACY_RECIPE = {
     },
     "a5_tearing_example": {},
 }
-# a8be45d built F and p from the tabulated values; later GPEC defaults to
+# a8be45d built F and p from the tabulated values; later GPEC branches may default to
 # profile_source="integrate", so the legacy copies pin "values" when supported.
 GPEC_LEGACY_PROFILE_SOURCE = 'profile_source="values"'
 

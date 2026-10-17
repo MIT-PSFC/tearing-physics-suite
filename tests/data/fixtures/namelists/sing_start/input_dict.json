@@ -87,6 +87,7 @@
  "power_b": 0,
  "power_bp": 0,
  "power_r": 0,
+ "profile_source": "'integrate'",
  "psihigh": 0.999,
  "psilow": 0.0001,
  "qhigh": 1000.0,

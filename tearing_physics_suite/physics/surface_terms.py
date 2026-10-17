@@ -44,11 +44,7 @@ def mre_raw_interp(rdcon_xarray):
     #########################################################################################################
     surf = interp_to_surfaces(rdcon_xarray, _RAW_TO_SURF)
     # Zeff gets special treatment:
-    # Handle Zeff - it may be a DataArray or already a numpy array
-    psi_N_Zeff_vals = rdcon_xarray.psi_N_Zeff.values if hasattr(rdcon_xarray.psi_N_Zeff, 'values') else rdcon_xarray.psi_N_Zeff
-    Zeff_vals = rdcon_xarray.Zeff.values if hasattr(rdcon_xarray.Zeff, 'values') else rdcon_xarray.Zeff
-    Zeff_spline = PchipInterpolator(psi_N_Zeff_vals, Zeff_vals, extrapolate=False) # pchip, as GPEC/rdcon/mercier.f (spline_fit_pchip)
-    Zeff_surf = Zeff_spline(rdcon_xarray['psi_n_rational'].values)
+    Zeff_surf = zeff_spline(rdcon_xarray)(rdcon_xarray['psi_n_rational'].values)
     #########################################################################################################
     # Load these surface values into the xarray:
     #########################################################################################################
@@ -56,6 +52,18 @@ def mre_raw_interp(rdcon_xarray):
                                        Zeff_surf=like(Zeff_surf, rdcon_xarray['psi_n_rational']))
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray
+
+
+def zeff_spline(rdcon_xarray):
+    """RDCON's Zeff table (variables or attributes) as a function of psi_n: pchip, as GPEC/rdcon/mercier.f."""
+    return PchipInterpolator(np.asarray(rdcon_xarray.psi_N_Zeff), np.asarray(rdcon_xarray.Zeff), extrapolate=False)
+
+
+def spitzer_zeff_factor(zeff):
+    """Spitzer resistivity at Zeff over its Z = 1 value: Z N(Z) / N(1), N(Z) = 0.58 + 0.74/(0.76 + Z) (Wesson, Tokamaks, sec. 2.16)."""
+    def n(z):
+        return 0.58 + 0.74/(0.76 + z)
+    return zeff*n(zeff)/n(1.0)
 
 
 def get_X0s_and_DeltaPrime_crit(eta,mass_densities,n,
@@ -104,12 +112,13 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
     """Compute Spitzer resistivity and Coulomb logarithm on rational surfaces and full psi grid.
 
     Adds variables eta_spitz, eta_spitz_surf, lnLamb_ei, lnLamb_ei_surf (and ee variants)
-    to rdcon_xarray using Wesson Tokamaks formulae.
+    to rdcon_xarray using Wesson Tokamaks formulae; the resistivity includes Zeff (spitzer_zeff_factor).
 
     Parameters
     ----------
     rdcon_xarray : xr.Dataset
-        Must contain ne_m3, te_keV (full grid) and ne_m3_surf, te_keV_surf (on rational surfaces).
+        Must contain ne_m3, te_keV (full grid), ne_m3_surf, te_keV_surf, Zeff_surf (on rational surfaces)
+        and RDCON's Zeff table.
     eta_fac : float
         Multiplicative factor applied to Spitzer resistivity (e.g. to match simulation values).
     Coulomb_logarithm : float or None
@@ -135,9 +144,12 @@ def res_func(rdcon_xarray, eta_fac=1.0, Coulomb_logarithm=None):
             lnLamb_ei = like(Coulomb_logarithm, rdcon_xarray['psi_n'])                # Dimless
         )
     # Resistivity in Ohm m from Wesson Tokamaks
+    zeff = like(zeff_spline(rdcon_xarray)(rdcon_xarray['psi_n'].values), rdcon_xarray['psi_n'])
     rdcon_xarray = rdcon_xarray.assign(
-        eta_spitz_surf = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei_surf']*(rdcon_xarray['te_keV_surf']**(-3/2)),    # Ohm m
-        eta_spitz = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei']*(rdcon_xarray['te_keV']**(-3/2))                    # Ohm m
+        eta_spitz_surf = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei_surf']*(rdcon_xarray['te_keV_surf']**(-3/2))
+                         *spitzer_zeff_factor(rdcon_xarray['Zeff_surf']),                                          # Ohm m
+        eta_spitz = eta_fac*1.65*1e-9*rdcon_xarray['lnLamb_ei']*(rdcon_xarray['te_keV']**(-3/2))
+                    *spitzer_zeff_factor(zeff)                                                                     # Ohm m
     )
     return rdcon_xarray
 
@@ -231,7 +243,8 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
 
     rdcon_xarray = res_func(rdcon_xarray, eta_fac=eta_fac, Coulomb_logarithm=Coulomb_logarithm)
 
-    # Electron-ion collision time in seconds using Wesson Tokamaks page 729 assuming singly charged ions:
+    # Electron-ion collision time in seconds using Wesson Tokamaks page 729 for singly charged ions (= Fitzpatrick 2023
+    # Eq. 2.20). No Zeff here: its one use, chi_para_smfp (Fitzpatrick Eq. 14.205), carries the Zeff correction itself.
     rdcon_xarray = rdcon_xarray.assign(
         taue_surf = 1.09*(10**16)*(rdcon_xarray['te_keV_surf']**(3/2))*(1/rdcon_xarray['ne_m3_surf'])*(1/rdcon_xarray['lnLamb_ei_surf'])) # seconds
 

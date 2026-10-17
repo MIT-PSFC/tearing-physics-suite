@@ -39,13 +39,31 @@ def test_feed(study):
     uid = _record(study, 100, 1500)
     _record(study, 100, 1600, status='failed')
     _record(study, 101, 1500, variant='other')
-    assert st.feed(study) == 3                          # 5 selected draws, 2 per item
+    assert st.feed(study) == 4                          # 5 selected draws, 2 per item, and the baseline
     items = fq.Queue(st.qroot(study)).units()
-    assert sorted(items) == [f'{uid}.c0', f'{uid}.c1', f'{uid}.c2']
+    assert sorted(items) == [f'{uid}.base', f'{uid}.c0', f'{uid}.c1', f'{uid}.c2']
     assert items[f'{uid}.c2']['draws'] == [4]
+    assert items[f'{uid}.base']['draws'] == [st.BASELINE_DRAW]
     assert st.feed(study) == 0
     _record(study, 102, 900, selected=(1,))
-    assert st.feed(study) == 1
+    assert st.feed(study) == 2
+
+
+def test_feed_adds_baseline_to_a_fed_unit(study):
+    uid = _record(study, 100, 1500, selected=(0,))
+    cfg = st.load_config(study)
+    assert st.feed(study, dict(cfg, baseline=False)) == 1
+    assert st.feed(study) == 1                          # only <unit>.base is new
+    assert sorted(fq.Queue(st.qroot(study)).units()) == [f'{uid}.base', f'{uid}.c0']
+
+
+def test_run_baseline_item(study, monkeypatch):
+    uid = _record(study, 100, 1500, selected=(0,))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    out = st.run_item(study, f'{uid}.base')
+    assert [(d['draw'], d['status']) for d in out['draws']] == [(-1, 'ok')]
+    assert _status(study, uid, -1)['case_key'] == f'{uid}_-1'
 
 
 def _run_dataset(c, n_r=3):

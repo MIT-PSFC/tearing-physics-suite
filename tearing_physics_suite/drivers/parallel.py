@@ -43,7 +43,9 @@ DEFAULTS = dict(
     n_same_sig=6,               # this many draw failures in a row with one signature, over >= 2 units: worker broken
     tau_e=None,                 # {"path": I2 netCDF(s), ':'-separated globs, $VARS expanded, "variable": name}: the
                                 # energy confinement time per draw (see tau_e_lookup)
+    baseline=True,              # also run each archive's bouquet baseline, as draw BASELINE_DRAW (item <unit>.base)
 )
+BASELINE_DRAW = -1
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
 INFRA = (ImportError, MemoryError)
@@ -140,17 +142,26 @@ def _archive_counts(path, selection):
 
 
 def feed(study, cfg=None):
-    """Add work items for bouquet units recorded 'done' and not yet fed; returns how many were added."""
+    """Add work items for bouquet units recorded 'done' and not yet fed; returns how many were added.
+
+    The baseline is its own item (<unit>.base), so it is added to units fed before it was enabled.
+    """
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study))
-    fed = {u.get('unit_id') for u in q.units(refresh=True).values()}
+    units = q.units(refresh=True)
+    fed = {u.get('unit_id') for u in units.values()}
     items = []
     for rec_path in sorted(glob.glob(os.path.join(study, '*', 'bouquet', '*.json'))):
         r = fq.read_json(rec_path) or {}
         uid = r.get('unit_id')
-        if r.get('status') != 'done' or uid in fed or r.get('variant') not in cfg['variants']:
+        if r.get('status') != 'done' or r.get('variant') not in cfg['variants']:
             continue
         archive = os.path.join(os.path.dirname(rec_path), r['archive'])
+        if cfg.get('baseline', True) and f'{uid}.base' not in units:
+            items.append(dict(id=f'{uid}.base', unit_id=uid, shot=r['shot'], t_ms=r['t_ms'], variant=r['variant'],
+                              archive=archive, draws=[BASELINE_DRAW], est=1))
+        if uid in fed:
+            continue
         counts = r.get('selected_counts' if cfg['selection'] == 'selected' else 'all_counts')
         if counts is None:
             counts = _archive_counts(archive, cfg['selection'])

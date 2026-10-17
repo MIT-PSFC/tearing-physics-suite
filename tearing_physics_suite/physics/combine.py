@@ -116,6 +116,10 @@ def collapse_to_primary(ds, dims=("r", "r_prime")):
     slice is collapsed separately and re-concatenated with an outer join on the
     real values. {dim}_unique is kept to flag surfaces that were degenerate.
     """
+    if 'r_prime' in dims and 'r_prime' in ds.dims and 'r_prime_value' not in ds and 'r_value' in ds:
+        # Compiled stores drop r_prime_* (identical to r_*, see drivers/store_schema.py)
+        ds = ds.assign({f'r_prime_{s}': ([d if d != 'r' else 'r_prime' for d in ds[f'r_{s}'].dims], ds[f'r_{s}'].values)
+                        for s in ('value', 'occ') if f'r_{s}' in ds})
     present = [d for d in dims if d in ds.dims and f"{d}_value" in ds and f"{d}_occ" in ds]
     if not present:
         return ds
@@ -215,6 +219,18 @@ def code_delta_primes(ds, code):
     return extract_delta_primes(ds)
 
 
+# Variables whose attributes others pick up through arithmetic (xarray keeps a lone operand's attrs)
+ATTR_SOURCES = ('psi_n_rational', 'psi_n', 'q_rational')
+
+
+def strip_inherited_attrs(ds):
+    """Drop attrs that data variables inherited from ATTR_SOURCES (e.g. a '_surf' term labelled
+    'Normalized Poloidal Flux at Rational Surfaces'). Returns a new dataset."""
+    sources = [dict(ds[v].attrs) for v in ATTR_SOURCES if v in ds.variables and ds[v].attrs]
+    stale = [v for v in ds.data_vars if v not in ATTR_SOURCES and ds[v].attrs and dict(ds[v].attrs) in sources]
+    return ds.assign({v: ds[v].drop_attrs() for v in stale})
+
+
 def combine_codes(datasets, nn, debug=False, **concat_kwargs):
     """Concatenate per-code datasets along 'code' (in dict order), then add a leading 'nn' dim.
 
@@ -244,6 +260,7 @@ def combine_codes(datasets, nn, debug=False, **concat_kwargs):
             if not kept:
                 combined = None
     if combined is not None:
+        combined = strip_inherited_attrs(combined)
         assert 'nn' not in combined, 'nn already defined, debug this function.'
         if nn is None:
             raise KeyError('nn')

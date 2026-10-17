@@ -67,7 +67,8 @@ def test_run_baseline_item(study, monkeypatch):
 
 
 def _run_dataset(c, n_r=3):
-    return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), np.full((1, 2, n_r), float(c))), 'qlim': ((), 3.0)},
+    return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), np.full((1, 2, n_r), float(c))), 'qlim': ((), 3.0),
+                       'dwdt_surf': (('nn', 'code', 'r'), np.zeros((1, 2, n_r)))},
                       coords={'nn': [1], 'code': ['rdcon', 'stride'], 'r': np.arange(n_r)})
 
 
@@ -151,6 +152,7 @@ def test_compile_incremental(study, monkeypatch):
     np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0])
     assert set(ds.variant.values) == {'base'} and set(ds.t_ms.values) == {1500}
     assert list(ds.code.values) == ['rdcon', 'stride']
+    assert 'dwdt_surf' not in ds and ds.Delta_prime.dtype == np.float32    # reduced as multi_compile_zarr does (F)
     dp = ds.Delta_prime.isel(nn=0, r=0)                  # draw 1 had no STRIDE: NaN there, RDCON in place
     assert dp.sel(code='rdcon').values[1] == 1.0 and np.isnan(dp.sel(code='stride').values[1])
     inputs = xr.open_dataset(st.shot_store(study, 100).removesuffix('.zarr') + '_inputs.nc')

@@ -40,7 +40,10 @@ def run_gpec_code(code, working_dir, nn, fresh_start=True, save_terminal_output=
         status = run_code(f'{working_dir}/{code}', shell=False)
     if status != 0 or not os.path.exists(out_nc):
         return None, False
-    return xr.open_dataset(out_nc), True
+    ds = xr.open_dataset(out_nc)
+    if 'Delta_prime' in ds:  # RDCON and STRIDE label it 'PEST3 Delta Prime Matrix'
+        ds['Delta_prime'].attrs['long_name'] = 'Delta prime matrix'
+    return ds, True
 
 
 def save_output(code, ds, path, override_save=False, verbose=False):

@@ -148,7 +148,7 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         "",
         "# ── jGPEC (Julia GPEC, run_jgpec) ─────────────────────────────────────────",
         f"export JGPEC_HOME={jgpec_home}",
-        f"export JGPEC_JULIA={julia_exe()}",
+        f"export JGPEC_JULIA=${{JGPEC_JULIA:-{julia_exe()}}}",   # a caller's wrapper (e.g. a depot launcher) wins
         "",
         "echo \"tearing_physics_suite environment loaded.\"",
         f"echo \"  TPSHOME : {repo_root}\"",

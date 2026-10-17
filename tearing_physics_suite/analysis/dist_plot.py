@@ -86,7 +86,7 @@ def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_
               title='', figsize=(12, 6), random_seed=None):
     """dist_plotter: a horizontal histogram per time (shared bins; log for w_marg) right of that time's
     points (at most sample_size, randomly sampled). renorm: one count scale for all times, else each
-    time's own. Returns the figure."""
+    time's own. A time with a single run gets a hollow marker. Returns the figure."""
     ylog = 'w_marg' in var if ylog is None else ylog
     rng = np.random.default_rng(random_seed)
     times = np.asarray(times, float)
@@ -110,12 +110,19 @@ def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_
     top = max((c.max() for c in counts if c.size), default=0)
 
     fig, ax = plt.subplots(figsize=figsize)
+    single = True
     for t, y, c in zip(times, ys, counts):
+        if y.size == 1:   # one run (e.g. baseline only): a hollow marker, no histogram
+            ax.scatter([t], y, s=4 * point_size, facecolors='none', edgecolors='k', zorder=3,
+                       label='single run' if single else None)
+            single = False
+            continue
         if include_scatter and y.size:
             ax.scatter(np.full_like(y, t), y, s=point_size, color='r', alpha=0.35, zorder=3, edgecolors='none')
-        if c.max() > 0:
-            ax.barh(0.5 * (edges[:-1] + edges[1:]), c / (top if renorm else c.max()) * hist_frac * dt,
-                    left=t + hist_offset * dt, height=np.diff(edges) * 0.9, color='k', edgecolor='none',
+        on = c > 0   # empty bins are not drawn (a zero-width bar still renders as a hairline)
+        if on.any():
+            ax.barh(0.5 * (edges[:-1] + edges[1:])[on], c[on] / (top if renorm else c.max()) * hist_frac * dt,
+                    left=t + hist_offset * dt, height=np.diff(edges)[on] * 0.9, color='k', edgecolor='none',
                     zorder=2)
     if ylog:
         ax.set_yscale('log')
@@ -126,6 +133,8 @@ def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_
     ax.set_xlabel('t [ms]')
     ax.set_ylabel(y_label or var)
     ax.set_title(title)
+    if not single:
+        ax.legend(loc='best', fontsize=8)
     fig.tight_layout()
     return fig
 

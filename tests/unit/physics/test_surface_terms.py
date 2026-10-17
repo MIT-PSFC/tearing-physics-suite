@@ -25,3 +25,17 @@ def test_deltaprime_crit_only_inside_h_range(rdcon_surface_terms):
     for v in ('Delta_prime_crit', 'Delta_prime_tcrit'):
         assert np.isfinite(ref[v][0]) and np.isnan(out[v][0])
         np.testing.assert_array_equal(out[v][1:], ref[v][1:])
+
+
+def test_deltaprime_crit_per_psi_n(rdcon_surface_terms):
+    """At H = 0 the GGJ critical Delta' is GGJ Eq. 98 with V_s/X0 -> 1/X0 (per psi_n); neither depends on V_surf."""
+    from math import gamma, pi, sin, tan
+    rd = rdcon_surface_terms.copy(deep=True)
+    rd['H_surf'][0], rd['Dr_surf'][0] = 0.0, -0.01
+    out = deltaprime_crit_on_modes(rd)
+    qc = (pi/4*tan(pi/8)*0.01)**(2/3)
+    eq98 = np.sqrt(2)*pi/sin(pi/8)*gamma(3/4)/gamma(1/4)*qc**1.25/float(rd['X0_surf'][0])
+    np.testing.assert_allclose(float(out['Delta_prime_crit'][0]), eq98, rtol=1e-12)
+    rd['V_surf'] = rd['V_surf']*10
+    for v in ('Delta_prime_crit', 'Delta_prime_tcrit'):
+        np.testing.assert_array_equal(deltaprime_crit_on_modes(rd)[v], out[v])

@@ -414,6 +414,12 @@ def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, 
         out['omega_splines'] = {'omega_tor': spl(prof['aux_omega_tor'])}
     if 'aux_e_r' in prof:
         out['Er_spline'] = spl(prof['aux_e_r'])
+    for name in ('chi_perp_e', 'chi_perp_i'):           # power-balance chi_perp [m^2/s], bouquet transport.py
+        if name in prof:
+            out[f'{name}_spline'] = spl(prof[name])
+    for name in ('tau_E_th', 'tau_E'):                  # [s]
+        if name in attrs:
+            out[name] = float(attrs[name])
 
     # Single fully-stripped impurity: n_imp = (n_e - n_i)/Z_imp
     Z_imp = attrs.get('Z_imp', getattr(getattr(cfg, 'source', None), 'impurity_Z', 6.0))

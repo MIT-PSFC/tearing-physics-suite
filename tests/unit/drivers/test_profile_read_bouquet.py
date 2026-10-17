@@ -58,3 +58,11 @@ def test_profile_kwargs_labels():
     assert out == dict(energy_confinement_time=0.2, chi_perp_spline='S')
     assert _profile_kwargs(prof, {}) == {}
     assert _profile_kwargs(prof, dict(chi_perp_label='chi_perp_e_spline', chi_perp_spline='K')) == dict(chi_perp_spline='K')
+
+
+def test_draw_species():
+    x = np.linspace(0, 1, 11)
+    prof = dict(psi_N=x, psi_N_kinetic=x, n_e=1e19 + 0*x, n_i=0.8e19 + 0*x, T_e=1e3 + 0*x, T_i=1e3 + 0*x)
+    out = _bouquet_draw_profiles(prof, dict(Z_imp=6.0), None, '1500', 0, {}, False, None)
+    assert out['species'] == dict(main_mass=2.0, impurity_Z=6.0, impurity_mass=12.0) and 'average_ion_mass' not in out
+    assert _bouquet_draw_profiles(prof, {}, None, '1500', 0, {}, False, 16.0)['species']['impurity_mass'] == 16.0

@@ -724,7 +724,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     return True
 
 
-def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="OFT_interface", disable_openmp=False, legacy_test=True, work_dir=None):
+def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="pr_pchip_profiles", disable_openmp=False, legacy_test=True, work_dir=None):
     """
     Build the GPEC code from the submodules/GPEC submodule (cloned from GitHub when TPS
     is not a git checkout) with make.
@@ -765,7 +765,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         If True (default), run GPEC_install_test() after a successful build.
         Set to False to skip post-build verification.
     branch : str
-        Git branch to clone when not using the submodule (default: "OFT_interface").
+        Git branch to clone when not using the submodule (default: "pr_pchip_profiles", which holds the pin).
     disable_openmp : bool
         If True, pass ``OMPFLAG=`` (empty) to make, omitting the OpenMP
         compiler flag so the compiled executables run single-threaded.
@@ -814,7 +814,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         return True
 
     # ------------------------------------------------------------------
-    # Step 1: Get GPEC (submodule, else clone the OFT_interface branch)
+    # Step 1: Get GPEC (submodule, else clone the given branch)
     # ------------------------------------------------------------------
     print("\nStep 1: Preparing GPEC source...")
     if not fetch_source(gpec_source, gpec_url, branch=branch, home_dir=home_dir):

@@ -1,6 +1,6 @@
 import numpy as np
 
-from tearing_physics_suite.physics.surface_terms import wc_prefac_m
+from tearing_physics_suite.physics.surface_terms import deltaprime_crit_on_modes, wc_prefac_m
 
 
 def test_wc_cylinder_heat_balance_width():
@@ -14,3 +14,14 @@ def test_wc_cylinder_heat_balance_width():
     Wc_prefac = (v1*avg5/(q*psio))*v1*avg7*(q*psio)*(q**6/(q1/psio)**2)*(1/(q*psio))**4
     w_r = (chi*wc_prefac_m(Wc_prefac, n*q))**0.25*psio/dPsi_dr
     np.testing.assert_allclose(w_r, chi**0.25*np.sqrt(R0*r/(n*s)), rtol=1e-12)
+
+
+def test_deltaprime_crit_only_inside_h_range(rdcon_surface_terms):
+    """GGJ/CHH critical Delta' are left NaN where H is outside (-5/2, 1/2); the other surfaces are unchanged."""
+    ref = deltaprime_crit_on_modes(rdcon_surface_terms)
+    rd = rdcon_surface_terms.copy(deep=True)
+    rd['H_surf'][0] = 0.7
+    out = deltaprime_crit_on_modes(rd)
+    for v in ('Delta_prime_crit', 'Delta_prime_tcrit'):
+        assert np.isfinite(ref[v][0]) and np.isnan(out[v][0])
+        np.testing.assert_array_equal(out[v][1:], ref[v][1:])

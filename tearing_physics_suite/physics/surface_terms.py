@@ -381,7 +381,7 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
 
     Implements two formulations:
     1. Glasser, Greene & Johnson, Phys. Fluids 1975, Eq. 111
-    2. Connor, Hastie & Helander, PPCF 2015, Eq. 59
+    2. Connor, Ham, Hastie & Liu, PPCF 57 065001 (2015), Eq. 59
 
     Parameters
     ----------
@@ -426,7 +426,7 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     DeltaPrimeCrits15_no_chifrac = np.full_like(Hs, np.nan)
 
     for i in range(len(Hs)):
-        if not (Hs[i] < 0.5 or Hs[i] > -5/2): # Condition for validity for these formulas
+        if not -5/2 < Hs[i] < 1/2: # Condition for validity for these formulas
             continue
     #########################################################################################################
     # Glasser et al. Phys. Fluids 1975, Eq 111:

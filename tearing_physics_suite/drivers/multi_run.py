@@ -953,17 +953,24 @@ def bare_episode(ds, episode_dim="run_idx"):
 def rechunk_store(zarr_path, episode_dim="run_idx", mb_per_chunk=10, codes=None):
     """Rewrite a store chunked along episode_dim (about mb_per_chunk MB per chunk) and consolidate it.
 
-    codes: keep only these entries of the 'code' dim."""
+    Each variable along episode_dim is one zarr v3 shard holding all its chunks, so the store has about one
+    file per variable whatever the number of runs. codes: keep only these entries of the 'code' dim."""
     ds_store = xr.open_zarr(zarr_path, consolidated=True)
     if codes is not None and 'code' in ds_store.dims:
         ds_store = ds_store.sel(code=codes)
     n = ds_store.sizes[episode_dim]
     mean_mb = ds_store.isel({episode_dim: 0}).nbytes / (1024 * 1024)
     episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n)
-    chunk_spec = {episode_dim: episodes_per_chunk} | {
+    shard = -(-n // episodes_per_chunk) * episodes_per_chunk
+    ds_store = zarr_chunk(ds_store, chunk_spec={episode_dim: shard} | {
         k: ds_store.sizes[k] for k in ds_store.dims if k != episode_dim
-    }
-    ds_store = zarr_chunk(ds_store, chunk_spec=chunk_spec)
+    })
+    for v in ds_store.data_vars:
+        da = ds_store[v]
+        if episode_dim in da.dims:
+            da.encoding.update(
+                chunks=tuple(episodes_per_chunk if d == episode_dim else max(1, da.sizes[d]) for d in da.dims),
+                shards=tuple(shard if d == episode_dim else max(1, da.sizes[d]) for d in da.dims))
     tmp_path = zarr_path + ".tmp"
     ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
     shutil.rmtree(zarr_path)

@@ -118,12 +118,13 @@ def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=None):
 
     SMFP: Braginskii chi_par,i = 3.9 T_i tau_i/m_i, with tau_i from Wesson (Tokamaks p. 729) for main ions colliding
     with all ions (field density sum_j n_j Z_j^2 = Zeff n_e in place of n_i) and Wesson's ion Coulomb logarithm.
-    LMFP: chi_para_lmfp_no_w_surf with the main-ion thermal speed in place of v_te.
+    LMFP: chi_para_lmfp_no_w_surf and chi_para_lmfp_noisland_surf with the main-ion thermal speed in place of v_te.
 
     Parameters
     ----------
     rdcon_xarray : xr.Dataset
-        Must contain ti_keV_surf, ni_m3_surf, ne_m3_surf, Zeff_surf, v_te_surf, chi_para_lmfp_no_w_surf.
+        Must contain ti_keV_surf, ni_m3_surf, ne_m3_surf, Zeff_surf, v_te_surf, chi_para_lmfp_no_w_surf,
+        chi_para_lmfp_noisland_surf.
     main_ion_mass_amu : float or None
         Main-ion mass; None takes the species model's main_ion_mass (mre_terms_on_modes), else deuterium (2).
         Not the impurity-weighted average_ion_mass.
@@ -131,8 +132,8 @@ def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=None):
     Returns
     -------
     xr.Dataset
-        Input dataset with taui_surf [s], v_ti_main_surf [m/s], chi_para_smfp_i_surf and
-        chi_para_lmfp_no_w_i_surf [m^2/s] added.
+        Input dataset with taui_surf [s], v_ti_main_surf [m/s], chi_para_smfp_i_surf, chi_para_lmfp_no_w_i_surf and
+        chi_para_lmfp_noisland_i_surf [m^2/s] added.
     """
     if main_ion_mass_amu is None:
         main_ion_mass_amu = float(rdcon_xarray['main_ion_mass']) if 'main_ion_mass' in rdcon_xarray else 2.0
@@ -145,7 +146,8 @@ def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=None):
         taui_surf=taui,
         v_ti_main_surf=v_ti,
         chi_para_smfp_i_surf=3.9*gv.e*1e3*ti*taui/m_i,
-        chi_para_lmfp_no_w_i_surf=rdcon_xarray['chi_para_lmfp_no_w_surf']*v_ti/rdcon_xarray['v_te_surf'])
+        chi_para_lmfp_no_w_i_surf=rdcon_xarray['chi_para_lmfp_no_w_surf']*v_ti/rdcon_xarray['v_te_surf'],
+        chi_para_lmfp_noisland_i_surf=rdcon_xarray['chi_para_lmfp_noisland_surf']*v_ti/rdcon_xarray['v_te_surf'])
 
 
 def chi_ion_weight_on_modes(rdcon_xarray, chi_model='tau_E'):
@@ -170,6 +172,31 @@ def chi_ion_weight_on_modes(rdcon_xarray, chi_model='tau_E'):
     else:
         f_i = 0.0*rdcon_xarray['psi_n_rational']
     return rdcon_xarray.assign(chi_ion_weight_surf=f_i)
+
+
+def single_fluid_chi_para(ds, lmfp, w=1.0, force_lmfp=False, use_Fitz_formula=False):
+    """Single-fluid chi_para [m^2/s] = (1 - f_i) chi_para,e + f_i chi_para,i, f_i = chi_ion_weight_surf (0 if absent).
+
+    Each species takes its long mean-free-path value ds[lmfp + '_surf'] (ions: lmfp + '_i_surf'), divided by w, and its
+    short one (chi_para_smfp_surf, chi_para_smfp_i_surf): their minimum, their harmonic mean (Fitzpatrick 2023
+    Eq. 14.209) with use_Fitz_formula, or the long one alone with force_lmfp. W_c (mre_model.generate_wd_function) uses
+    lmfp='chi_para_lmfp_no_w' at the island width w; the critical Delta' of Connor et al. 2015 (surface_terms) uses
+    lmfp='chi_para_lmfp_noisland'.
+    """
+    def species(sfx):
+        lmfp_s = ds[f'{lmfp}{sfx}_surf'].values/w
+        if force_lmfp:
+            return lmfp_s
+        smfp_s = ds[f'chi_para_smfp{sfx}_surf'].values
+        if not use_Fitz_formula:
+            return np.minimum(lmfp_s, smfp_s)
+        return lmfp_s*smfp_s/(lmfp_s + smfp_s) # If the two are equal, it cuts chi_para in half, which I don't agree with.
+
+    f_i = ds['chi_ion_weight_surf'].values if 'chi_ion_weight_surf' in ds else 0.0
+    chi_para = species('')
+    if np.any(f_i != 0):
+        chi_para = (1 - f_i)*chi_para + f_i*species('_i')
+    return chi_para
 
 
 # Checked

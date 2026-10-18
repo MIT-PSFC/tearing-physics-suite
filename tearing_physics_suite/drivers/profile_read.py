@@ -407,9 +407,11 @@ def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, 
         out['omega_splines'] = {'omega_tor': spl(prof['aux_omega_tor'])}
     if 'aux_e_r' in prof:
         out['Er_spline'] = spl(prof['aux_e_r'])
-    for name, key in (('chi_perp_e', 'chi_perp_spline'), ('chi_perp_i', 'chi_perp_i_spline')):   # power balance [m^2/s]
-        if name in prof:
-            out[key] = spl(prof[name])
+    if 'chi_perp_e' in prof:                            # power balance [m^2/s]
+        out['chi_perp_spline'] = spl(prof['chi_perp_e'])
+    if 'chi_perp_i' in prof:                            # bouquet's is per main ion n_e/Zeff (IMAS.jl); TPS weights it by n_i
+        n_main = prof['n_e']/np.asarray(zeff) if zeff is not None else prof['n_i']
+        out['chi_perp_i_spline'] = spl(prof['chi_perp_i']*n_main/prof['n_i'])
     for name in ('tau_E_th', 'tau_E'):                  # [s]
         if name in attrs:
             out[name] = float(attrs[name])

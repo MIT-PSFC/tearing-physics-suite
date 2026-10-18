@@ -469,6 +469,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline,
                                  chi_perp_i_spline=chi_perp_i_spline, chi_model=chi_model)
     rdcon_xr = deltaprime_crit_on_modes(rdcon_xr, force_lmfp=force_lmfp)
+    surface_terms = [v for v in rdcon_xr.data_vars if v not in res.rdcon_xr.data_vars]  # stored without 'code'
 
     if debug_mre_terms:
         return rdcon_xr, None, None
@@ -489,7 +490,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         expanded[code] = ds
 
     # PEST3 is also returned on its own if it could not be combined (see combine_codes).
-    combined_xr, dropped = combine_codes(expanded, input_dict.get('nn'), debug=debug)
+    combined_xr, dropped = combine_codes(expanded, input_dict.get('nn'), debug=debug, rdcon_only=surface_terms)
     pest3_xr_out = dropped.get('pest3')
 
     return combined_xr, pest3_xr_out, input_dict

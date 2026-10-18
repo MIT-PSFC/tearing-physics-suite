@@ -21,6 +21,9 @@ STORE_DROP = ('dwdt_surf', 'interval_icell', 'iitvl', 'etypes', 'cell_x1', 'cell
 # W_t and the eigenvalues stay in full
 EIGVEC_VARS = ('W_t_eigenvector', 'W_p_eigenvector', 'W_v_eigenvector')
 EIGVEC_MODES = 2
+# float32 profiles on psi_n keep PROFILE_KEEPBITS of the 23 mantissa bits, so they compress better: relative
+# error <= 2**-(PROFILE_KEEPBITS + 1) = 1.2e-4 (user 10-17). Surface values and the Delta' family are not rounded.
+PROFILE_KEEPBITS = 12
 # k0/k1/C0 recompute inputs stay float64 when the store is float32 (P7)
 KEEP_FLOAT64 = frozenset(RECOMPUTE_INPUTS + OPTIONAL_INPUTS)
 # Never blanked as cross-code duplicates: every code keeps its own q (P9, user)
@@ -96,9 +99,25 @@ def to_float32(ds, keep=KEEP_FLOAT64):
                       if ds[v].dtype == np.float64 and v not in keep})
 
 
+def bitround(a, keepbits):
+    """float32 array with the mantissa rounded to keepbits bits (half to even, as numcodecs.BitRound); non-finite kept."""
+    a = np.asarray(a, np.float32)
+    drop = 23 - keepbits
+    b = np.ascontiguousarray(a).view(np.uint32)
+    b = (b + np.uint32((1 << (drop - 1)) - 1) + ((b >> drop) & 1)) & np.uint32(~((1 << drop) - 1) & 0xFFFFFFFF)
+    return np.where(np.isfinite(a), b.view(np.float32), a)
+
+
+def round_profiles(ds, keepbits=PROFILE_KEEPBITS):
+    """float32 data variables on psi_n bit-rounded to keepbits mantissa bits."""
+    return ds.assign({v: ds[v].copy(data=bitround(ds[v].values, keepbits)) for v in ds.data_vars
+                      if 'psi_n' in ds[v].dims and ds[v].dtype == np.float32})
+
+
 def prepare_for_store(ds, store_float32=True, drop_duplicates=True):
-    """One run's combined dataset reduced for the compiled zarr (plans/F.md, P1/P6/P7/P9; cell grid, W eigenvectors)."""
+    """One run's combined dataset reduced for the compiled zarr (plans/F.md, P1/P6/P7/P9; cell grid, W eigenvectors,
+    input profiles; float32 profiles bit-rounded)."""
     ds = keep_least_stable_eigenvectors(ds.drop_vars([v for v in STORE_DROP if v in ds]))
     if drop_duplicates:
         ds = blank_duplicates(drop_store_duplicates(ds))
-    return to_float32(ds) if store_float32 else ds
+    return round_profiles(to_float32(ds)) if store_float32 else ds

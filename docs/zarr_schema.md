@@ -15,5 +15,6 @@ everything except the renames in rows 1-3 and the dims in row 9.
 | 8 | float64 results | float32 | except `mre_recompute.INPUTS` (k0/k1/C0 recompute inputs) and coordinates; `store_float32=False` keeps float64 |
 | 9 | RDCON-only variables `(…, code, …)` with NaN in every other code: RDCON's surface terms (what `analyse_with_mre` adds to RDCON's output: `X0_surf`, `Dnc_surf`, χ terms, rotation and decorrelation terms, …), `avg_*` and `combine.RDCON_ONLY` (`Dnc`, `Wc`, `W_t`, `tau_a`, …) | the same names without `code` | `ds.sel(code=...)` on the Dataset still works; `ds[var].sel(code='rdcon')` on one of these raises, use `ds[var]`. The set is fixed by name, so a run where STRIDE fails has the same dims |
 | 10 | full-grid input profiles `ne_m3`, `ni_m3`, `te_keV`, `ti_keV`, `Er`, `omega_*`, `dq_dpsi_n`, `dmu0p_dpsi_n`, `eta_spitz`, `lnLamb_e*` `(…, psi_n)` | not stored | `store_schema.INPUT_PROFILES`; rerun `mre_terms_on_modes` on the run's input profiles; the `*_surf` values stay |
+| 11 | float32 profiles on `psi_n` | bit-rounded to 12 mantissa bits | relative error <= 1.2e-4 (`store_schema.PROFILE_KEEPBITS`); not with `store_float32=False` |
 
 Store attributes `store_float32`, `drop_duplicates` record the options used.

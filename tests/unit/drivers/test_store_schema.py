@@ -6,6 +6,8 @@ import xarray as xr
 from tearing_physics_suite.drivers.mre_recompute import INPUTS, K_OUTPUTS, OPTIONAL_INPUTS, recompute_mre_hyperparams
 from tearing_physics_suite.drivers.store_schema import (
     KEEP_FLOAT64,
+    PROFILE_KEEPBITS,
+    bitround,
     blank_duplicates,
     keep_least_stable_eigenvectors,
     drop_store_duplicates,
@@ -158,3 +160,18 @@ def test_eigenvectors_of_two_least_stable_modes():
     np.testing.assert_array_equal(out.W_t_eigenvector.values, vec[:, :2])
     assert out.W_t_eigenvector.dims == ('i', 'eigvec_mode', 'm') and list(out.eigvec_mode.values) == [1, 2]
     xr.testing.assert_identical(out[['W_t', 'W_t_eigenvalue']], ds[['W_t', 'W_t_eigenvalue']])
+
+
+def test_profiles_bit_rounded_in_float32_stores():
+    x = np.array([1.0, np.pi, -1e-7, 6.02e23, 0.0, np.nan, np.inf], np.float32)
+    r = bitround(x, PROFILE_KEEPBITS)
+    fin = np.isfinite(x)
+    assert np.all(np.abs(r[fin] - x[fin]) <= 2.0**-(PROFILE_KEEPBITS + 1)*np.abs(x[fin]))
+    assert np.all(r.view(np.uint32)[fin] & ((1 << (23 - PROFILE_KEEPBITS)) - 1) == 0) and np.isnan(r[5]) and r[6] == np.inf
+    ds = _run()
+    ds = ds.assign(q=ds.q*np.pi, w_marg_surf=ds.w_marg_surf*np.pi)
+    out = prepare_for_store(ds)
+    np.testing.assert_array_equal(out.q.values, bitround(ds.q.values, PROFILE_KEEPBITS))      # (code, psi_n) profile
+    assert not np.array_equal(out.q.values, np.float32(ds.q.values))
+    np.testing.assert_array_equal(out.w_marg_surf.values, np.float32(ds.w_marg_surf.values))  # surface value: not rounded
+

@@ -17,18 +17,19 @@ from tearing_physics_suite.wrappers.build.compiler_utils import (
 
 # ----------------------------------------------------------------------
 # GPEC install-test reference values: example -> (Delta_prime, tol).
-# "current": upstream develop example inputs as-is (set against 5be646f).
+# "current": upstream example inputs as-is (set against 5be646f; DIIID_resistive_example against the pin
+#            08a74807, whose psihigh 0.993 (GPEC b0402932) moves its first-surface Delta').
 # "legacy" : inputs as at GPEC a8be45d, recreated by GPEC_LEGACY_RECIPE.
 # ----------------------------------------------------------------------
 GPEC_TEST_REFERENCE = {
     "current": {
         "rdcon": {
-            "DIIID_resistive_example":   (3.89,       0.1),
+            "DIIID_resistive_example":   (3.50,       0.1),
             "solovev_resistive_example": (4.676e+09,  1e+08),
             "a5_tearing_example":        (13.2,       0.3),
         },
         "stride": {
-            "DIIID_resistive_example":   (7.40,       0.1),
+            "DIIID_resistive_example":   (13.54,      0.1),
             "solovev_resistive_example": (7.726e+12,  1e+11),
             "a5_tearing_example":        (13.2,       0.3),
             "DIIID_ideal_example":       (7.40,       0.1),

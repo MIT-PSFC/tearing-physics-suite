@@ -416,8 +416,8 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     1. Glasser, Greene & Johnson, Phys. Fluids 1975, Eq. 111
     2. Connor, Ham, Hastie & Liu, PPCF 57 065001 (2015), Eq. 59
 
-    Both give Delta' in GGJ's Y = (V - V_0)/V_s (V_0 the surface, V_s an arbitrary scale); it is returned per psi_n, as RDCON's Delta' (sing_get_ua),
-    i.e. times (V'/V_s)^(1-2H), so the arbitrary V_s cancels. X0_surf is in psi_n.
+    Both give Delta' in GGJ's Y = (V - V_0)/V_s (V_0 the surface, V_s an arbitrary scale); it is returned per psi_n,
+    as RDCON's Delta' (sing_get_ua), i.e. times (V'/V_s)^(1-2H), so V_s cancels. X0_surf is in psi_n.
 
     Parameters
     ----------

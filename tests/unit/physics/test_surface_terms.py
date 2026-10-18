@@ -79,6 +79,12 @@ def test_single_impurity_species(code_fixture, kin_file):
     np.testing.assert_allclose(ds.Zeff_species_surf.values, (ni + 36*nc)/ne)
     np.testing.assert_allclose(ds.v_ti_surf.values, np.sqrt(2*gv.e*1e3*ds.ti_keV_surf.values/(2*gv.amu)))
     assert float(ds.ne_on_ni_axis) == 1.0
+    zf = lambda x: 0.1*p['ne_spline'](x)                                # beam D: n_e = n_i + z_fast + 6 n_C
+    fast = mre_terms_on_modes(code_fixture('rdcon'), **dict(kw, ni_spline=ni_scaled), species=dict(
+        main_mass=2.0, impurity_Z=6.0, impurity_mass=12.0, z_fast=zf, z2_fast=zf))
+    np.testing.assert_allclose(fast.nimp_m3_surf.values, (0.9*ne - ni)/6)
+    np.testing.assert_allclose(fast.Zeff_species_surf.values, (ni + 36*fast.nimp_m3_surf.values + 0.1*ne)/ne)
+    np.testing.assert_allclose(fast.rho_surf.values, ds.rho_surf.values)    # beam D has carbon's mass per charge
     old = mre_terms_on_modes(code_fixture('rdcon'), **kw, average_ion_mass=2.5)   # one ion species, as before
     np.testing.assert_allclose(old.rho_surf.values, old.ni_m3_surf.values*2.5*gv.amu + old.ne_m3_surf.values*gv.me)
     assert 'nimp_m3_surf' not in old and float(old.ne_on_ni_axis) != 1.0

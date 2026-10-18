@@ -9,9 +9,10 @@ import xarray as xr
 from scipy.interpolate import PchipInterpolator
 
 
-def _species(impurity_Z, impurity_mass, main_mass=2.0):
-    """Deuterium main ions and one fully stripped impurity (masses in amu), for mre_terms_on_modes(species=...)."""
-    return dict(main_mass=float(main_mass), impurity_Z=float(impurity_Z), impurity_mass=float(impurity_mass))
+def _species(impurity_Z, impurity_mass, main_mass=2.0, **fast):
+    """Deuterium main ions, one fully stripped impurity (masses in amu) and optional fast-ion splines z_fast, z2_fast,
+    for mre_terms_on_modes(species=...)."""
+    return dict(main_mass=float(main_mass), impurity_Z=float(impurity_Z), impurity_mass=float(impurity_mass), **fast)
 
 def read_kin_file(filename):
     """Read a .kin profile file and create splines for kinetic profiles.
@@ -414,10 +415,10 @@ def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, 
         if name in attrs:
             out[name] = float(attrs[name])
 
-    # Single fully-stripped impurity: n_imp = (n_e - n_i)/Z_imp (in mre_terms_on_modes)
+    # Single fully-stripped impurity: n_imp = (n_e - n_i - z_fast)/Z_imp (in mre_terms_on_modes); n_i is thermal
     Z_imp = attrs.get('Z_imp', getattr(getattr(cfg, 'source', None), 'impurity_Z', 6.0))
     imp_mass = 2.0*Z_imp if impurity_mass_amu is None else impurity_mass_amu
-    out['species'] = _species(Z_imp, imp_mass)
+    out['species'] = _species(Z_imp, imp_mass, **{k: spl(prof[k]) for k in ('z_fast', 'z2_fast') if k in prof})
 
     out.update(ida_extras)
 

@@ -113,7 +113,7 @@ def chi_para_smfp_on_modes(rdcon_xarray):
 
     return rdcon_xarray
 
-def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=2.0):
+def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=None):
     """Main-ion parallel thermal diffusivity at rational surfaces [m^2/s], short and long mean free path.
 
     SMFP: Braginskii chi_par,i = 3.9 T_i tau_i/m_i, with tau_i from Wesson (Tokamaks p. 729) for main ions colliding
@@ -124,8 +124,9 @@ def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=2.0):
     ----------
     rdcon_xarray : xr.Dataset
         Must contain ti_keV_surf, ni_m3_surf, ne_m3_surf, Zeff_surf, v_te_surf, chi_para_lmfp_no_w_surf.
-    main_ion_mass_amu : float
-        Main-ion mass (deuterium by default; not the impurity-weighted average_ion_mass).
+    main_ion_mass_amu : float or None
+        Main-ion mass; None takes the species model's main_ion_mass (mre_terms_on_modes), else deuterium (2).
+        Not the impurity-weighted average_ion_mass.
 
     Returns
     -------
@@ -133,6 +134,8 @@ def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=2.0):
         Input dataset with taui_surf [s], v_ti_main_surf [m/s], chi_para_smfp_i_surf and
         chi_para_lmfp_no_w_i_surf [m^2/s] added.
     """
+    if main_ion_mass_amu is None:
+        main_ion_mass_amu = float(rdcon_xarray['main_ion_mass']) if 'main_ion_mass' in rdcon_xarray else 2.0
     ti = rdcon_xarray['ti_keV_surf']
     m_i = main_ion_mass_amu*gv.amu
     lnLamb_i = 17.3 - 0.5*np.log(rdcon_xarray['ni_m3_surf']/1e20) + 1.5*np.log(ti)

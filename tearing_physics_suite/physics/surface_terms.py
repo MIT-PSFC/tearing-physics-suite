@@ -416,7 +416,7 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     1. Glasser, Greene & Johnson, Phys. Fluids 1975, Eq. 111
     2. Connor, Ham, Hastie & Liu, PPCF 57 065001 (2015), Eq. 59
 
-    Both give Delta' in GGJ's Y = (V - V_s)/V_s; it is returned per psi_n, as RDCON's Delta' (sing_get_ua),
+    Both give Delta' in GGJ's Y = (V - V_0)/V_s (V_0 the surface, V_s an arbitrary scale); it is returned per psi_n, as RDCON's Delta' (sing_get_ua),
     i.e. times (V'/V_s)^(1-2H), so the arbitrary V_s cancels. X0_surf is in psi_n.
 
     Parameters
@@ -464,12 +464,12 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
         if not -5/2 < Hs[i] < 1/2: # Condition for validity for these formulas
             continue
     #########################################################################################################
-    # Glasser et al. Phys. Fluids 1975, Eq 111:
+    # Glasser et al. Phys. Fluids 1975, Eq 111, with the Gamma(1 - H/2) of Eq. 87 (Eq. 111 prints 1 - H/2):
     #########################################################################################################
         Qcrit=abs(math.gamma(3/4)*math.gamma(1/2-Hs[i]/4)**2*math.gamma(1/4-Hs[i]/2)*math.sin((1-2*Hs[i])*math.pi/8)*Drs[i]/
                 (math.gamma(1/4)*math.gamma(1-Hs[i]/4)**2*math.gamma(3/4-Hs[i]/2)*math.sin((5+2*Hs[i])*math.pi/8)*4))**(2.0/3.0)
         surface_factor = 2/X0s[i]
-        DeltaPrimeCrits75[i]=math.pi*surface_factor**(1-2*Hs[i])*math.gamma(1/4)*math.gamma(1-Hs[i]/4)**2*math.gamma(3/4-Hs[i]/2)*Qcrit**((2*Hs[i]+5)/4)/((np.sqrt(2)*(1-2*Hs[i])*math.sin((1-2*Hs[i])*math.pi/8))*(1-Hs[i]/2)*(math.cos(Hs[i]*math.pi/2)*math.gamma((1+Hs[i])/4)*math.gamma(1-Hs[i]))**2)
+        DeltaPrimeCrits75[i]=math.pi*surface_factor**(1-2*Hs[i])*math.gamma(1/4)*math.gamma(1-Hs[i]/4)**2*math.gamma(3/4-Hs[i]/2)*Qcrit**((2*Hs[i]+5)/4)/((np.sqrt(2)*(1-2*Hs[i])*math.sin((1-2*Hs[i])*math.pi/8))*math.gamma(1-Hs[i]/2)*(math.cos(Hs[i]*math.pi/2)*math.gamma((1+Hs[i])/4)*math.gamma(1-Hs[i]))**2)
         DeltaPrimeCrits75_no_X0[i] = DeltaPrimeCrits75[i]*(X0s[i]**(1-2*Hs[i]))
         Qcrits[i] = Qcrit
     #########################################################################################################

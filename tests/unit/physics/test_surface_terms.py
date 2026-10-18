@@ -44,6 +44,21 @@ def test_deltaprime_crit_per_psi_n(rdcon_surface_terms):
         np.testing.assert_array_equal(deltaprime_crit_on_modes(rd)[v], out[v])
 
 
+def test_deltaprime_crit_matches_ggj_eq87(rdcon_surface_terms):
+    """At H = 0.2 the GGJ critical Delta' is Re Delta'(i Q_c) of GGJ Eq. 87, which has Gamma(1 - H/2) (Eq. 111 prints 1 - H/2)."""
+    from math import cos, gamma, pi
+    from scipy.optimize import brentq
+    rd = rdcon_surface_terms.copy(deep=True)
+    H, DR = 0.2, -0.05
+    rd['H_surf'][0], rd['Dr_surf'][0] = H, DR
+    a = (2/float(rd['X0_surf'][0]))**(1-2*H)*pi*gamma(1/4)*gamma(1-H/4)**2*gamma(3/4-H/2)/(
+        (1-2*H)*gamma(1-H/2)*(cos(H*pi/2)*gamma((1+H)/4)*gamma(1-H))**2)
+    k = gamma(3/4)*gamma(1/2-H/4)**2*gamma(1/4-H/2)/(gamma(1/4)*gamma(1-H/4)**2*gamma(3/4-H/2))
+    eq87 = lambda Q: a*Q**((2*H+5)/4)*(1-k*DR/(4*Q**1.5))
+    qc = brentq(lambda q: eq87(1j*q).imag, 1e-3, 1.0)
+    np.testing.assert_allclose(float(deltaprime_crit_on_modes(rd)['Delta_prime_crit'][0]), eq87(1j*qc).real, rtol=1e-8)
+
+
 def test_spitzer_zeff_factor():
     """Z N(Z)/N(1) against Spitzer & Harm: eta_par(Z)/eta_par(1) = Z alpha(Z)/alpha(1), alpha = 0.5129, 0.4408, 0.3752."""
     z = np.array([1.0, 2.0, 4.0])

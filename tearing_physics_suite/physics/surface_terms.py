@@ -2,6 +2,7 @@ import numpy as np
 from scipy.interpolate import Akima1DInterpolator, PchipInterpolator
 
 import tearing_physics_suite.physics.constants as gv
+from tearing_physics_suite.physics.cross_field_transport import single_fluid_chi_para
 from tearing_physics_suite.physics.rotation import (
     add_drift_rotation,
     add_rotation,
@@ -446,8 +447,8 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
     avg_dpsisq_surf = rdcon_xarray['avg_dpsisq_surf'].values
     avg_Bsq_surf = rdcon_xarray['avg_Bsq_surf'].values
     chi_perp_surf = rdcon_xarray['chi_perp_surf'].values
-    chi_para_smfp_surf = rdcon_xarray['chi_para_smfp_surf'].values
-    chi_para_lmfp_noisland_surf = rdcon_xarray['chi_para_lmfp_noisland_surf'].values
+    # chi_para as in W_c, with the no-island long mean-free-path value (helical connection length)
+    chi_para_surf = single_fluid_chi_para(rdcon_xarray, 'chi_para_lmfp_noisland', force_lmfp=force_lmfp)
     psio = rdcon_xarray.psio
     n = rdcon_xarray.n
 
@@ -478,12 +479,7 @@ def deltaprime_crit_on_modes(rdcon_xarray, force_lmfp=False):
         Lambda = -4*np.pi**2*psio**2*q1_rationals[i]/(v1_rationals[i]**3)
         alpha = v1_rationals[i]*n/psio
         avg_dVsq = avg_dpsisq_surf[i]*(v1_rationals[i]**2)
-        # Find the minimum of chi_para_smfp_surf and chi_para_lmfp_noisland_surf
-        if not force_lmfp:
-            chi_para = min(chi_para_smfp_surf[i], chi_para_lmfp_noisland_surf[i]) # Choose the smaller mean free path (either set by electron-ion collisions, or helical connection length at rational surface)
-        else:
-            chi_para = chi_para_lmfp_noisland_surf[i]
-        chi_frac_noisland = chi_para / chi_perp_surf[i]
+        chi_frac_noisland = chi_para_surf[i] / chi_perp_surf[i]
         DeltaPrimeCrits15[i] = (1/2)*np.pi**(3/2)*chi_frac_noisland**(1/4)*v1_rationals[i]*(-Drs[i])*(alpha*alpha*Lambda*Lambda/(avg_Bsq_surf[i]*avg_dVsq))**(1/4)
         DeltaPrimeCrits15_no_chifrac[i] = DeltaPrimeCrits15[i]/(chi_frac_noisland**(1/4))
 

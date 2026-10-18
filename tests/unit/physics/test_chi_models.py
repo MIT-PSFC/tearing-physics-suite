@@ -19,7 +19,7 @@ PSI = np.array([0.3, 0.6])
 def _surfs(**kw):
     v = dict(ne_m3_surf=[5e19, 4e19], ni_m3_surf=[4e19, 3e19], te_keV_surf=[2.0, 1.0], ti_keV_surf=[2.0, 1.5],
              te1_keV_surf=[-2.0, -3.0], ti1_keV_surf=[-1.0, -3.0], Zeff_surf=[1.5, 1.5], v_te_surf=[2.6e7, 1.9e7],
-             chi_para_lmfp_no_w_surf=[1e5, 2e5], avg_r_surf=[0.2, 0.4])
+             chi_para_lmfp_no_w_surf=[1e5, 2e5], chi_para_lmfp_noisland_surf=[3e8, 4e8], avg_r_surf=[0.2, 0.4])
     v.update(kw)
     return xr.Dataset({k: ('r', np.asarray(x, float)) for k, x in v.items()}, coords={'r': [0, 1]}).assign(
         psi_n_rational=('r', PSI))
@@ -35,6 +35,7 @@ def test_ion_chi_para_by_hand():
     np.testing.assert_allclose(s.chi_para_smfp_i_surf[0], 3.9*gv.e*1e3*ti*taui/m)
     vti = np.sqrt(2*gv.e*1e3*ti/m)
     np.testing.assert_allclose(s.chi_para_lmfp_no_w_i_surf[0], 1e5*vti/2.6e7)
+    np.testing.assert_allclose(s.chi_para_lmfp_noisland_i_surf[0], 3e8*vti/2.6e7)
     assert 1e8 < s.chi_para_smfp_i_surf[0] < 1e10                   # ~1e9 m^2/s at 2 keV, 5e19 m^-3 (E6)
 
 

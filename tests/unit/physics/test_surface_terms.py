@@ -59,6 +59,16 @@ def test_deltaprime_crit_matches_ggj_eq87(rdcon_surface_terms):
     np.testing.assert_allclose(float(deltaprime_crit_on_modes(rd)['Delta_prime_crit'][0]), eq87(1j*qc).real, rtol=1e-8)
 
 
+def test_deltaprime_tcrit_species_chi_para(rdcon_surface_terms):
+    """CHH Eq. 59 takes W_c's single-fluid chi_para, (1 - f_i) chi_para,e + f_i chi_para,i, with the no-island lmfp."""
+    ref = deltaprime_crit_on_modes(rdcon_surface_terms)
+    e = np.minimum(rdcon_surface_terms['chi_para_smfp_surf'], rdcon_surface_terms['chi_para_lmfp_noisland_surf'])
+    rd = rdcon_surface_terms.assign(chi_ion_weight_surf=0.4 + 0*e, chi_para_smfp_i_surf=0.1*e,
+                                    chi_para_lmfp_noisland_i_surf=0.05*e)
+    np.testing.assert_allclose(deltaprime_crit_on_modes(rd)['Delta_prime_tcrit'],
+                               ref['Delta_prime_tcrit']*(0.6 + 0.4*0.05)**0.25, rtol=1e-12)
+
+
 def test_spitzer_zeff_factor():
     """Z N(Z)/N(1) against Spitzer & Harm: eta_par(Z)/eta_par(1) = Z alpha(Z)/alpha(1), alpha = 0.5129, 0.4408, 0.3752."""
     z = np.array([1.0, 2.0, 4.0])

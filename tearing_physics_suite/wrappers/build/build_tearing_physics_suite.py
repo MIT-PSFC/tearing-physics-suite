@@ -179,7 +179,7 @@ def build_all(
     gpec_single_threaded=False,
     legacy_gpec_test=True,
     work_dir=None,
-    gpec_branch="pr_pchip_profiles",
+    gpec_branch="tps-pin-5131c9a3",
     pest3_gpec_vacuum=True,
     jgpec_home=None,
 ):
@@ -227,7 +227,7 @@ def build_all(
         scratch disk); the executables are copied back into submodules/.
         Defaults to ``$TPS_BUILD_DIR``, else in-tree.
     gpec_branch : str
-        GPEC branch to clone if submodules/GPEC does not exist and is not a registered submodule.
+        GPEC branch or tag to clone if submodules/GPEC does not exist and is not a registered submodule.
     pest3_gpec_vacuum : bool
         Link GPEC's VACUUM into PEST3 (pest3x -V, the TPS default vacuum).
     jgpec_home : str, optional
@@ -415,8 +415,8 @@ def main():
     parser.add_argument(
         "--gpec-branch",
         type=str,
-        default="pr_pchip_profiles",
-        help="GPEC branch to clone if submodules/GPEC is missing and TPS is not a git checkout (default: pr_pchip_profiles)",
+        default="tps-pin-5131c9a3",
+        help="GPEC branch or tag to clone if submodules/GPEC is missing and TPS is not a git checkout (default: tps-pin-5131c9a3, the Princeton tag on the pin)",
     )
 
     # Skip flags

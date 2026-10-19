@@ -1,10 +1,12 @@
-"""Bouquet-reader helpers: g-file q, the Φ_N -> ψ_N map, and multi_run's equilibrium-named markers."""
+"""Bouquet-reader helpers: g-file and i-file q, the Φ_N -> ψ_N map, and multi_run's equilibrium-named markers."""
+import struct
+
 import numpy as np
 import pytest
 from scipy.integrate import cumulative_trapezoid
 
 from tearing_physics_suite.drivers.multi_run import _profile_kwargs, _validate_case
-from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _phi_n_to_psi_n, gfile_q, read_bouquet_archive
+from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _phi_n_to_psi_n, gfile_q, ifile_q, read_bouquet_archive
 
 
 def test_gfile_q(eq_file):
@@ -18,11 +20,27 @@ def test_phi_n_to_psi_n(eq_file):
     psi, q = gfile_q(raw)
     phi = cumulative_trapezoid(q, psi, initial=0.0) / np.trapezoid(q, psi)   # bouquet.coords.phi_n_from_q
     x = np.linspace(0, 1, 41)
-    out = _phi_n_to_psi_n({'psi_N': x, 'psi_N_kinetic': x, 'n_e': x}, raw)
+    out = _phi_n_to_psi_n({'psi_N': x, 'psi_N_kinetic': x, 'n_e': x}, psi, q)
     np.testing.assert_allclose(out['psi_N'], np.interp(x, phi, psi), atol=1e-12)
     assert out['psi_N'][0] == 0 and out['psi_N'][-1] == 1 and np.all(np.diff(out['psi_N']) > 0)
     assert out['psi_N'][20] > 0.5                        # q rises outward: Φ_N < ψ_N inside
     assert out['n_e'] is x
+
+
+def test_ifile_q():
+    """ψ_N from the psi-bounds record, an i-file grid stopping at the LCFS pad held to ψ_N = 1."""
+    pytest.importorskip('bouquet')
+    psi = np.linspace(0.3, -0.02, 5)                    # axis to the padded edge, decreasing psi
+    q = np.array([-1.1, -1.5, -2.2, -3.4, -6.0])
+    recs = [struct.pack('<ii', 5, 4)] + [a.astype('<f8').tobytes() for a in (psi, 0*psi, 0*psi, q,
+                                                                              np.zeros(20), np.zeros(20),
+                                                                              np.array([0.3, -0.03]))]
+    raw = b''.join(struct.pack('<i', len(r)) + r + struct.pack('<i', len(r)) for r in recs)
+    x, qa = ifile_q(raw)
+    np.testing.assert_allclose(x, (psi - 0.3) / -0.33)
+    np.testing.assert_array_equal(qa, -q)
+    out = _phi_n_to_psi_n({'psi_N': np.array([0.0, 1.0])}, x, qa)
+    assert x[-1] < 1 and out['psi_N'][-1] == 1.0
 
 
 def test_marker_names_equilibrium(tmp_path):

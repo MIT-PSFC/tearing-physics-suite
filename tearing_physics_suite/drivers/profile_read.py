@@ -273,7 +273,7 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
     draw_counts : list of int or None
         Read only these draws (by count), whatever their selection flag. -1 is the scan's baseline.
 
-    Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with that draw's g-file q.
+    Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with the q of the equilibrium file it unpacks (g-file or i-file).
     Profile dicts carry shot_id / bq_unit_id / bq_variant when the archive's root attrs have them.
 
     Returns
@@ -327,7 +327,7 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
                 fh.write(eq_bytes)
             coord = attrs.get('profile_coord', 'psi_n')
             if coord == 'phi_n':
-                prof = _phi_n_to_psi_n(prof, d.eqdsk_bytes)
+                prof = _phi_n_to_psi_n(prof, *(gfile_q if eq_source == 'geqdsk' else ifile_q)(eq_bytes))
             elif coord != 'psi_n':
                 raise NotImplementedError(f"Bouquet draw {key}/{count} has profile_coord={coord!r}.")
             eq_filenames.append(eq_path)
@@ -358,16 +358,25 @@ def gfile_q(eq_bytes):
     return np.linspace(0.0, 1.0, nw), np.abs(np.asarray(vals[need - nw:need]))
 
 
-def _phi_n_to_psi_n(prof, eq_bytes):
+def ifile_q(eq_bytes):
+    """(psi_N, q) of an OFT i-file given as bytes (psi_N from its psi-bounds record when present)."""
+    from bouquet.utils import read_ifile
+    d = read_ifile(eq_bytes)
+    b0, b1 = d.get('psi_bounds', d['psi'][[0, -1]])
+    return (d['psi'] - b0) / (b1 - b0), np.abs(d['q'])
+
+
+def _phi_n_to_psi_n(prof, psi, q):
     """Profiles of a Φ_N bouquet draw with their grids (psi_N, psi_N_kinetic) mapped to ψ_N.
 
-    Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's g-file (bouquet.coords.phi_n_from_q).
+    Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's equilibrium-file q (bouquet.coords.phi_n_from_q).
     """
-    psi, q = gfile_q(eq_bytes)
+    if psi[-1] < 1.0:                       # an i-file stops at the LCFS pad: q held to ψ_N = 1
+        psi, q = np.append(psi, 1.0), np.append(q, q[-1])
     phi = np.concatenate([[0.0], np.cumsum(0.5*(q[1:] + q[:-1])*np.diff(psi))])
     phi /= phi[-1]
     if not np.all(np.diff(phi) > 0):
-        raise ValueError("Φ_N(ψ_N) from the g-file q is not monotonic")
+        raise ValueError("Φ_N(ψ_N) from the equilibrium-file q is not monotonic")
     out = dict(prof)
     for grid in ('psi_N', 'psi_N_kinetic'):
         if grid in prof:

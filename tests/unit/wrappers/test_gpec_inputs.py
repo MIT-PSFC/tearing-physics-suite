@@ -22,7 +22,6 @@ CONFIGS = {
     'wall_off_conformal': dict(vac_flag='t', a_wall=0, ishape=6),
     'zeff_profile': dict(Zeff={'x': [0.0, 0.5, 1.0], 'y': [1.5, 2.0, 2.5]}),
     'ldp_i': dict(eq_type="'ldp_i'"),
-    'dump_mre': dict(dump_MRE_data='t'),
     'gal_xmin': dict(gal_xmin_flag='t'),
     'classic_splines': dict(use_classic_splines='t'),
     'sing_start': dict(sing_start=2, sing_start_str=3),

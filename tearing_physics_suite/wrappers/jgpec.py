@@ -21,9 +21,9 @@ from tearing_physics_suite.wrappers.gpec_common import save_output
 SOLVERS = ('galerkin', 'riccati')
 SERVER_JL = Path(__file__).with_name('jgpec_server.jl')
 JULIA_INSTALL = '/fusion/projects/codes/julia/julia-1.11.7/bin/julia'
-# Defaults where unset (`module load julia` is not used: its purge() would drop the compiler modules)
+# Defaults where unset (`module load julia` is not used: its purge() would drop the compiler modules).
+# The depot comes from JULIA_DEPOT_PATH (recorded in tearing_physics_suite_env.sh) or the JGPEC_JULIA launcher.
 _JULIA_DEFAULTS = {
-    'JULIA_DEPOT_PATH': '/fusion/projects/tmdb/julia_depot_benjamins:',
     'JULIA_CPU_TARGET': 'generic',
 }
 EQUILIBRIUM_KEYS = {'eq_filename', 'eq_type', 'jac_type', 'grid_type', 'psilow', 'psihigh', 'mpsi', 'mtheta',

@@ -36,7 +36,7 @@ GPEC_FILES = {
 }
 CODE_FILES = {'rdcon': ('rdcon.in', 'equil.in', 'vac.in'), 'stride': ('stride.in', 'equil.in', 'vac.in')}
 # Extra write configurations that switch on optional branches (--all-paths)
-ALL_PATH_CONFIGS = [dict(vac_flag='f', ode_flag='f'), dict(dump_MRE_data='t'), dict(eq_type="'ldp_i'"),
+ALL_PATH_CONFIGS = [dict(vac_flag='f', ode_flag='f'), dict(eq_type="'ldp_i'"),
                     dict(Zeff={'x': [0.0, 0.5, 1.0], 'y': [1.5, 2.0, 2.5]}), dict(gal_xmin_flag='t')]
 # gpec.toml section -> @kwdef struct it is splatted into (GeneralizedPerturbedEquilibrium.jl)
 JGPEC_SECTIONS = {'Equilibrium': 'EquilibriumConfig', 'Wall': 'WallShapeSettings',

@@ -138,6 +138,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
             species=species,
             diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge,
             force_lmfp=force_lmfp,
+            Coulomb_logarithm=Coulomb_logarithm,
+            eta_fac=eta_fac,
             **kwargs)
 
         xarray_vec.append(comb_n_xr)

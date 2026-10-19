@@ -36,7 +36,6 @@
  "delta_mhigh": 8,
  "delta_mlow": 8,
  "dmlim": 0.2,
- "dump_MRE_data": false,
  "dump_flag": "f",
  "dx0": 0.0005,
  "dx1": 0.001,

@@ -120,7 +120,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     # Run GPEC resistive calculation
     rdcon_xr, stride_xr, rdcon_ran, stride_ran, rdcon_stride_input_dict = GPEC_resistive_calculation(
         eq_filename=eq_filename, nn=nn, run_rdcon=run_rdcon, run_stride=run_stride,
-        make_working_dir=make_working_dir, working_dir=working_dir, gpec_dir=gpec_dir,
+        make_working_dir=make_working_dir, make_results_dir=make_results_dir, working_dir=working_dir, gpec_dir=gpec_dir,
         verbose=verbose, fresh_start=fresh_start, output_location=output_location,
         output_prefix=output_prefix, save_input=save_input, save_terminal_output=save_terminal_output,
         require_rdcon=require_rdcon, **kwargs)
@@ -132,9 +132,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         ascii_q_plotter(rdcon_xr)
 
     jgpec_xrs, jgpec_ran = {}, {}
-    if run_jgpec:
+    if run_jgpec and rdcon_ran:  # jGPEC's surfaces are mapped onto RDCON's
         jgpec_xrs, jgpec_ran = run_jgpec_solvers(
-            eq_filename, nn, working_dir, rdcon_stride_input_dict, rdcon_xr if rdcon_ran else None,
+            eq_filename, nn, working_dir, rdcon_stride_input_dict, rdcon_xr,
             solvers=jgpec_solvers, threads=jgpec_threads or tps_threads(), timeout=jgpec_timeout,
             output_location=output_location, output_prefix=output_prefix, override_save=override_save, verbose=verbose,
             **jgpec_kwargs)
@@ -197,10 +197,10 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     # Set truncation values:
     if (run_stride and stride_ran) and (run_rdcon and rdcon_ran):
-        if 2*(abs(qlim_actual-qlim_actuals)/(abs(qlim_actual)+abs(qlim_actual))) > 1e-4:
+        if _rel_diff(qlim_actual, qlim_actuals) > 1e-4:
             print("WARNING, rdcon and stride truncation is differing.")
             print("qlims: ", qlim_actual, qlim_actuals)
-        if 2*(abs(psilow_actual-psilow_actuals)/(abs(psilow_actuals)+abs(psilow_actuals))) > 1e-4:
+        if _rel_diff(psilow_actual, psilow_actuals) > 1e-4:
             print("WARNING, rdcon and stride truncation is differing.")
             print("psilows: ", psilow_actual,psilow_actuals)
         qlim_actual = min(qlim_actual, qlim_actuals)
@@ -283,7 +283,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
         try:
             pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
-                eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
+                eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir, make_results_dir=make_results_dir,
                 working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
                 fresh_start=fresh_start, output_location=output_location,
                 output_prefix=output_prefix, save_input=save_input,
@@ -311,6 +311,12 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     # Return all results:
     return CodeResults(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict,
                        pest3_input_dict, jgpec_xrs, jgpec_ran)
+
+
+def _rel_diff(a, b):
+    """2|a-b|/(|a|+|b|); 0 when both are 0."""
+    total = abs(a) + abs(b)
+    return 2*abs(a - b)/total if total else 0.0
 
 
 def ascii_q_plotter(rdcon_xr):

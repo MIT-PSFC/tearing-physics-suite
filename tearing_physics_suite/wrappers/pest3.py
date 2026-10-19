@@ -650,7 +650,7 @@ def pest3_rescale_deltaprimes(ps3, debug=False):
     ps3=ps3.assign(psio=ps3.psimax-ps3.psimin)
     ps3=ps3.assign(psio_alt=ps3.psia-ps3.psi0)
 
-    assert ps3.psio.values-ps3.psio_alt.values < 1e-4, "Competing values of total (pol. flux/2pi). Check PEST3 output."
+    assert abs(ps3.psio.values-ps3.psio_alt.values) < 1e-4, "Competing values of total (pol. flux/2pi). Check PEST3 output."
 
     #List of variables to rename:
     varlista=[['aprim_re','aprim_im'], ['bprim_re', 'bprim_im'], ['gprim_re', 'gprim_im'], ['dprim_re', 'dprim_im']]

@@ -55,7 +55,7 @@
 ## Environment and git
 - Python: `/fusion/projects/tmdb/scripts/eq_stab/venvs/genvenv1/.venv`. `TPSHOME` (from
   `tearing_physics_suite_env.sh`) is read lazily via `utils.tps_home()`; never read it at import time.
-- Fortran GPEC pin: 5131c9a3 (`submodules/GPEC`; Fortran PSFC_dev = develop 3c0b8f3b + #300 + #325 + #326), fetchable as the Princeton tag `tps-pin-5131c9a3`; tag each new pin before building (GPEC version.inc needs a short `git describe`); PEST3: `master`.
+- Fortran GPEC pin: 11034eb9 (`submodules/GPEC`; Fortran PSFC_dev = develop 3c0b8f3b + #300 + #325 + #326 + #327 + #328 + #329 + 'original' grid fix), fetchable as the Princeton tag `tps-pin-11034eb9`; tag each new pin before building (GPEC version.inc needs a short `git describe`); PEST3: `master`.
 - `submodules/GPEC` and `submodules/PEST3` are git submodules pinned to a commit (clone TPS with
   `--recurse-submodules`). The build never resets an existing checkout; it warns when HEAD differs from the pin.
   Bump a pin: `cd submodules/GPEC && git checkout <sha> && cd ../.. && git add submodules/GPEC && git commit`.

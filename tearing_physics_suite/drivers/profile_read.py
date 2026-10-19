@@ -231,7 +231,7 @@ def read_IDA_lite_all_times(filename, verbose=False, **kwargs):
 
 def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_dir=None,
                          ida_path=None, ida_extra_keys=None, ida_time_tol_ms=1.0,
-                         meta_data=False, sample_limit=None, impurity_mass_amu=None,
+                         meta_data=False, sample_limit=None, impurity_mass_amu=None, main_ion_mass_amu=2.0,
                          eq_source='geqdsk', draw_counts=None, verbose=False):
     """Unpack a bouquet (schema v2) archive into multi_run_ inputs.
 
@@ -264,6 +264,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         Max draws per scan key.
     impurity_mass_amu : float or None
         Impurity mass for the species model (mre_terms_on_modes). Default 2*Z_imp.
+    main_ion_mass_amu : float
+        Main-ion (thermal and fast) mass for the species model. Default 2 (deuterium).
     eq_source : {'geqdsk', 'ifile'}
         Equilibrium written per draw: the g-file, or the OFT i-file (bouquet
         write_ifile=True runs; GPEC reads it as eq_type 'ldp_i', see
@@ -329,7 +331,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
             elif coord != 'psi_n':
                 raise NotImplementedError(f"Bouquet draw {key}/{count} has profile_coord={coord!r}.")
             eq_filenames.append(eq_path)
-            p = _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu)
+            p = _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu,
+                                       main_ion_mass_amu)
             profile_list.append(dict(p, bq_profile_coord=coord, **labels))
         if verbose:
             print(f"[read_bouquet_archive] scan {key}: {len(draws)} draws unpacked to {eqdsk_out_dir}")
@@ -386,7 +389,8 @@ def _scan_time(key):
     except (TypeError, ValueError):
         return key
 
-def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu):
+def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu,
+                           main_ion_mass_amu=2.0):
     """Build one multi_run_ profile dict from a bouquet draw."""
     psi_k = prof.get('psi_N_kinetic', prof['psi_N'])
     def spl(y):
@@ -420,7 +424,8 @@ def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, 
     # Single fully-stripped impurity: n_imp = (n_e - n_i - z_fast)/Z_imp (in mre_terms_on_modes); n_i is thermal
     Z_imp = attrs.get('Z_imp', getattr(getattr(cfg, 'source', None), 'impurity_Z', 6.0))
     imp_mass = 2.0*Z_imp if impurity_mass_amu is None else impurity_mass_amu
-    out['species'] = _species(Z_imp, imp_mass, **{k: spl(prof[k]) for k in ('z_fast', 'z2_fast') if k in prof})
+    out['species'] = _species(Z_imp, imp_mass, main_ion_mass_amu,
+                              **{k: spl(prof[k]) for k in ('z_fast', 'z2_fast') if k in prof})
 
     out.update(ida_extras)
 

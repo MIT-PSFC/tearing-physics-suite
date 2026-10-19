@@ -122,6 +122,19 @@ def test_crashed_draw_is_final_after_two_attempts(study, monkeypatch):
     assert _status(study, uid, 0)['status'] == 'crashed'
 
 
+def test_species_masses_reach_reader(study, monkeypatch):
+    cfg = st.load_config(study)
+    cfg.update(main_ion_mass_amu=2.5, impurity_mass_amu=16.0)
+    fq.write_json(st.config_path(study), cfg)
+    uid = _record(study, 100, 1500, selected=(0,))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    seen, read = [], profile_read.read_bouquet_archive
+    monkeypatch.setattr(profile_read, 'read_bouquet_archive', lambda *a, **k: seen.append(k) or read(*a, **k))
+    st.run_item(study, f'{uid}.c0')
+    assert (seen[0]['main_ion_mass_amu'], seen[0]['impurity_mass_amu']) == (2.5, 16.0)
+
+
 def test_infra_error_propagates(study, monkeypatch):
     uid = _record(study, 100, 1500, selected=(0,))
     st.feed(study)

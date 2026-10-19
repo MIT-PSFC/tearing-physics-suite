@@ -149,7 +149,7 @@ def spot_config(cfg):
     if not s:
         return None
     spot = sc.SpotCheck() if s is True else sc.SpotCheck(**dict(s, scans=tuple(s['scans']) if s.get('scans') else None))
-    unknown = set(spot.scans or ()) - set(sc.SCANS)
+    unknown = (set(spot.scans or ()) | set(spot.scan_vals or ())) - set(sc.SCANS)
     if unknown:
         raise ValueError(f'spot_check: unknown scans {sorted(unknown)}')
     return spot

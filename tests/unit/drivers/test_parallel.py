@@ -288,3 +288,5 @@ def test_spot_check_draws(study, monkeypatch):
     np.testing.assert_array_equal(flag.isel(nn=0).values, [[0, 1], [-1, -1], [-1, -1], [0, 1]])
     with pytest.raises(ValueError, match='unknown scans'):
         st.spot_config(dict(spot_check=dict(scans=['no_scan'])))
+    with pytest.raises(ValueError, match='unknown scans'):
+        st.spot_config(dict(spot_check=dict(scan_vals={'no_scan': [1]})))

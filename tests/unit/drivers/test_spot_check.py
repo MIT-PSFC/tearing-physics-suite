@@ -82,6 +82,19 @@ def test_run_spot_task_calls_scan_and_keeps_data(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
+def test_scan_vals_replace_quick_values(tmp_path, monkeypatch):
+    """SpotCheck.scan_vals sets a scan's checked values, in the spot task and in the cost estimate."""
+    calls = []
+    monkeypatch.setattr(sc, 'run_spec', lambda spec, eq, **k: calls.append(k) or ({'xarrays': []}, 'msg'))
+    spot = sc.SpotCheck(scans=('integrator_tolerance_scan', 'vacuum_mtheta_scan'),
+                        scan_vals={'integrator_tolerance_scan': [1e-12, 1e-11]})
+    for scan in spot.scans:
+        sc.run_spot_task(('spot', 0, 'EQ', scan, 1, {}, spot, True), 'W', tmp_path)
+    assert [k['scan_vals'] for k in calls] == [[1e-12, 1e-11], None]  # None: the quick values
+    plan = sc.plan_spot_checks(100, spot, {'nvec': [1, 2]}, tmp_path / 'p')
+    assert sc.estimate_spot_check_cost(plan) == (2 + len(SCANS['vacuum_mtheta_scan'].quick_vals)) * 2
+
+
 class _FakePool:
     """Runs tasks in order in-process; spot tasks fail, main tasks succeed."""
     log = []

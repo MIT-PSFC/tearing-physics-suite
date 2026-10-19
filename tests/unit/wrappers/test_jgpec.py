@@ -252,3 +252,10 @@ def test_server_timeout(fake_julia):
         srv.run('/x/hang', timeout=1)
     assert not srv.alive()
     srv.close()
+
+
+def test_julia_env_blas_serial(monkeypatch):
+    """Julia gets the solver threads; its BLAS stays serial whatever the caller's environment says."""
+    monkeypatch.setenv('OPENBLAS_NUM_THREADS', '8')
+    env = jgpec.julia_env(threads=4)
+    assert env['JULIA_NUM_THREADS'] == '4' and env['OPENBLAS_NUM_THREADS'] == '1'

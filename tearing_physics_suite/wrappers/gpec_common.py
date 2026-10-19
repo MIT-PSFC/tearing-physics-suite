@@ -6,6 +6,8 @@ import xarray as xr
 
 from tearing_physics_suite.utils import run_code
 
+STRIDE_STACK = 1 << 30  # bytes: main-thread stack limit of a STRIDE run (OMP_STACKSIZE 1G for its threads)
+
 
 def executable(gpec_dir, code):
     """Path of the built GPEC executable for code ('rdcon' or 'stride'); raises if missing."""
@@ -33,11 +35,13 @@ def run_gpec_code(code, working_dir, nn, fresh_start=True, save_terminal_output=
         os.remove(out_nc)
         if verbose: print(f"Removed existing {code} output file from working directory before running {code}")
     if verbose: print(f"Running {code}...")
+    # STRIDE's OpenMP threads need large stacks (8 MB crashed it at mpert 105); RDCON is serial
+    big_stack = dict(env={'OMP_STACKSIZE': '1G', **os.environ}, stack_bytes=STRIDE_STACK) if code == 'stride' else {}
     if save_terminal_output:
-        status = run_code(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt')
+        status = run_code(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt', **big_stack)
         if verbose: print(f"{code} terminal output saved to {code}_terminal_output_n{nn}.txt")
     else:
-        status = run_code(f'{working_dir}/{code}', shell=False)
+        status = run_code(f'{working_dir}/{code}', shell=False, **big_stack)
     if status != 0 or not os.path.exists(out_nc):
         return None, False
     ds = xr.open_dataset(out_nc)

@@ -4,6 +4,8 @@ import os
 
 import numpy as np
 
+from tearing_physics_suite.utils import tps_threads
+
 ZEFF_MAX_PTS = 998 # rdcon's variable-length namelist read-in limit (GPEC Zeff_profile_support)
 
 def zeff_dict(Zeff):
@@ -343,7 +345,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             use_classic_splines='f', # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
             use_notaknot_splines='f', # Use not-a-knot boundary conditions for splines with extrapolation boundary conditions
             #STRIDE_PARAMS
-            nThreads=32,                         # Number of threads used to calculate intervals in parallel
+            nThreads=None,                       # Threads for STRIDE's intervals (None: utils.tps_threads())
             fourfit_metric_parallel='f',         # Compute equilibrium metric tensor components in parallel
             vac_parallel='t',                    # Doubles the number of main level threads, creating more threads than processors
             nIntervalsTot=132,                   # Radial intervals; 33 under-resolves the innermost Delta' (item G)
@@ -415,6 +417,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         if verbose: print("Warning: nx is not even, increasing by 1 to make it even.")
         nx += 1
 
+    nThreads = nThreads or tps_threads()
     if set_delta_mlow_to_delta_mhigh:
         delta_mlow = delta_mhigh
     if set_dx1dx2_dx0_mult > 0.0:

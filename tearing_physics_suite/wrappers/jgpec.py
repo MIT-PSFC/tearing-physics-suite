@@ -25,7 +25,6 @@ JULIA_INSTALL = '/fusion/projects/codes/julia/julia-1.11.7/bin/julia'
 _JULIA_DEFAULTS = {
     'JULIA_DEPOT_PATH': '/fusion/projects/tmdb/julia_depot_benjamins:',
     'JULIA_CPU_TARGET': 'generic',
-    'OPENBLAS_NUM_THREADS': '1',
 }
 EQUILIBRIUM_KEYS = {'eq_filename', 'eq_type', 'jac_type', 'grid_type', 'psilow', 'psihigh', 'mpsi', 'mtheta',
                     'newq0', 'etol', 'force_termination', 'psi_accuracy', 'profile_source', 'use_galgrid', 'r0exp',
@@ -57,6 +56,7 @@ def julia_env(threads=1):
     for k, v in _JULIA_DEFAULTS.items():
         env.setdefault(k, v)
     env['JULIA_NUM_THREADS'] = str(threads)
+    env['OPENBLAS_NUM_THREADS'] = '1'  # the solver threads are the parallelism (unset: one BLAS thread per CPU)
     env.pop('LD_LIBRARY_PATH', None)  # module libraries (e.g. PCRE) break Julia's bundled ones
     env.pop('JULIA_PROJECT', None)  # the module points it at the global environment; --project is passed
     return env

@@ -68,7 +68,7 @@
  "mthsurf0": 1,
  "mthvac": 960,
  "nIntervalsTot": 132,
- "nThreads": 32,
+ "nThreads": 1,
  "newq0": 0,
  "nn": 1,
  "nq": 6,

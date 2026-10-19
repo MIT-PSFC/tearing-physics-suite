@@ -54,7 +54,8 @@ def _write(cfg, d):
 
 
 @pytest.mark.parametrize('name', CONFIGS)
-def test_namelists_match_fixtures(name, tmp_path):
+def test_namelists_match_fixtures(name, tmp_path, monkeypatch):
+    monkeypatch.delenv('TPS_THREADS', raising=False)
     if os.environ.get('TPS_REGEN_NAMELISTS'):
         _write(CONFIGS[name], FIX / name)
     _write(CONFIGS[name], tmp_path)
@@ -88,3 +89,13 @@ def test_stride_only_shared_keys(tmp_path):
     assert 'tol_nr=1e-10\n' in rdcon and 'tol_nr=1e-12\n' in stride
     assert 'singfac_min=0.0001\n' in rdcon and 'singfac_min=2e-05\n' in stride
     assert out['tol_nr'] == 1e-10 and out['tol_nr_stride'] == 1e-12
+
+
+def test_stride_threads_from_tps_threads(tmp_path, monkeypatch):
+    """STRIDE's nThreads is $TPS_THREADS (1 when unset) unless given."""
+    monkeypatch.setenv('TPS_THREADS', '12')
+    out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False)
+    assert out['nThreads'] == 12 and 'nThreads=12\n' in (tmp_path / 'stride.in').read_text()
+    assert write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, nThreads=3)['nThreads'] == 3
+    monkeypatch.delenv('TPS_THREADS')
+    assert write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False)['nThreads'] == 1

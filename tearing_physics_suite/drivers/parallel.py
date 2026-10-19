@@ -38,6 +38,8 @@ DEFAULTS = dict(
     draws_per_item=8,
     ida_extra_keys=[],
     meta_data=False,            # bq_* per-draw metadata in the profile dicts
+    main_ion_mass_amu=2.0,      # species model masses (amu): main ions (thermal and fast) and the one impurity
+    impurity_mass_amu=None,     # (None: 2 Z_imp)
     keep_pickle=False,          # also keep multi_run-style result pickles
     code_timeout=3600,          # s per Fortran code run (TPS_CODE_TIMEOUT)
     out_root=None,              # per-draw outputs under <out_root>/<shot>/tps (default: the study dir); $VARS expanded
@@ -313,7 +315,9 @@ def run_item(study, item_id):
     try:
         eqs, profs = read_bouquet_archive(it['archive'], selection='all', draw_counts=todo,
                                           eqdsk_out_dir=os.path.join(wd, 'eq'), eq_source=cfg['eq_source'],
-                                          ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'])
+                                          ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'],
+                                          main_ion_mass_amu=cfg['main_ion_mass_amu'],
+                                          impurity_mass_amu=cfg['impurity_mass_amu'])
         for eq, prof in zip(eqs, profs):
             out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
                                           os.path.join(wd, 'work'), run_case, spot))

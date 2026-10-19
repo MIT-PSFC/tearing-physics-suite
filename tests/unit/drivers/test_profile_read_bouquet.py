@@ -67,5 +67,6 @@ def test_draw_species():
     out = _bouquet_draw_profiles(prof, dict(Z_imp=6.0), None, '1500', 0, {}, False, None)
     assert out['species'] == dict(main_mass=2.0, impurity_Z=6.0, impurity_mass=12.0) and 'average_ion_mass' not in out
     assert _bouquet_draw_profiles(prof, {}, None, '1500', 0, {}, False, 16.0)['species']['impurity_mass'] == 16.0
+    assert _bouquet_draw_profiles(prof, {}, None, '1500', 0, {}, False, None, 2.5)['species']['main_mass'] == 2.5
     beam = _bouquet_draw_profiles(dict(prof, z_fast=1e18 + 0*x, z2_fast=1e18 + 0*x), {}, None, '1500', 0, {}, False, None)
     np.testing.assert_allclose([beam['species'][k](0.5) for k in ('z_fast', 'z2_fast')], 1e18)

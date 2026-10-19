@@ -70,7 +70,7 @@ def test_deltaprime_tcrit_species_chi_para(rdcon_surface_terms):
 
 
 def test_spitzer_zeff_factor():
-    """Z N(Z)/N(1) against Spitzer & Harm: eta_par(Z)/eta_par(1) = Z alpha(Z)/alpha(1), alpha = 0.5129, 0.4408, 0.3752."""
+    """Z N(Z)/N(1) against Braginskii (1965): eta_par(Z)/eta_par(1) = Z alpha(Z)/alpha(1), alpha = 0.5129, 0.4408, 0.3752."""
     z = np.array([1.0, 2.0, 4.0])
     np.testing.assert_allclose(spitzer_zeff_factor(z), z*np.array([0.5129, 0.4408, 0.3752])/0.5129, rtol=0.02)
     assert spitzer_zeff_factor(1.0) == 1.0

@@ -61,7 +61,7 @@ def zeff_spline(rdcon_xarray):
 
 
 def spitzer_zeff_factor(zeff):
-    """Spitzer resistivity at Zeff over its Z = 1 value: Z N(Z) / N(1), N(Z) = 0.58 + 0.74/(0.76 + Z) (Wesson, Tokamaks, sec. 2.16)."""
+    """Spitzer resistivity at Zeff over its Z = 1 value: Z N(Z) / N(1), N(Z) = 0.58 + 0.74/(0.76 + Z) (Sauter et al. 1999, Eq. 18a)."""
     def n(z):
         return 0.58 + 0.74/(0.76 + z)
     return zeff*n(zeff)/n(1.0)

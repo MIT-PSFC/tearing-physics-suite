@@ -45,6 +45,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         run_jgpec=False,          # Also compute Delta' with jGPEC (Julia GPEC); needs run_rdcon for the surface map
         jgpec_solvers=('galerkin',), # Any of 'galerkin', 'riccati'; each is its own code (jGPEC_<solver>)
         jgpec_threads=None,       # None: utils.tps_threads()
+        jgpec_nvec=None,          # The n values jGPEC runs on (None: every n); at other n only the Fortran codes run
         jgpec_timeout=7200,       # Seconds per jGPEC run (the first run in a process includes Julia compilation)
         require_rdcon=False,      # Raise as soon as RDCON fails (before STRIDE, jGPEC, PEST3): the MRE analysis needs it
         **kwargs):
@@ -107,6 +108,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     #Extract keyword arguments for jGPEC
     jgpec_kwargs = {k: kwargs.pop(k) for k in [k for k in kwargs if k.endswith('_jgpec')]}
+    run_jgpec = run_jgpec and (jgpec_nvec is None or nn in jgpec_nvec)
     if run_jgpec:
         check_jgpec_request(jgpec_solvers, kwargs.get('vac_flag', 't'), run_rdcon)
     # Make equilibrium type consistent (default case is eqdsk):

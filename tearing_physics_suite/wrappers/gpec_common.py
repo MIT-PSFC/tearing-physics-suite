@@ -36,13 +36,14 @@ def run_gpec_code(code, working_dir, nn, fresh_start=True, save_terminal_output=
         if verbose: print(f"Removed existing {code} output file from working directory before running {code}")
     if verbose: print(f"Running {code}...")
     # STRIDE's OpenMP threads need a set stack size: under `ulimit -s unlimited` libgomp's default is 2 MB, which
-    # crashed it at mpert 105; RDCON is serial
-    big_stack = dict(env={'OMP_STACKSIZE': '1G', **os.environ}, stack_bytes=STRIDE_STACK) if code == 'stride' else {}
+    # crashed it at mpert 105; RDCON is serial (serial LibSci): one OpenMP thread, whatever the worker's setting
+    run_env = dict(env={'OMP_STACKSIZE': '1G', **os.environ}, stack_bytes=STRIDE_STACK) if code == 'stride' else \
+        dict(env={**os.environ, 'OMP_NUM_THREADS': '1'})
     if save_terminal_output:
-        status = run_code(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt', **big_stack)
+        status = run_code(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt', **run_env)
         if verbose: print(f"{code} terminal output saved to {code}_terminal_output_n{nn}.txt")
     else:
-        status = run_code(f'{working_dir}/{code}', shell=False, **big_stack)
+        status = run_code(f'{working_dir}/{code}', shell=False, **run_env)
     if status != 0 or not os.path.exists(out_nc):
         return None, False
     ds = xr.open_dataset(out_nc)

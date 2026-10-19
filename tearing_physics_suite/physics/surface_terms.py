@@ -184,8 +184,9 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
     average_ion_mass : float
         Mean ion mass in amu of a single ion species of density ni (used when species is None).
     species : dict or None
-        {'main_mass', 'impurity_Z', 'impurity_mass'} (amu): ni is the main-ion (charge 1) density and one fully
-        stripped impurity has n_imp = (ne - ni)/impurity_Z. Sets the mass density, v_ti (main ions) and, unless
+        {'main_mass', 'impurity_Z', 'impurity_mass'} (amu), optionally 'z_fast', 'z2_fast' (splines of the fast
+        main ions' sum Z n, sum Z^2 n in m^-3): ni is the thermal main-ion (charge 1) density and one fully stripped
+        impurity has n_imp = (ne - ni - z_fast)/impurity_Z. Sets the mass density, v_ti (main ions) and, unless
         diamagnetic_rotation_ion_charge is given, the omega*_i charge (1).
 
     Returns:
@@ -236,14 +237,17 @@ def mre_terms_on_modes(rdcon_xarray,ni_spline,ne_spline,ti_spline,te_spline,aver
                                         te1_keV_surf = like(np.array(te_spline(rdcon_xarray['psi_n_rational'].values,1)), rdcon_xarray['psi_n_rational']))
 
     if species is not None:
-        # Main ions (charge 1) and one fully stripped impurity, its density from quasi-neutrality
+        # Main ions (charge 1), fast main ions if given, and one fully stripped impurity from quasi-neutrality
+        z_fast, z2_fast = (like(np.array(species[k](rdcon_xarray['psi_n_rational'].values)), rdcon_xarray['psi_n_rational'])
+                           if k in species else 0.0 for k in ('z_fast', 'z2_fast'))
         rdcon_xarray = rdcon_xarray.assign(
             main_ion_mass=species['main_mass'], impurity_Z=species['impurity_Z'], impurity_mass=species['impurity_mass'],
-            nimp_m3_surf=np.clip(rdcon_xarray['ne_m3_surf'] - rdcon_xarray['ni_m3_surf'], 0, None)/species['impurity_Z'])
+            nimp_m3_surf=np.clip(rdcon_xarray['ne_m3_surf'] - rdcon_xarray['ni_m3_surf'] - z_fast, 0, None)/species['impurity_Z'])
         rdcon_xarray = rdcon_xarray.assign(Zeff_species_surf=(rdcon_xarray['ni_m3_surf'] + species['impurity_Z']**2
-                                                              *rdcon_xarray['nimp_m3_surf'])/rdcon_xarray['ne_m3_surf'])
+                                                              *rdcon_xarray['nimp_m3_surf'] + z2_fast)/rdcon_xarray['ne_m3_surf'])
         ion_mass = rdcon_xarray['main_ion_mass']
-        rho_ions = rdcon_xarray['ni_m3_surf']*species['main_mass'] + rdcon_xarray['nimp_m3_surf']*species['impurity_mass']
+        rho_ions = ((rdcon_xarray['ni_m3_surf'] + z_fast)*species['main_mass']
+                    + rdcon_xarray['nimp_m3_surf']*species['impurity_mass'])
         if diamagnetic_rotation_ion_charge is None:
             diamagnetic_rotation_ion_charge = 1.0
     else:

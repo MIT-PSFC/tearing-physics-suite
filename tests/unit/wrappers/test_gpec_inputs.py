@@ -78,3 +78,13 @@ def test_key_groups_match_writers():
     assert kw(gi.write_stride_in) == shared | stride | warn_only
     params = set(inspect.signature(gi.write_rdcon_stride_inputs).parameters)
     assert shared | rdcon | stride <= params
+
+
+def test_stride_only_shared_keys(tmp_path):
+    """'<key>_stride' gives STRIDE its own value of a shared key; rdcon.in keeps the shared one."""
+    out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, tol_nr=1e-10, tol_nr_stride=1e-12,
+                                    singfac_min_stride=2e-5)
+    rdcon, stride = ((tmp_path / f).read_text() for f in ('rdcon.in', 'stride.in'))
+    assert 'tol_nr=1e-10\n' in rdcon and 'tol_nr=1e-12\n' in stride
+    assert 'singfac_min=0.0001\n' in rdcon and 'singfac_min=2e-05\n' in stride
+    assert out['tol_nr'] == 1e-10 and out['tol_nr_stride'] == 1e-12

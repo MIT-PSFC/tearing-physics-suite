@@ -380,6 +380,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
 
     Keyword arguments correspond to RDCON_CONTROL, RDCON_OUTPUT, STRIDE_CONTROL,
     and STRIDE_OUTPUT namelist entries. See inline comments for descriptions.
+    A shared key with the suffix '_stride' (e.g. tol_nr_stride) is written to stride.in only.
 
     Parameters
     ----------
@@ -520,6 +521,10 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     }
 
     writer_inputs = dict(return_dict)  # before equil.in values (e.g. its use_classic_splines) are merged in
+    # '<key>_stride' sets a shared key for STRIDE only (e.g. tol_nr_stride); rdcon.in keeps <key>
+    stride_only = {k.removesuffix('_stride'): kwargs.pop(k) for k in list(kwargs)
+                   if k.endswith('_stride') and k.removesuffix('_stride') in SHARED_KEYS}
+    return_dict.update({f'{k}_stride': v for k, v in stride_only.items()})
     equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,ishape=ishape,out_ahg2msc=out_ahg2msc,**kwargs)
     #combine the dictionaries
     return_dict.update(equil_dict)
@@ -529,7 +534,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     if run_stride:
         # rdcon.in forces sing1_flag on with gal_xmin_flag; STRIDE warns about the value RDCON uses.
         stride_sing1 = 't' if (run_rdcon and gal_xmin_flag == 't') else sing1_flag
-        write_stride_in(working_dir + write_stride_filename, **{**writer_inputs, 'sing1_flag': stride_sing1})
+        write_stride_in(working_dir + write_stride_filename, **{**writer_inputs, 'sing1_flag': stride_sing1, **stride_only})
 
 
 

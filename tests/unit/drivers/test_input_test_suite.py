@@ -21,6 +21,7 @@ OLD_ORDER = ['fourier_mode_scan', 'RDCON_solver_scan', 'sing_order_scan', 'match
              'RDCON_cutoff_scan_n4', 'STRIDE_axis_mid_pt_skew_scan', 'large_sol_extent_pest_scan', 'RDCON_nq_scan',
              'sing1_flag_scan', 'regrid_flag_scan', 'edge_truncation_q_scan', 'edge_truncation_q_scan_no_wall',
              'wall_radius_scan']
+ADDED = ['singfac_min_scan']  # scans added after the refactor
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ def _norm(call):
 
 
 def test_registry_order_and_lists():
-    assert list(its.scan_functions) == OLD_ORDER
+    assert [s for s in its.scan_functions if s not in ADDED] == OLD_ORDER
     for lst in (its.key_numerical_tests, its.key_numerical_tests_n4, its.physics_tests, its.extra_numerical_tests):
         assert set(lst) <= set(its.SCANS)
     assert its.key_numerical_tests == its.key_numerical_tests_n4[:-1]
@@ -67,3 +68,11 @@ def test_repeated_fixed_kwarg_raises(calls):
 def test_banner_printed(calls, capsys):
     its.run_scan('mpsi_scan_no_wall', 'EQ', results_dir='RES')
     assert 'mpsi scan results (no wall):\nm' in capsys.readouterr().out
+
+
+def test_singfac_min_scan(calls):
+    """Quick values: the study's singfac_min (ledger G-12) and 10x closer; internal mode, no PEST3."""
+    its.run_scan('singfac_min_scan', 'EQ', results_dir='RES', verbose=False)
+    (name, vals, _, nn), kw = calls[0]
+    assert (name, vals, nn) == ('singfac_min', [1e-5, 1e-6], 1)
+    assert kw['run_pest3'] is False and kw['vac_flag'] == 'f'

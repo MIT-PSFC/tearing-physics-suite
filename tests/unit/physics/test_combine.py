@@ -123,14 +123,14 @@ def test_strip_inherited_attrs():
     assert ds.chi_perp_surf.attrs == lab  # input unchanged
 
 
-def test_combine_codes_aligns_surfaces_by_label():
-    """Codes with different surfaces: union of r labels, NaN where a code lacks one; never by position."""
+def test_combine_codes_needs_equal_surfaces():
+    """join='exact': a code on other surfaces is left out (never padded or aligned by position); no FutureWarning."""
     import warnings
     a = add_code_dim(xr.Dataset({'x': ('r', [1.0, 2.0])}, coords={'r': [2.0, 3.0]}), 'rdcon')
-    b = add_code_dim(xr.Dataset({'x': ('r', [5.0])}, coords={'r': [3.0]}), 'stride')
+    b = add_code_dim(xr.Dataset({'x': ('r', [5.0])}, coords={'r': [3.0]}), 'pest3')
+    c = add_code_dim(xr.Dataset({'x': ('r', [3.0, 4.0])}, coords={'r': [2.0, 3.0]}), 'stride')
     with warnings.catch_warnings():
         warnings.simplefilter('error', FutureWarning)
-        out, dropped = combine_codes({'rdcon': a, 'stride': b}, nn=1)
-    x = out.x.squeeze('nn')
-    assert dropped == {} and out.r.values.tolist() == [2.0, 3.0]
-    assert np.isnan(x.sel(code='stride', r=2.0)) and x.sel(code='stride', r=3.0) == 5.0
+        out, dropped = combine_codes({'rdcon': a, 'stride': c, 'pest3': b}, nn=1)
+    assert list(dropped) == ['pest3'] and out.code.values.tolist() == ['rdcon', 'stride']
+    assert out.r.values.tolist() == [2.0, 3.0]

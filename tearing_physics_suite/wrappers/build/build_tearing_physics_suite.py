@@ -105,6 +105,7 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         or str(Path(netcdf_prefix) / "include")
     )
 
+    libsci = os.environ.get("RDCON_LIBSCIHOME")  # GPEC make option: rdcon on serial Cray LibSci (kept for rebuilds)
     gpec_bin  = str(Path(repo_root) / "submodules" / "GPEC" / "bin")
     pest3_bin = str(Path(repo_root) / "submodules" / "PEST3" / "cmake_build" / "pest3")
     gpec_version = git_describe(Path(repo_root) / "submodules" / "GPEC")
@@ -134,6 +135,7 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         "",
         "# ── LAPACK / BLAS ─────────────────────────────────────────────────────────",
         f"export LAPACKHOME={utils_prefix}",
+        *([f"export RDCON_LIBSCIHOME={libsci}"] if libsci else []),
         "",
         "# ── NetCDF ────────────────────────────────────────────────────────────────",
         f"export NETCDFHOME={netcdf_prefix}",

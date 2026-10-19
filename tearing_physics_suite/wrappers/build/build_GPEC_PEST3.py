@@ -740,6 +740,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         NETCDFHOME  – directory whose lib/ contains libnetcdff & libnetcdf
         NETCDFINC   – directory containing NetCDF Fortran include files
         FFLAGS      – compiler flags (gfortran needs -fallow-argument-mismatch)
+        RDCON_LIBSCIHOME – optional, taken from the caller's environment: rdcon links serial Cray LibSci
 
     Parameters
     ----------

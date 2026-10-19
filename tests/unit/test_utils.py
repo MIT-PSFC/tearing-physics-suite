@@ -63,6 +63,15 @@ def test_run_code_timeout_kills_group(monkeypatch, tmp_path):
         os.kill(pid, 0)
 
 
+def test_run_code_stack_and_env(tmp_path):
+    """stack_bytes raises the child's soft stack limit (to at most its hard limit); env is its environment."""
+    import resource
+    assert run_code(f'echo $(ulimit -s) $X > {tmp_path}/o', env={**os.environ, 'X': 'y'}, stack_bytes=1 << 30) == 0
+    hard = resource.getrlimit(resource.RLIMIT_STACK)[1]
+    want = 1 << 30 if hard == resource.RLIM_INFINITY else min(1 << 30, hard)
+    assert (tmp_path / 'o').read_text().split() == [str(want // 1024), 'y']
+
+
 def test_node_slot_limits_concurrency(monkeypatch, tmp_path):
     import threading
     monkeypatch.setenv('TPS_WORK_ROOT', str(tmp_path))

@@ -5,7 +5,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from tearing_physics_suite.utils import tps_home
+from tearing_physics_suite.utils import tps_home, tps_threads
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation, _default_eq_type
 from tearing_physics_suite.wrappers.jgpec import check_jgpec_request, run_jgpec_solvers
 from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, pest3_special_truncation_loop
@@ -44,7 +44,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         ascii_q_plot=False,       # Print an ascii q-profile plot after the GPEC run
         run_jgpec=False,          # Also compute Delta' with jGPEC (Julia GPEC); needs run_rdcon for the surface map
         jgpec_solvers=('galerkin',), # Any of 'galerkin', 'riccati'; each is its own code (jGPEC_<solver>)
-        jgpec_threads=1,
+        jgpec_threads=None,       # None: utils.tps_threads()
         jgpec_timeout=7200,       # Seconds per jGPEC run (the first run in a process includes Julia compilation)
         require_rdcon=False,      # Raise as soon as RDCON fails (before STRIDE, jGPEC, PEST3): the MRE analysis needs it
         **kwargs):
@@ -133,8 +133,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     if run_jgpec:
         jgpec_xrs, jgpec_ran = run_jgpec_solvers(
             eq_filename, nn, working_dir, rdcon_stride_input_dict, rdcon_xr if rdcon_ran else None,
-            solvers=jgpec_solvers, threads=jgpec_threads, timeout=jgpec_timeout, output_location=output_location,
-            output_prefix=output_prefix, override_save=override_save, verbose=verbose, **jgpec_kwargs)
+            solvers=jgpec_solvers, threads=jgpec_threads or tps_threads(), timeout=jgpec_timeout,
+            output_location=output_location, output_prefix=output_prefix, override_save=override_save, verbose=verbose,
+            **jgpec_kwargs)
 
     #########################################################################################################
     # Set up pest3 calculation:

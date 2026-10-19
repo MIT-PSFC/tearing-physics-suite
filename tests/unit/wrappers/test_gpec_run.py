@@ -1,12 +1,13 @@
 """GPEC_resistive_calculation with a fake rdcon (no Fortran): staging, run, read, save."""
 import os
+import resource
 import stat
 
 import pytest
 import xarray as xr
 
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation
-from tearing_physics_suite.wrappers.gpec_common import executable
+from tearing_physics_suite.wrappers.gpec_common import executable, run_gpec_code
 
 FIX = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'fixtures', 'g147131.02300_DIIID_KEFIT_rdcon_n1.nc')
 
@@ -39,6 +40,21 @@ def test_rdcon_only_runs_without_stride_executable(tmp_path, eq_file):
     assert (out / 'p_g147131.02300_DIIID_KEFIT_rdcon_terminal_output_n1.txt').exists()
     assert (out / 'p_g147131.02300_DIIID_KEFIT_rdcon_stride_input_n1.pkl').exists()
     assert inputs['nn'] == 1 and (tmp_path / 'work' / 'rdcon.in').exists() and not (tmp_path / 'work' / 'stride').exists()
+
+
+@pytest.mark.parametrize('code', ['stride', 'rdcon'])
+def test_stride_runs_with_a_large_stack(tmp_path, monkeypatch, code):
+    """STRIDE (OpenMP) gets OMP_STACKSIZE 1G and a 1 GB stack limit; RDCON (serial) runs as before."""
+    monkeypatch.delenv('OMP_STACKSIZE', raising=False)
+    monkeypatch.chdir(tmp_path)
+    exe = tmp_path / code
+    exe.write_text('#!/bin/sh\necho "$(ulimit -s) $OMP_STACKSIZE" > env.txt\n')
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    assert run_gpec_code(code, str(tmp_path), 1) == (None, False)
+    soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
+    stack = min(1 << 30, hard) if code == 'stride' and hard != resource.RLIM_INFINITY else 1 << 30 if code == 'stride' else soft
+    want = 'unlimited' if stack == resource.RLIM_INFINITY else str(stack // 1024)
+    assert (tmp_path / 'env.txt').read_text().split() == [want] + (['1G'] if code == 'stride' else [])
 
 
 def test_failed_run_returns_none(tmp_path, eq_file):

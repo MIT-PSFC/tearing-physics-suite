@@ -39,7 +39,7 @@
     netcdf_out=t
 /
 &stride_params
-    nThreads=32
+    nThreads=1
     fourfit_metric_parallel=f
     vac_parallel=t
     nIntervalsTot=132

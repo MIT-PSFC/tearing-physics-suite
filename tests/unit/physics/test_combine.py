@@ -121,3 +121,16 @@ def test_strip_inherited_attrs():
     out = strip_inherited_attrs(ds)
     assert out.chi_perp_surf.attrs == {} and out.psi_n_rational.attrs == lab and out.q.attrs['long_name'] == 'Safety Factor'
     assert ds.chi_perp_surf.attrs == lab  # input unchanged
+
+
+def test_combine_codes_aligns_surfaces_by_label():
+    """Codes with different surfaces: union of r labels, NaN where a code lacks one; never by position."""
+    import warnings
+    a = add_code_dim(xr.Dataset({'x': ('r', [1.0, 2.0])}, coords={'r': [2.0, 3.0]}), 'rdcon')
+    b = add_code_dim(xr.Dataset({'x': ('r', [5.0])}, coords={'r': [3.0]}), 'stride')
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', FutureWarning)
+        out, dropped = combine_codes({'rdcon': a, 'stride': b}, nn=1)
+    x = out.x.squeeze('nn')
+    assert dropped == {} and out.r.values.tolist() == [2.0, 3.0]
+    assert np.isnan(x.sel(code='stride', r=2.0)) and x.sel(code='stride', r=3.0) == 5.0

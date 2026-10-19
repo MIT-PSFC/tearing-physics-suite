@@ -272,6 +272,7 @@ def combine_codes(datasets, nn, debug=False, rdcon_only=(), **concat_kwargs):
     """
     datasets, rdcon_vars = split_rdcon_only(datasets, rdcon_only)
     items = [(code, ds) for code, ds in datasets.items() if ds is not None]
+    concat_kwargs = {'join': 'outer', **concat_kwargs}  # surfaces aligned by their r label (xarray's default becomes 'exact')
     combined, dropped = None, {}
     if items:
         try:

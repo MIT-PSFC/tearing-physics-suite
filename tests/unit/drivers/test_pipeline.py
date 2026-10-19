@@ -47,3 +47,16 @@ def test_rdcon_only_variables_have_no_code_dim(monkeypatch, code_fixture, kin_fi
         a = old[v].sel(code='rdcon', drop=True) if v in moved else old[v]
         np.testing.assert_array_equal(new[v].transpose(*a.dims).values, a.values, err_msg=v)
     assert all('code' not in no_stride[v].dims for v in moved)  # fixed by name: the same when STRIDE fails
+
+
+def test_nonlinear_forwards_resistivity_settings(monkeypatch):
+    seen = {}
+
+    def fake_analyse(*args, **kwargs):
+        seen.update(kwargs)
+        raise _Stop
+    monkeypatch.setattr(pl, 'analyse_with_mre', fake_analyse)
+    with pytest.raises(_Stop):
+        pl.nonlinear_resistive_calculation('eq', None, None, None, None, Zeff=1.5, average_ion_mass=2.5,
+                                           energy_confinement_time=0.1, Coulomb_logarithm=17.0, eta_fac=2.0)
+    assert seen['Coulomb_logarithm'] == 17.0 and seen['eta_fac'] == 2.0

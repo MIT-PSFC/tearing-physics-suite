@@ -262,10 +262,10 @@ def test_julia_env_blas_serial(monkeypatch):
 
 
 @pytest.mark.parametrize('nn, runs', [(2, True), (3, False)])
-def test_jgpec_nvec(tmp_path, monkeypatch, inputs, nn, runs):
+def test_jgpec_nvec(tmp_path, monkeypatch, inputs, code_fixture, nn, runs):
     """jgpec_nvec limits jGPEC to those n; the Fortran codes run at every n."""
     from tearing_physics_suite.wrappers import run_codes
-    monkeypatch.setattr(run_codes, 'GPEC_resistive_calculation', lambda *a, **k: (None, None, False, False, inputs()))
+    monkeypatch.setattr(run_codes, 'GPEC_resistive_calculation', lambda *a, **k: (code_fixture('rdcon'), None, True, False, inputs()))
     called = []
     monkeypatch.setattr(run_codes, 'run_jgpec_solvers', lambda *a, **k: called.append(a[1]) or ({}, {}))
     run_codes.run_resistive_calculation(str(EQ), nn, run_pest3=False, run_jgpec=True, jgpec_nvec=[1, 2],

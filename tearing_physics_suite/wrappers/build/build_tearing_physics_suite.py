@@ -106,6 +106,7 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
     )
 
     libsci = os.environ.get("RDCON_LIBSCIHOME")  # GPEC make option: rdcon on serial Cray LibSci (kept for rebuilds)
+    julia_depot = os.environ.get("JULIA_DEPOT_PATH")  # jGPEC's depot (wrappers/jgpec.py has no default)
     gpec_bin  = str(Path(repo_root) / "submodules" / "GPEC" / "bin")
     pest3_bin = str(Path(repo_root) / "submodules" / "PEST3" / "cmake_build" / "pest3")
     gpec_version = git_describe(Path(repo_root) / "submodules" / "GPEC")
@@ -151,6 +152,7 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         "# ── jGPEC (Julia GPEC, run_jgpec) ─────────────────────────────────────────",
         f"export JGPEC_HOME={jgpec_home}",
         f"export JGPEC_JULIA=${{JGPEC_JULIA:-{julia_exe()}}}",   # a caller's wrapper (e.g. a depot launcher) wins
+        *([f"export JULIA_DEPOT_PATH={julia_depot}"] if julia_depot else []),
         "",
         "echo \"tearing_physics_suite environment loaded.\"",
         f"echo \"  TPSHOME : {repo_root}\"",

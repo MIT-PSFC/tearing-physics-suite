@@ -265,15 +265,25 @@ def combine_codes(datasets, nn, debug=False, rdcon_only=(), **concat_kwargs):
 
     datasets: {code: Dataset with a 'code' dim, or None}.
     RDCON-only variables (split_rdcon_only; rdcon_only adds names) are merged in without 'code'.
-    If the concat fails, codes are added one at a time and any code that will not concatenate is
-    left out, by name, with a warning. Breaks happen when codes have different rational surfaces at
-    the axis (e.g. psilow != 0 while also running PEST3, which has no psilow truncation).
+    A code whose rational surfaces (r, r_prime) differ from the first code's (RDCON's when it ran) is left out,
+    by name, with a warning (e.g. PEST3, which has no psilow truncation): surfaces are never padded or matched
+    by position. Other dims (m, mode) are joined by label. If the concat still fails, codes are added one at a
+    time and any code that will not concatenate is left out the same way.
     Returns (combined_xr or None, dropped), dropped = {code: dataset left out}.
     """
     datasets, rdcon_vars = split_rdcon_only(datasets, rdcon_only)
     items = [(code, ds) for code, ds in datasets.items() if ds is not None]
-    concat_kwargs = {'join': 'outer', **concat_kwargs}  # surfaces aligned by their r label (xarray's default becomes 'exact')
+    concat_kwargs = {'join': 'outer', **concat_kwargs}  # m, mode: union by label
     combined, dropped = None, {}
+    ref_code, ref = items[0] if items else (None, None)
+    for code, ds in items[1:]:
+        if any(d in ds.indexes and not ds.indexes[d].equals(ref.indexes[d]) for d in ('r', 'r_prime') if d in ref.indexes):
+            msg = f"Leaving code '{code}' out of the combined dataset: its rational surfaces differ from {ref_code}'s"
+            if debug:
+                raise ValueError(msg)
+            print(msg)
+            dropped[code] = ds
+    items = [(code, ds) for code, ds in items if code not in dropped]
     if items:
         try:
             combined = xr.concat([ds for _, ds in items], dim='code', coords='all', **concat_kwargs)

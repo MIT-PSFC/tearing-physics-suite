@@ -153,7 +153,7 @@ def write_gpec_toml(run_dir, sections):
 class JuliaServer:
     """One Julia process running jgpec_server.jl; run(dir) runs jGPEC on dir/gpec.toml."""
 
-    def __init__(self, threads=1, log_path=None, startup_timeout=7200):
+    def __init__(self, threads=1, log_path=None, startup_timeout=3600):
         self.threads, self.startup_timeout = threads, startup_timeout
         self.log_path = log_path or os.path.join(os.getcwd(), f'jgpec_server_{os.getpid()}.log')
         self.proc = None

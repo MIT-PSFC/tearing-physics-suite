@@ -70,7 +70,7 @@ def error_signature(exc):
 
 
 def slurm_info():
-    return {k: os.environ.get(f'SLURM_{k.upper()}', '') for k in ('job_id', 'array_task_id', 'procid')}
+    return {k: os.environ.get(f'SLURM_{k.upper()}', '') for k in ('job_id', 'array_task_id', 'step_id', 'procid')}
 
 
 class Queue:
@@ -609,12 +609,14 @@ def launch(root, n_workers, make_run, tag=None, policy=None, deadline=None, **wo
     """Start ``n_workers`` worker processes on this node; returns {worker: exit reason}.
 
     ``make_run(q, worker)`` (picklable, module level) returns the worker's ``run(uid, unit)``.
-    Workers are '<tag>.w<i>'; tag defaults to '<host>.<job>.<procid>'. If every worker exits
+    Workers are '<tag>.w<i>'; tag defaults to '<host>.<job>[.s<step>].<procid>'
+    (the step keeps sessions run as concurrent job steps on one node apart). If every worker exits
     'broken', the job is marked broken (see Queue.mark_broken)."""
     import multiprocessing
     import signal
     s = slurm_info()
-    tag = tag or f'{socket.gethostname()}.{s["job_id"] or os.getpid()}.{s["procid"] or 0}'
+    step = f'.s{s["step_id"]}' if s['step_id'].isdigit() else ''
+    tag = tag or f'{socket.gethostname()}.{s["job_id"] or os.getpid()}{step}.{s["procid"] or 0}'
     ctx = multiprocessing.get_context('spawn')
     names = [f'{tag}.w{i}' for i in range(n_workers)]
     procs = [ctx.Process(target=_worker_main, args=(root, policy or {}, w, make_run, deadline, work_kw), name=w)

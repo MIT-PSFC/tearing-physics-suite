@@ -1,15 +1,16 @@
-"""TARS tearing-mode labels (one <shot>_labeled.nc per shot) as time traces, for dist_plot."""
+"""TARS tearing-mode labels (one <shot>_labeled.nc per shot, or a file of the same layout such as eq_stab's
+<shot>_fused.nc) as time traces, for dist_plot."""
 import numpy as np
 import xarray as xr
 
 
-def read_labels(path):
-    """One shot's labels on the file's time bins: t_ms; mode {(m, |n|): on} (ntm_mask) and activity
+def read_labels(path, mode_var='ntm_mask'):
+    """One shot's labels on the file's time bins: t_ms; mode {(m, |n|): on} (mode_var) and activity
     {(|n|, m parity): on} (ntm_activity_mask), on any frequency, both signs of n merged; amp_db {mode name:
     10 log10(ntm_sxx)} of the labelled modes (NaN where the mode is off)."""
     with xr.open_dataset(path) as d:
         t_ms = np.round(d['time'].values * 1e3, 3)
-        mode = d['ntm_mask'].any('frequency').transpose('time_idx', 'mode_idx').values
+        mode = d[mode_var].any('frequency').transpose('time_idx', 'mode_idx').values
         act = d['ntm_activity_mask'].any('frequency').transpose('time_idx', 'activity_idx').values
         m, n, names = d['mode_m'].values, d['mode_n'].values, d['mode_name'].values
         an, ap = d['activity_n'].values, d['activity_parity'].values

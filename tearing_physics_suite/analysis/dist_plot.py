@@ -187,15 +187,16 @@ def label_layers(labels, m, n, gap_ms=20.0, amp_panel=False):
 
 
 def plot_shot(source, shot, out_dir, cases=CASES, t_ms=None, draws=None, fmt='pdf', labels=None, gap_ms=20.0,
-              amp_panel=False, **kw):
+              amp_panel=False, label_var='ntm_mask', **kw):
     """One dist_plot per case (variable, n, m) present in the shot's runs, unique surfaces only (r_occ 0),
     to <out_dir>/<shot>_<var>_m<m>n<n>.<fmt>; y-range from the 2-98th percentiles unless kw says.
-    labels: the shot's TARS <shot>_labeled.nc, shaded per case (label_layers). Returns the paths."""
+    labels: the shot's TARS <shot>_labeled.nc (or a file of its layout, mode mask label_var), shaded per case
+    (label_layers). Returns the paths."""
     kw.setdefault('percent_bounds', (2, 98))
     variables = sorted({c[0] for c in cases} | {'r_value', 'r_occ'})
     ds = select(open_shot(source, shot, variables), t_ms, draws)
     os.makedirs(out_dir, exist_ok=True)
-    lab = read_labels(labels) if labels else None
+    lab = read_labels(labels, label_var) if labels else None
     paths = []
     for var, n, m in cases:
         if var not in ds or n not in ds['nn'].values:
@@ -221,12 +222,13 @@ def main(argv=None):
     p.add_argument('--vars', default='', help='comma-separated subset of the CASES variables')
     p.add_argument('--fmt', default='pdf', choices=('pdf', 'svg'))
     p.add_argument('--labels', default='', help="the shot's TARS <shot>_labeled.nc: shade the mode / activity times")
+    p.add_argument('--label-var', default='ntm_mask', help='mode mask in --labels (ntm_mask_fused: eq_stab fused)')
     p.add_argument('--gap-ms', type=float, default=20.0, help='label gaps shorter than this are closed')
     p.add_argument('--amp-panel', action='store_true', help='add a panel of the labelled modes\' power [dB]')
     a = p.parse_args(argv)
     cases = [c for c in CASES if not a.vars or c[0] in a.vars.split(',')]
     for path in plot_shot(a.source, a.shot, a.out, cases=cases, fmt=a.fmt, labels=a.labels or None, gap_ms=a.gap_ms,
-                          amp_panel=a.amp_panel):
+                          amp_panel=a.amp_panel, label_var=a.label_var):
         print(path)
 
 

@@ -11,8 +11,9 @@ Work items (``<unit_id>.c<k>``, a chunk of one bouquet unit's draws) are claimed
 ``draws/<count>.json`` (its status). See docs/parallel.md for the layout and the failure policy.
 
 With ``--code-check``, feed/work/compile/status act on the code checks (config ``code_check``): the other codes on
-the 'ok' draws of a seeded random fraction of shots or draws, from ``<study>/_queue/tps_codes``, filled into
-``draws/<count>.codes.nc`` (status ``.codes.json``) and compiled into ``<shot>_codes.zarr``.
+the 'ok' draws of a seeded random fraction of shots or draws (STRIDE-flagged draws first, further draws when the
+workers would idle), from ``<study>/_queue/tps_codes``, filled into ``draws/<count>.codes.nc`` (status
+``.codes.json``) and compiled into ``<shot>_codes.zarr``.
 """
 import argparse
 import collections
@@ -53,9 +54,10 @@ DEFAULTS = dict(
     baseline=True,              # also run each archive's bouquet baseline, as draw -1 (item <unit>.base)
     spot_check=None,            # true or SpotCheck fields: re-run a seeded random fraction of the draws through the key
                                 # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
-    code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...]}: run these
-                                # codes at these n (default: the study's) on the 'ok' draws of a seeded random fraction
-                                # of shots or draws, filled in (--code-check)
+    code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...], "flag":
+                                # {"im_re_max", "psi_n": [lo, hi]}}: run these codes at these n (default: the study's)
+                                # on the 'ok' draws of a seeded random fraction of shots or draws, filled in
+                                # (--code-check); with flag, STRIDE-flagged draws first (see stride_flagged_n)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -164,18 +166,34 @@ def spot_config(cfg):
 
 
 def code_check_config(cfg):
-    """The study's code check {by, fraction, seed, codes, nvec} (defaults filled in), or None; bad values raise."""
+    """The study's code check {by, fraction, seed, codes, nvec, flag} (defaults filled in), or None; bad values
+    raise."""
     from tearing_physics_suite.physics.combine import CODE_ORDER
     c = cfg.get('code_check')
     if not c:
         return None
-    c = dict(dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None), **c)
+    defaults = dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None, flag=None)
+    c = dict(defaults, **c)
     study_n = cfg['tps_kwargs'].get('nvec') or [1]
-    if (c['by'] not in ('shot', 'draw') or not c['codes'] or set(c['codes']) - (set(CODE_ORDER) - {'stride'})
-            or not set(c['nvec'] or study_n) <= set(study_n)):
-        raise ValueError(f"code_check: by 'shot' or 'draw', codes from {[k for k in CODE_ORDER if k != 'stride']}, "
-                         f"nvec from the study's {study_n}: {c}")
+    if (set(c) - set(defaults) or c['by'] not in ('shot', 'draw') or not c['codes']
+            or set(c['codes']) - (set(CODE_ORDER) - {'stride'}) or not set(c['nvec'] or study_n) <= set(study_n)
+            or c['flag'] is not None and (set(c['flag']) != {'im_re_max', 'psi_n'}
+                                          or not cfg['tps_kwargs'].get('run_stride', True))):
+        raise ValueError(f"code_check: keys {sorted(defaults)}, by 'shot' or 'draw', codes from "
+                         f"{[k for k in CODE_ORDER if k != 'stride']}, nvec from the study's {study_n}, flag "
+                         f"{{im_re_max, psi_n: [lo, hi]}} on a STRIDE study: {c}")
     return c
+
+
+def stride_flagged_n(ds, flag):
+    """The n at which a draw's STRIDE single-helicity Delta' is suspect: |Im| > im_re_max |Re|, or no Re, on a
+    rational surface with psi_n[0] < psi_N < psi_n[1] (RDCON's surface map; a draw without STRIDE has no Delta')."""
+    sh = ds[['Delta_prime_surf', 'Im_Delta_prime_surf', 'psi_n_rational']].sel(Delta_prime_type='single helicity')
+    sh = sh.reindex(code=['rdcon', 'stride'])
+    re, im = sh.Delta_prime_surf.sel(code='stride'), sh.Im_Delta_prime_surf.sel(code='stride')
+    psi = sh.psi_n_rational.sel(code='rdcon')
+    bad = (re.isnull() | (abs(im) > flag['im_re_max'] * abs(re))) & (psi > flag['psi_n'][0]) & (psi < flag['psi_n'][1])
+    return [int(n) for n in ds.nn.values[bad.any('r').values]]
 
 
 def code_check_kwargs(cfg, check):
@@ -235,40 +253,54 @@ def feed(study, cfg=None):
     return n_new
 
 
-def feed_codes(study, cfg=None):
-    """Add a code-check item (<unit_id>.d<count>) for each 'ok' draw of a picked shot or draw not yet fed."""
+def feed_codes(study, cfg=None, extra=0):
+    """Add code-check items (<unit_id>.d<count>) for 'ok' draws not yet fed, by priority: the STRIDE-flagged draws
+    (reason 'flagged'); once none of those waits for a worker, the picked shots' or draws' ('random', 'flagged+random'
+    when both); once neither waits, ``extra`` further draws in the coin's order ('extra': the work feeder passes its
+    worker count, so the check sessions keep going). Returns how many were added."""
     cfg = cfg or load_config(study)
     check = code_check_config(cfg)
     if check is None:
         raise SystemExit('feed --code-check: the study has no code_check')
     q = fq.Queue(qroot(study, code_check=True))
-    fed = set(q.units(refresh=True))
-    items = []
+    units, done = q.units(refresh=True), q.done_ids()
+    waiting = {(it.get('reason') or 'random').split('+')[0] for uid, it in units.items()
+               if uid not in done and q.age('claims', uid) >= q.STALE_S}
+    new = collections.defaultdict(list)
     for p in sorted(glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json'))):
         if p.endswith('.codes.json'):
             continue
         r = fq.read_json(p) or {}
         uid = f"{r.get('unit_id')}.d{r.get('draw')}"
-        key = str(r.get('shot')) if check['by'] == 'shot' else r.get('case_key', '')
-        if r.get('status') == 'ok' and uid not in fed and _picked(check['seed'], check['fraction'], key):
-            items.append(dict(id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')},
-                              draws=[r['draw']], est=1))
-    n_new = q.add_units(items)
+        if r.get('status') != 'ok' or uid in units:
+            continue
+        u = _coin(check['seed'], str(r['shot']) if check['by'] == 'shot' else r['case_key'])
+        reason = '+'.join(k for k, on in (('flagged', r.get('stride_flagged_n')), ('random', u < check['fraction']))
+                          if on) or 'extra'
+        new[reason.split('+')[0]].append((u, uid, dict(
+            id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')}, draws=[r['draw']], est=1,
+            reason=reason)))
+    for tier in ('flagged', 'random', 'extra'):
+        items = sorted(new[tier])[:extra] if tier == 'extra' else new[tier]
+        if items or tier in waiting:
+            break
+    n_new = q.add_units([it for _, _, it in items])
     print(f'feed: {n_new} code-check item(s) added', flush=True)
     return n_new
 
 
 class Feeder:
-    """on_idle hook: feed, unless any worker fed in the last ``every`` seconds."""
+    """on_idle hook: feed, unless any worker fed in the last ``every`` seconds (code checks: up to ``workers`` extra
+    draws)."""
 
-    def __init__(self, study, every, code_check=False):
-        self.study, self.every, self.code_check = study, every, code_check
+    def __init__(self, study, every, code_check=False, workers=0):
+        self.study, self.every, self.code_check, self.workers = study, every, code_check, workers
 
     def __call__(self):
-        fn = feed_codes if self.code_check else feed
+        fn = (lambda: feed_codes(self.study, extra=self.workers)) if self.code_check else (lambda: feed(self.study))
         try:
             return bool(fq.Queue(qroot(self.study, self.code_check)).periodic('feeder', self.every,
-                                                                              lambda: fn(self.study) > 0))
+                                                                              lambda: fn() > 0))
         except Exception as e:
             print(f'feeder failed: {fq.error_signature(e)}', flush=True)
             return False
@@ -276,9 +308,10 @@ class Feeder:
 
 # --- one item (child process) ------------------------------------------------------------------
 
-def _picked(seed, fraction, key):
-    """A seeded coin per key (draw or shot), so the same ones are checked however they are chunked or retried."""
-    return np.random.default_rng([seed, zlib.crc32(key.encode())]).random() < fraction
+def _coin(seed, key):
+    """A seeded uniform number per key (draw or shot), the same however the draws are chunked or retried; the key is
+    picked when it is below the fraction."""
+    return np.random.default_rng([seed, zlib.crc32(key.encode())]).random()
 
 
 def _run_spot_checks(spot, eq, kwargs, sdir, wd):
@@ -368,6 +401,7 @@ def run_item(study, item_id, code_check=False):
         return out
     kwargs = code_check_kwargs(cfg, code_check_config(cfg)) if code_check else dict(cfg['tps_kwargs'])
     spot = None if code_check else spot_config(cfg)
+    flag = None if code_check else (code_check_config(cfg) or {}).get('flag')
     if cfg.get('tau_e'):
         kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
     wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
@@ -379,7 +413,8 @@ def run_item(study, item_id, code_check=False):
                                           impurity_mass_amu=cfg['impurity_mass_amu'])
         for eq, prof in zip(eqs, profs):
             out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
-                                          os.path.join(wd, 'work'), _check_case if code_check else run_case, spot, sfx))
+                                          os.path.join(wd, 'work'), _check_case if code_check else run_case,
+                                          spot, sfx, flag))
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     if any(d['status'] in ('timeout',) for d in out['draws']):
@@ -388,7 +423,7 @@ def run_item(study, item_id, code_check=False):
     return out
 
 
-def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None, sfx=''):
+def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None, sfx='', flag=None):
     c = prof['bq_count']
     key = f"{it['unit_id']}_{c}"
     stat = os.path.join(ddir, f'{c}{sfx}.json')
@@ -396,6 +431,8 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
                draw=c, archive=it['archive'], profile_coord=prof.get('bq_profile_coord'), attempts=attempt,
                config_hash=cfg['hash'], host=socket.gethostname(), slurm_job=os.environ.get('SLURM_JOB_ID', ''),
                started=time.time())
+    if 'reason' in it:                                                  # a code check's
+        rec['reason'] = it['reason']
     fq.write_json(stat, dict(rec, status='running'))
     os.makedirs(wd, exist_ok=True)
     CODE_WALL_S.clear()
@@ -407,7 +444,9 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
                               labels=dict(shot_id=it['shot'], t_ms=it['t_ms'], draw=c, variant=it['variant']))
         rec.update(status='ok' if ds is not None else 'error', inputs=_scalars(inputs), code_wall_s=_code_wall_s(),
                    error=None if ds is not None else dict(signature='no combined_xr'))
-        if ds is not None and spot and _picked(spot.seed, spot.fraction, key):     # never fails the draw
+        if ds is not None and flag:
+            rec['stride_flagged_n'] = stride_flagged_n(ds, flag)
+        if ds is not None and spot and _coin(spot.seed, key) < spot.fraction:      # never fails the draw
             t = time.time()
             rec['spot_errors'] = _run_spot_checks(spot, eq, kwargs, os.path.join(ddir, f'{c}.spot'), wd)
             rec['spot_wall_s'] = round(time.time() - t, 1)
@@ -548,7 +587,7 @@ def cmd_work(a):
     print(f'work: {a.workers} worker(s) on {socket.gethostname()}, deadline {time.ctime(d) if d else "none"}',
           flush=True)
     out = fq.launch(qroot(a.study, a.code_check), a.workers, Runner(a), deadline=d, idle_exit_s=a.idle_exit,
-                    on_idle=Feeder(a.study, a.feed_every, a.code_check) if a.feed_every else None)
+                    on_idle=Feeder(a.study, a.feed_every, a.code_check, a.workers) if a.feed_every else None)
     for w, why in sorted(out.items()):
         print(f'  {w}: {why}', flush=True)
     if not a.no_compile:          # catch draws that finished while their shot was being compiled
@@ -577,6 +616,12 @@ def _spot_flag(nc_path, rec, nn, codes):
     sdir = nc_path[:-len('.nc')] + '.spot'
     ds = sc.spot_dataset(sc.load_spot_results(sdir)) if 'spot_errors' in rec else None
     return sc.spot_check_flag(ds, 0, nn, codes)
+
+
+def _stride_flag(rec, nn):
+    """stride_flag(nn) of one draw: 1 where STRIDE was flagged, 0 where not, -1 for a record without the flag."""
+    f = rec.get('stride_flagged_n')
+    return np.array([-1 if f is None else int(n in f) for n in nn], dtype=np.int8)
 
 
 def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32, code_check=False):
@@ -615,8 +660,10 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                 truncate_zarr_store(zpath, 'run_idx', len(state['compiled']))
             seen = set(state['compiled']) | set(state['broken'])
             draws = _shot_draws(study, cfg, shot, code_check)
-            codes = study_codes(cfg['tps_kwargs'], code_check_config(cfg)['codes'] if code_check else ())
+            check = code_check_config(cfg)
+            codes = study_codes(cfg['tps_kwargs'], check['codes'] if code_check else ())
             spot = None if code_check else spot_config(cfg)
+            flag = not code_check and (check or {}).get('flag')
             new = sorted(k for k in draws if k not in seen)
             for i in range(0, len(new), batch):
                 keys, dsets = [], []
@@ -626,6 +673,10 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                     ds = store_ready(_vlen_strings(align_codes(ds, codes)))
                     if spot:
                         ds['spot_check_flag'] = (('nn', 'code'), _spot_flag(*draws[key], ds.nn.values, codes))
+                    if flag:
+                        ds['stride_flag'] = ('nn', _stride_flag(draws[key][1], ds.nn.values))
+                    if code_check:
+                        ds['code_check_reason'] = np.array(draws[key][1].get('reason', 'random'), dtype=object)
                     ds = ds.assign(_timing_vars(draws[key][1], ds.nn.values, codes))
                     sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
                     if state['signature'] is None:

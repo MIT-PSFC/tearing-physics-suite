@@ -324,11 +324,16 @@ def _set_code_check(study, **check):
 def test_code_check_config():
     cfg = dict(tps_kwargs=dict(nvec=[1, 2], jgpec_nvec=[1]))
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon']))) == dict(
-        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None)
+        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None, flag=None)
+    flag = dict(im_re_max=0.01, psi_n=[0.01, 0.9])
+    assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=flag)))['flag'] == flag
     for bad in (dict(by='slice', codes=['rdcon']), dict(codes=['stride']), dict(codes=[]),
-                dict(codes=['rdcon'], nvec=[3])):
+                dict(codes=['rdcon'], nvec=[3]), dict(codes=['rdcon'], budget='extra'),
+                dict(codes=['rdcon'], flag=dict(flag, no_dp=True))):
         with pytest.raises(ValueError):
             st.code_check_config(dict(cfg, code_check=bad))
+    with pytest.raises(ValueError):                                             # the flag reads STRIDE's Delta'
+        st.code_check_config(dict(tps_kwargs=dict(run_stride=False), code_check=dict(codes=['rdcon'], flag=flag)))
     assert st.code_check_kwargs(cfg, dict(codes=['rdcon', 'jGPEC_riccati'])) == dict(
         nvec=[1, 2], jgpec_nvec=[1], run_rdcon=True, rdcon_delta_prime=True, run_stride=False, run_pest3=False,
         run_jgpec=True, jgpec_solvers=['riccati'])
@@ -359,5 +364,67 @@ def test_code_check_fills_ok_draws(study, monkeypatch):
     assert open(os.path.join(ddir, '0.nc'), 'rb').read() == before
     assert st.run_item(study, f'{uid}.d0', code_check=True)['draws'] == []   # final
     assert st.compile_shot(study, 100, code_check=True)['compiled'] == [f'{uid}_0']
-    assert list(xr.open_zarr(st.shot_store(study, 100, code_check=True)).case_key.values) == [f'{uid}_0']
+    codes = xr.open_zarr(st.shot_store(study, 100, code_check=True))
+    assert list(codes.case_key.values) == [f'{uid}_0'] and list(codes.code_check_reason.values) == ['random']
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # main store: own files only
+
+
+def test_stride_flagged_n():
+    """STRIDE's single-helicity Delta' is suspect where |Im| > im_re_max |Re|, or it is missing, in the psi_N window."""
+    flag = dict(im_re_max=0.01, psi_n=[0.01, 0.9])
+    dims = ('nn', 'Delta_prime_type', 'code', 'r')
+    re, im = np.ones((2, 2, 2, 2)), np.zeros((2, 2, 2, 2))
+    im[0, 0, 1, 0] = 0.02                                       # n=1, single helicity, STRIDE, at psi_N 0.5
+    im[1, 0, 1, 1] = 0.02                                       # n=2 at psi_N 0.95: outside the window
+    im[1, 1, 1, 0] = 0.02                                       # n=2, nn coupled: not checked
+    ds = xr.Dataset({'Delta_prime_surf': (dims, re), 'Im_Delta_prime_surf': (dims, im),
+                     'psi_n_rational': (('nn', 'code', 'r'), np.tile([0.5, 0.95], (2, 2, 1)))},
+                    coords={'nn': [1, 2], 'Delta_prime_type': ['single helicity', 'nn coupled'],
+                            'code': ['rdcon', 'stride']})
+    assert st.stride_flagged_n(ds, flag) == [1]
+    ds.Delta_prime_surf.values[1, 0, 1, 0] = np.nan              # no Delta' at n=2, psi_N 0.5
+    assert st.stride_flagged_n(ds, flag) == [1, 2]
+    assert st.stride_flagged_n(ds.sel(code=['rdcon']), flag) == [1, 2]       # STRIDE dropped: no Delta'
+
+
+def _ok_draw(study, uid, c, **rec):
+    os.makedirs(os.path.join(study, '100', 'tps', uid, 'draws'), exist_ok=True)
+    fq.write_json(os.path.join(study, '100', 'tps', uid, 'draws', f'{c}.json'), dict(
+        case_key=f'{uid}_{c}', shot=100, t_ms=1500, variant='base', unit_id=uid, draw=c, archive='a.h5', status='ok',
+        **rec))
+
+
+def test_code_check_feed_order(study):
+    """Flagged draws first; the coin's picks once no flagged one waits for a worker; then, from the work feeder,
+    its worker count of further draws in the coin's order, whenever nothing more urgent waits."""
+    uid = '100_1500_base'
+    for c in range(6):
+        _ok_draw(study, uid, c, stride_flagged_n=[2] if c == 1 else [])
+    _set_code_check(study, fraction=0.0)
+    q = fq.Queue(st.qroot(study, code_check=True))
+
+    def reasons():
+        return {k: it['reason'] for k, it in q.units(refresh=True).items()}
+    assert st.feed_codes(study, extra=2) == 1 and reasons() == {f'{uid}.d1': 'flagged'}
+    assert st.feed_codes(study, extra=2) == 0                   # the flagged draw waits
+    q.finish(f'{uid}.d1')
+    assert st.feed_codes(study) == 0 and st.feed_codes(study, extra=2) == 2
+    coin = sorted((st._coin(0, f'{uid}_{c}'), c) for c in (0, 2, 3, 4, 5))
+    assert {k for k, r in reasons().items() if r == 'extra'} == {f'{uid}.d{c}' for _, c in coin[:2]}
+    _set_code_check(study, fraction=1.0)                        # the rest picked: ahead of the waiting extras
+    assert st.feed_codes(study, extra=2) == 3 and list(reasons().values()).count('random') == 3
+    _ok_draw(study, uid, 6, stride_flagged_n=[1])
+    assert st.feed_codes(study, extra=2) == 1 and reasons()[f'{uid}.d6'] == 'flagged+random'
+
+
+def test_stride_flag_recorded_and_compiled(study, monkeypatch):
+    """With code_check.flag, each draw records its STRIDE-flagged n, and the main store gets stride_flag(nn)."""
+    uid = _record(study, 100, 1500, selected=(0, 2))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    _set_code_check(study, flag=dict(im_re_max=0.01, psi_n=[0.01, 0.9]))
+    monkeypatch.setattr(st, 'stride_flagged_n', lambda ds, flag: [1] if int(ds.draw) == 0 else [])
+    st.run_item(study, f'{uid}.c0')
+    assert _status(study, uid, 0)['stride_flagged_n'] == [1] and _status(study, uid, 2)['stride_flagged_n'] == []
+    st.compile_shot(study, 100)
+    np.testing.assert_array_equal(xr.open_zarr(st.shot_store(study, 100)).stride_flag.values, [[1], [0]])

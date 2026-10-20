@@ -71,3 +71,13 @@ def test_wall_outputs_round_trip(wall_run, eq_file):
 def test_nowall_dp21(nowall_run, code, ref, atol):
     ds = dict(zip(('rdcon', 'stride', 'pest3'), nowall_run[1][:3]))[code]
     assert np.isclose(_dp21(ds), ref, atol=atol), _dp21(ds)
+
+
+def test_rdcon_surface_pass_matches_full_run(nowall_run, eq_file, tmp_path):
+    """rdcon_delta_prime=False: RDCON's surface terms are bitwise those of its full run; no Delta', no energies."""
+    full = nowall_run[1].rdcon_xr
+    surf = run_resistive_calculation(eq_file, 1, working_dir=str(tmp_path / 'work'), vac_flag='t', rdcon_delta_prime=False,
+                                     **{**COMMON, 'run_stride': False, 'run_pest3': False}).rdcon_xr
+    assert 'Delta_prime' not in surf and 'W_t_eigenvalue' not in surf
+    for v in ('Wc', 'tau_a', 'tau_r', 'h', 'dr', 'di', 'Dnc', 'avg_R', 'psi_n_rational', 'q_rational'):
+        np.testing.assert_array_equal(surf[v].values, full[v].values, err_msg=v)

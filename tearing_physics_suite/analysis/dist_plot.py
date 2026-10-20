@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .shot_data import open_shot, select
-from .tm_labels import close_gaps, read_labels, spans
+from .tm_labels import close_gaps, drop_short, read_labels, spans
 
 _OPS = {'<': operator.lt, '<=': operator.le, '>': operator.gt, '>=': operator.ge, '==': operator.eq,
         '!=': operator.ne}
@@ -173,13 +173,14 @@ def dist_plot(times, values, var, y_range=(None, None), x_range=(None, None), n_
     return fig
 
 
-def label_layers(labels, m, n, gap_ms=20.0, amp_panel=False):
+def label_layers(labels, m, n, gap_ms=20.0, amp_panel=False, min_ms=10.0):
     """dist_plot's bands (no label / activity of the same |n| and m parity only / the m/|n| mode, gaps shorter
-    than gap_ms closed) and, with amp_panel, its amp traces (every labelled mode, m/|n| thick) from read_labels."""
+    than gap_ms closed, then stretches shorter than min_ms dropped) and, with amp_panel, its amp traces (every
+    labelled mode, m/|n| thick) from read_labels."""
     t = labels['t_ms']
     off = np.zeros(t.shape, bool)
-    on = close_gaps(labels['mode'].get((m, n), off), t, gap_ms)
-    act = close_gaps(labels['activity'].get((n, m % 2), off), t, gap_ms)
+    on = drop_short(close_gaps(labels['mode'].get((m, n), off), t, gap_ms), t, min_ms)
+    act = drop_short(close_gaps(labels['activity'].get((n, m % 2), off), t, gap_ms), t, min_ms)
     names = ('no label', f'n={n} m {("even", "odd")[m % 2]} activity', f'{m}/{n} mode')
     bands = [(t0, t1, names[k], BAND_COLORS[k]) for t0, t1, k in spans(np.where(on, 2, np.where(act, 1, 0)), t)]
     amp = [(t, y, name, 1.8 if name in (f'({m},{n})', f'({m},-{n})') else 0.8) for name, y in labels['amp_db'].items()]
@@ -187,7 +188,7 @@ def label_layers(labels, m, n, gap_ms=20.0, amp_panel=False):
 
 
 def plot_shot(source, shot, out_dir, cases=CASES, t_ms=None, draws=None, fmt='pdf', labels=None, gap_ms=20.0,
-              amp_panel=False, label_var='ntm_mask', **kw):
+              amp_panel=False, label_var='ntm_mask', min_ms=10.0, **kw):
     """One dist_plot per case (variable, n, m) present in the shot's runs, unique surfaces only (r_occ 0),
     to <out_dir>/<shot>_<var>_m<m>n<n>.<fmt>; y-range from the 2-98th percentiles unless kw says.
     labels: the shot's TARS <shot>_labeled.nc (or a file of its layout, mode mask label_var), shaded per case
@@ -206,7 +207,7 @@ def plot_shot(source, shot, out_dir, cases=CASES, t_ms=None, draws=None, fmt='pd
             continue
         fig = dist_plot(times, vals, var, title=f'shot {shot}  {m}/{n}  {var}  (rdcon, single helicity; '
                                                 f'{ds.sizes["run_idx"]} runs)',
-                        **dict(zip(('bands', 'amp'), label_layers(lab, m, abs(n), gap_ms, amp_panel)) if lab else {}),
+                        **dict(zip(('bands', 'amp'), label_layers(lab, m, abs(n), gap_ms, amp_panel, min_ms)) if lab else {}),
                         **kw)
         paths.append(os.path.join(out_dir, f'{shot}_{var}_m{m}n{n}.{fmt}'))
         fig.savefig(paths[-1])
@@ -224,11 +225,12 @@ def main(argv=None):
     p.add_argument('--labels', default='', help="the shot's TARS <shot>_labeled.nc: shade the mode / activity times")
     p.add_argument('--label-var', default='ntm_mask', help='mode mask in --labels (ntm_mask_fused: eq_stab fused)')
     p.add_argument('--gap-ms', type=float, default=20.0, help='label gaps shorter than this are closed')
+    p.add_argument('--min-ms', type=float, default=10.0, help='label stretches shorter than this are dropped')
     p.add_argument('--amp-panel', action='store_true', help='add a panel of the labelled modes\' power [dB]')
     a = p.parse_args(argv)
     cases = [c for c in CASES if not a.vars or c[0] in a.vars.split(',')]
     for path in plot_shot(a.source, a.shot, a.out, cases=cases, fmt=a.fmt, labels=a.labels or None, gap_ms=a.gap_ms,
-                          amp_panel=a.amp_panel, label_var=a.label_var):
+                          amp_panel=a.amp_panel, label_var=a.label_var, min_ms=a.min_ms):
         print(path)
 
 

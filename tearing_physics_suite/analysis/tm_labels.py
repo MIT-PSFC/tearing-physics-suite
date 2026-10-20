@@ -38,6 +38,17 @@ def close_gaps(on, t_ms, gap_ms):
     return out
 
 
+def drop_short(on, t_ms, min_ms):
+    """on without its runs of on bins lasting less than min_ms."""
+    out = np.array(on, bool)
+    edge = np.flatnonzero(np.diff(np.r_[0, out.astype(int), 0]))
+    dt = float(np.median(np.diff(t_ms))) if len(t_ms) > 1 else 1.0
+    for a, b in zip(edge[::2], edge[1::2]):
+        if (b - a) * dt < min_ms:
+            out[a:b] = False
+    return out
+
+
 def spans(state, t_ms):
     """[(t0, t1, value)] of the runs of equal value in state (t1 = the next run's first time)."""
     cut = np.flatnonzero(np.diff(state)) + 1

@@ -313,3 +313,51 @@ def test_draw_timing(study, monkeypatch):
     np.testing.assert_array_equal(ds.code_wall_s.sel(code=['rdcon', 'stride']).isel(nn=0).values, [[3.0, 2.0]] * 2)
     assert (ds.jgpec_start_wall_s == 1.0).all() and (ds.spot_wall_s == 0).all() and ds.draw_wall_s.notnull().all()
     CODE_WALL_S.clear()
+
+
+def _set_code_check(study, **check):
+    cfg = st.load_config(study)
+    fq.write_json(st.config_path(study), dict(cfg, code_check=dict(dict(by='draw', fraction=1.0, codes=['rdcon']),
+                                                                   **check)))
+
+
+def test_code_check_config():
+    cfg = dict(tps_kwargs=dict(nvec=[1, 2], jgpec_nvec=[1]))
+    assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon']))) == dict(
+        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None)
+    for bad in (dict(by='slice', codes=['rdcon']), dict(codes=['stride']), dict(codes=[]),
+                dict(codes=['rdcon'], nvec=[3])):
+        with pytest.raises(ValueError):
+            st.code_check_config(dict(cfg, code_check=bad))
+    assert st.code_check_kwargs(cfg, dict(codes=['rdcon', 'jGPEC_riccati'])) == dict(
+        nvec=[1, 2], jgpec_nvec=[1], run_rdcon=True, rdcon_delta_prime=True, run_stride=False, run_pest3=False,
+        run_jgpec=True, jgpec_solvers=['riccati'])
+    only_galerkin_n2 = st.code_check_kwargs(cfg, dict(codes=['jGPEC_galerkin'], nvec=[2]))   # RDCON: surfaces only
+    assert {k: only_galerkin_n2[k] for k in ('nvec', 'jgpec_nvec', 'rdcon_delta_prime', 'jgpec_solvers')} == dict(
+        nvec=[2], jgpec_nvec=[2], rdcon_delta_prime=False, jgpec_solvers=['galerkin'])
+
+
+def test_code_check_fills_ok_draws(study, monkeypatch):
+    """--code-check: picked 'ok' draws get <count>.codes.nc/.json (their own files untouched) and a separate store."""
+    from tearing_physics_suite.drivers import pipeline
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {3: ValueError('x')})
+    monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
+    st.run_item(study, f'{uid}.c0')
+    st.run_item(study, f'{uid}.c1')                                        # draws 0-2 ok, 3 error
+    _set_code_check(study, by='shot', fraction=0.0)
+    assert st.feed_codes(study) == 0
+    _set_code_check(study, by='draw', seed=0)
+    assert st.feed_codes(study) == 3 and st.feed_codes(study) == 0
+    assert sorted(fq.Queue(st.qroot(study, code_check=True)).units()) == [f'{uid}.d0', f'{uid}.d1', f'{uid}.d2']
+    ddir = os.path.join(study, '100', 'tps', uid, 'draws')
+    before = open(os.path.join(ddir, '0.nc'), 'rb').read()
+    out = st.run_item(study, f'{uid}.d0', code_check=True)
+    assert [d['status'] for d in out['draws']] == ['ok'] and _status(study, uid, 0)['status'] == 'ok'
+    assert json.load(open(os.path.join(ddir, '0.codes.json')))['status'] == 'ok'
+    assert open(os.path.join(ddir, '0.nc'), 'rb').read() == before
+    assert st.run_item(study, f'{uid}.d0', code_check=True)['draws'] == []   # final
+    assert st.compile_shot(study, 100, code_check=True)['compiled'] == [f'{uid}_0']
+    assert list(xr.open_zarr(st.shot_store(study, 100, code_check=True)).case_key.values) == [f'{uid}_0']
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # main store: own files only

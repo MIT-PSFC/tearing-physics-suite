@@ -113,3 +113,26 @@ def test_fill_codes_gives_the_full_run(monkeypatch, code_fixture, kin_file):
         xr.testing.assert_equal(filled[v].transpose(*full[v].dims), full[v])
     with pytest.raises(ValueError, match='not the same draw'):
         pl.fill_codes(stride_only, run(rd.assign(Wc=rd.Wc * 1.01), stride=False))
+
+
+def test_fill_codes_at_some_n(monkeypatch):
+    """Codes run at some of the draw's n fill those n only; the draw's other n and no-code variables stay."""
+    import numpy as np
+    import xarray as xr
+    monkeypatch.setattr(pl, 'delta_prime_variability', lambda ds: ds)
+    nan = np.nan
+    draw = xr.Dataset({'Delta_prime_surf': (('nn', 'code', 'r'), [[[nan, nan], [1., 2.]], [[nan, nan], [3., 4.]]]),
+                       'Wc': (('nn', 'r'), [[5., 6.], [7., 8.]])},
+                      coords={'nn': [1, 2], 'code': ['rdcon', 'stride'], 'r': [0, 1]})
+
+    def other(n=2, wc=(7., 8.)):
+        return xr.Dataset({'Delta_prime_surf': (('nn', 'code', 'r'), [[[9., 9.5]]]), 'Wc': (('nn', 'r'), [list(wc)])},
+                          coords={'nn': [n], 'code': ['rdcon'], 'r': [0, 1]})
+    filled = pl.fill_codes(draw, other())
+    dp = filled.Delta_prime_surf.transpose('code', 'nn', 'r')
+    np.testing.assert_array_equal(dp.sel(code='rdcon'), [[nan, nan], [9., 9.5]])
+    np.testing.assert_array_equal(dp.sel(code='stride'), [[1., 2.], [3., 4.]])
+    xr.testing.assert_identical(filled.Wc, draw.Wc)
+    for bad in (other(wc=(7., 8.5)), other(n=3)):
+        with pytest.raises(ValueError, match='not the same draw'):
+            pl.fill_codes(draw, bad)

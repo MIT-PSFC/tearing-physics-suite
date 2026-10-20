@@ -53,8 +53,9 @@ DEFAULTS = dict(
     baseline=True,              # also run each archive's bouquet baseline, as draw -1 (item <unit>.base)
     spot_check=None,            # true or SpotCheck fields: re-run a seeded random fraction of the draws through the key
                                 # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
-    code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...]}: run these codes on the
-                                # 'ok' draws of a seeded random fraction of shots or draws, filled in (--code-check)
+    code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...]}: run these
+                                # codes at these n (default: the study's) on the 'ok' draws of a seeded random fraction
+                                # of shots or draws, filled in (--code-check)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -163,22 +164,27 @@ def spot_config(cfg):
 
 
 def code_check_config(cfg):
-    """The study's code check {by, fraction, seed, codes} (defaults filled in), or None; bad values raise."""
+    """The study's code check {by, fraction, seed, codes, nvec} (defaults filled in), or None; bad values raise."""
     from tearing_physics_suite.physics.combine import CODE_ORDER
     c = cfg.get('code_check')
     if not c:
         return None
-    c = dict(dict(by='draw', fraction=0.01, seed=0, codes=[]), **c)
-    if c['by'] not in ('shot', 'draw') or not c['codes'] or set(c['codes']) - (set(CODE_ORDER) - {'stride'}):
-        raise ValueError(f"code_check: by 'shot' or 'draw', codes from {[k for k in CODE_ORDER if k != 'stride']}: {c}")
+    c = dict(dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None), **c)
+    study_n = cfg['tps_kwargs'].get('nvec') or [1]
+    if (c['by'] not in ('shot', 'draw') or not c['codes'] or set(c['codes']) - (set(CODE_ORDER) - {'stride'})
+            or not set(c['nvec'] or study_n) <= set(study_n)):
+        raise ValueError(f"code_check: by 'shot' or 'draw', codes from {[k for k in CODE_ORDER if k != 'stride']}, "
+                         f"nvec from the study's {study_n}: {c}")
     return c
 
 
 def code_check_kwargs(cfg, check):
-    """The study's tps_kwargs for a code check: only the check's codes, and RDCON (whose surfaces every code uses)."""
+    """The study's tps_kwargs for a code check: only the check's codes, and RDCON (whose surfaces every code uses),
+    at the check's n (every code there, Julia included)."""
     solvers = [c.removeprefix('jGPEC_') for c in check['codes'] if c.startswith('jGPEC_')]
+    n = dict(nvec=check['nvec'], jgpec_nvec=check['nvec']) if check.get('nvec') else {}
     return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'], run_stride=False,
-                run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers), jgpec_solvers=solvers)
+                run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers), jgpec_solvers=solvers, **n)
 
 
 # --- feed --------------------------------------------------------------------------------------
@@ -434,7 +440,7 @@ def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels
     if other is None:
         return None, inputs
     with xr.open_dataset(nc_path.removesuffix('.codes.nc') + '.nc', engine='scipy') as ds:
-        ds = fill_codes(ds.load(), other)
+        ds = fill_codes(ds.load().drop_encoding(), other)        # the file's int dtypes would not hold NaN padding
     tmp = f'{nc_path}.tmp.{os.getpid()}'
     ds.to_netcdf(tmp, engine='scipy')
     os.replace(tmp, nc_path)

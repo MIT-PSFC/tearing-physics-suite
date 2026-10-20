@@ -322,14 +322,19 @@ def _set_code_check(study, **check):
 
 
 def test_code_check_config():
-    assert st.code_check_config(dict(code_check=dict(codes=['rdcon']))) == dict(by='draw', fraction=0.01, seed=0,
-                                                                                  codes=['rdcon'])
-    for bad in (dict(by='slice', codes=['rdcon']), dict(codes=['stride']), dict(codes=[])):
+    cfg = dict(tps_kwargs=dict(nvec=[1, 2], jgpec_nvec=[1]))
+    assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon']))) == dict(
+        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None)
+    for bad in (dict(by='slice', codes=['rdcon']), dict(codes=['stride']), dict(codes=[]),
+                dict(codes=['rdcon'], nvec=[3])):
         with pytest.raises(ValueError):
-            st.code_check_config(dict(code_check=bad))
-    assert st.code_check_kwargs(dict(tps_kwargs=dict(nvec=[1])), dict(codes=['rdcon', 'jGPEC_riccati'])) == dict(
-        nvec=[1], run_rdcon=True, rdcon_delta_prime=True, run_stride=False, run_pest3=False, run_jgpec=True,
-        jgpec_solvers=['riccati'])
+            st.code_check_config(dict(cfg, code_check=bad))
+    assert st.code_check_kwargs(cfg, dict(codes=['rdcon', 'jGPEC_riccati'])) == dict(
+        nvec=[1, 2], jgpec_nvec=[1], run_rdcon=True, rdcon_delta_prime=True, run_stride=False, run_pest3=False,
+        run_jgpec=True, jgpec_solvers=['riccati'])
+    only_galerkin_n2 = st.code_check_kwargs(cfg, dict(codes=['jGPEC_galerkin'], nvec=[2]))   # RDCON: surfaces only
+    assert {k: only_galerkin_n2[k] for k in ('nvec', 'jgpec_nvec', 'rdcon_delta_prime', 'jgpec_solvers')} == dict(
+        nvec=[2], jgpec_nvec=[2], rdcon_delta_prime=False, jgpec_solvers=['galerkin'])
 
 
 def test_code_check_fills_ok_draws(study, monkeypatch):

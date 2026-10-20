@@ -475,6 +475,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'thmax0': thmax0,
         'tol_nr': tol_nr,
         'tol_r': tol_r,
+        'set_tolerances': set_tolerances,
         'crossover': crossover,
         'singfac_min': singfac_min,
         'ucrit': ucrit,

@@ -106,6 +106,7 @@
  "run_rdcon": true,
  "run_stride": true,
  "sas_flag": "t",
+ "set_tolerances": 0.0,
  "sing1_flag": "t",
  "sing_order": 8,
  "sing_order_ceiling": "f",

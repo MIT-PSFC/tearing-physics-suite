@@ -101,11 +101,12 @@ def test_stride_threads_from_tps_threads(tmp_path, monkeypatch):
 
 
 def test_set_tolerances(tmp_path):
-    """set_tolerances sets tol_r, tol_nr (rdcon.in and stride.in) and gal_tol (rdcon.in)."""
+    """set_tolerances sets tol_r, tol_nr (rdcon.in and stride.in) and gal_tol (rdcon.in), and is returned (tolerance_scan
+    reads it back)."""
     out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, tol_r=1e-12, tol_nr=1e-12, gal_tol=1e-10,
                                     set_tolerances=1e-11)
     rdcon, stride = ((tmp_path / f).read_text() for f in ('rdcon.in', 'stride.in'))
-    assert out['tol_r'] == out['tol_nr'] == out['gal_tol'] == 1e-11
+    assert out['tol_r'] == out['tol_nr'] == out['gal_tol'] == out['set_tolerances'] == 1e-11
     assert 'tol_r=1e-11\n' in rdcon and 'tol_nr=1e-11\n' in rdcon and 'gal_tol=1e-11\n' in rdcon
     assert 'tol_r=1e-11\n' in stride and 'tol_nr=1e-11\n' in stride
 

@@ -180,12 +180,15 @@ def load_spot_results(master_working_dir):
 
 
 def spot_dataset(results):
-    """The spot results as one dataset on dim 'spot' (None if there are none)."""
+    """The spot results as one dataset on dim 'spot' (None if there are none); scan_value and surf (positional, ragged
+    across n and scans) are NaN-padded at the end, as in the stores."""
     if not results:
         return None
     codes = list(dict.fromkeys(c for r in results for c in np.atleast_1d(r['DP_surf_xarray'].code.values).tolist()))
-    ds = xr.concat([_spot_dataset(r, codes) for r in results], dim='spot', join='outer', fill_value={
-        'rel_exceeded_psi95': -1, 'abs_exceeded_psi95': -1})
+    dss = [_spot_dataset(r, codes) for r in results]
+    size = {d: max(ds.sizes[d] for ds in dss) for d in ('scan_value', 'surf')}
+    ds = xr.concat([ds.pad({d: (0, n - ds.sizes[d]) for d, n in size.items()}) for ds in dss], dim='spot',
+                   join='outer', fill_value={'rel_exceeded_psi95': -1, 'abs_exceeded_psi95': -1})
     return ds.assign_coords(code=codes)
 
 

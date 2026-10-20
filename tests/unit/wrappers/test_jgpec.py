@@ -271,3 +271,18 @@ def test_jgpec_nvec(tmp_path, monkeypatch, inputs, code_fixture, nn, runs):
     run_codes.run_resistive_calculation(str(EQ), nn, run_pest3=False, run_jgpec=True, jgpec_nvec=[1, 2],
                                         working_dir=str(tmp_path), verbose=False)
     assert called == ([nn] if runs else [])
+
+
+@pytest.mark.parametrize('tol', [None, 1e-11])
+def test_set_tolerances_reaches_julia(tmp_path, monkeypatch, inputs, code_fixture, tol):
+    """set_tolerances also sets Julia's eulerlagrange_tolerance_jgpec and reaches the Fortran writer."""
+    from tearing_physics_suite.wrappers import run_codes
+    seen = {}
+    monkeypatch.setattr(run_codes, 'GPEC_resistive_calculation',
+                        lambda *a, **k: seen.update(gpec=k) or (code_fixture('rdcon'), None, True, False, inputs()))
+    monkeypatch.setattr(run_codes, 'run_jgpec_solvers', lambda *a, **k: seen.update(jgpec=k) or ({}, {}))
+    extra = {} if tol is None else dict(set_tolerances=tol)
+    run_codes.run_resistive_calculation(str(EQ), 1, run_pest3=False, run_jgpec=True, working_dir=str(tmp_path),
+                                        verbose=False, eulerlagrange_tolerance_jgpec=1e-10, **extra)
+    assert seen['jgpec']['eulerlagrange_tolerance_jgpec'] == (tol or 1e-10)
+    assert seen['gpec'].get('set_tolerances') == tol

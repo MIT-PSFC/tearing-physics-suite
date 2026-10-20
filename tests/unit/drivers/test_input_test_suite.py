@@ -21,7 +21,7 @@ OLD_ORDER = ['fourier_mode_scan', 'RDCON_solver_scan', 'sing_order_scan', 'match
              'RDCON_cutoff_scan_n4', 'STRIDE_axis_mid_pt_skew_scan', 'large_sol_extent_pest_scan', 'RDCON_nq_scan',
              'sing1_flag_scan', 'regrid_flag_scan', 'edge_truncation_q_scan', 'edge_truncation_q_scan_no_wall',
              'wall_radius_scan']
-ADDED = ['singfac_min_scan']  # scans added after the refactor
+ADDED = ['tolerance_scan', 'singfac_min_scan']  # scans added after the refactor
 
 
 @pytest.fixture
@@ -75,4 +75,12 @@ def test_singfac_min_scan(calls):
     its.run_scan('singfac_min_scan', 'EQ', results_dir='RES', verbose=False)
     (name, vals, _, nn), kw = calls[0]
     assert (name, vals, nn) == ('singfac_min', [1e-5, 1e-6], 1)
+    assert kw['run_pest3'] is False and kw['vac_flag'] == 'f'
+
+
+def test_tolerance_scan(calls):
+    """Quick values: the run's own tolerances, then all of them at 1e-11; internal mode, no PEST3."""
+    its.run_scan('tolerance_scan', 'EQ', results_dir='RES', verbose=False)
+    (name, vals, _, nn), kw = calls[0]
+    assert (name, vals, nn) == ('set_tolerances', [0, 1e-11], 1)
     assert kw['run_pest3'] is False and kw['vac_flag'] == 'f'

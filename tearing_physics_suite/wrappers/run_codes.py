@@ -108,6 +108,8 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     #Extract keyword arguments for jGPEC
     jgpec_kwargs = {k: kwargs.pop(k) for k in [k for k in kwargs if k.endswith('_jgpec')]}
+    if kwargs.get('set_tolerances'):  # with tol_r, tol_nr, gal_tol (write_rdcon_stride_inputs)
+        jgpec_kwargs['eulerlagrange_tolerance_jgpec'] = kwargs['set_tolerances']
     run_jgpec = run_jgpec and (jgpec_nvec is None or nn in jgpec_nvec)
     if run_jgpec:
         check_jgpec_request(jgpec_solvers, kwargs.get('vac_flag', 't'), run_rdcon)

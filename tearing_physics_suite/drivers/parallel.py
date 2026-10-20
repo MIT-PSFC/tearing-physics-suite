@@ -17,6 +17,7 @@ workers would idle), from ``<study>/_queue/tps_codes``, filled into ``draws/<cou
 """
 import argparse
 import collections
+import functools
 import glob
 import hashlib
 import json
@@ -175,10 +176,10 @@ def code_check_config(cfg):
     defaults = dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None, flag=None)
     c = dict(defaults, **c)
     study_n = cfg['tps_kwargs'].get('nvec') or [1]
-    if (set(c) - set(defaults) or c['by'] not in ('shot', 'draw') or not c['codes']
-            or set(c['codes']) - (set(CODE_ORDER) - {'stride'}) or not set(c['nvec'] or study_n) <= set(study_n)
-            or c['flag'] is not None and (set(c['flag']) != {'im_re_max', 'psi_n'}
-                                          or not cfg['tps_kwargs'].get('run_stride', True))):
+    flag_ok = c['flag'] is None or (set(c['flag']) == {'im_re_max', 'psi_n'}
+                                    and cfg['tps_kwargs'].get('run_stride', True))     # the flag reads STRIDE's Delta'
+    if (set(c) - set(defaults) or c['by'] not in ('shot', 'draw') or not c['codes'] or not flag_ok
+            or set(c['codes']) - (set(CODE_ORDER) - {'stride'}) or not set(c['nvec'] or study_n) <= set(study_n)):
         raise ValueError(f"code_check: keys {sorted(defaults)}, by 'shot' or 'draw', codes from "
                          f"{[k for k in CODE_ORDER if k != 'stride']}, nvec from the study's {study_n}, flag "
                          f"{{im_re_max, psi_n: [lo, hi]}} on a STRIDE study: {c}")
@@ -253,6 +254,20 @@ def feed(study, cfg=None):
     return n_new
 
 
+def _coin(seed, key):
+    """A seeded uniform number per key (draw or shot), the same however the draws are chunked or retried; the key is
+    picked when it is below the fraction."""
+    return np.random.default_rng([seed, zlib.crc32(key.encode())]).random()
+
+
+def _pick(check, r):
+    """(coin, reason) of an 'ok' draw's code check, from its status record: 'flagged', 'random' (picked by the coin),
+    'flagged+random', or 'extra'."""
+    u = _coin(check['seed'], str(r['shot']) if check['by'] == 'shot' else r['case_key'])
+    return u, '+'.join(k for k, on in (('flagged', r.get('stride_flagged_n')), ('random', u < check['fraction']))
+                       if on) or 'extra'
+
+
 def feed_codes(study, cfg=None, extra=0):
     """Add code-check items (<unit_id>.d<count>) for 'ok' draws not yet fed, by priority: the STRIDE-flagged draws
     (reason 'flagged'); once none of those waits for a worker, the picked shots' or draws' ('random', 'flagged+random'
@@ -295,30 +310,16 @@ class Feeder:
         self.study, self.every, self.code_check, self.workers = study, every, code_check, workers
 
     def __call__(self):
-        fn = (lambda: feed_codes(self.study, extra=self.workers)) if self.code_check else (lambda: feed(self.study))
+        fn = functools.partial(feed_codes, extra=self.workers) if self.code_check else feed
         try:
             return bool(fq.Queue(qroot(self.study, self.code_check)).periodic('feeder', self.every,
-                                                                              lambda: fn() > 0))
+                                                                              lambda: fn(self.study) > 0))
         except Exception as e:
             print(f'feeder failed: {fq.error_signature(e)}', flush=True)
             return False
 
 
 # --- one item (child process) ------------------------------------------------------------------
-
-def _coin(seed, key):
-    """A seeded uniform number per key (draw or shot), the same however the draws are chunked or retried; the key is
-    picked when it is below the fraction."""
-    return np.random.default_rng([seed, zlib.crc32(key.encode())]).random()
-
-
-def _pick(check, r):
-    """(coin, reason) of an 'ok' draw's code check, from its status record: 'flagged', 'random' (picked by the coin),
-    'flagged+random', or 'extra'."""
-    u = _coin(check['seed'], str(r['shot']) if check['by'] == 'shot' else r['case_key'])
-    return u, '+'.join(k for k, on in (('flagged', r.get('stride_flagged_n')), ('random', u < check['fraction']))
-                       if on) or 'extra'
-
 
 def _run_spot_checks(spot, eq, kwargs, sdir, wd):
     """Spot-check one draw into sdir (its run_idx is 0); returns {'<scan>_n<n>': error} of the failed tasks."""
@@ -450,8 +451,11 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
                               labels=dict(shot_id=it['shot'], t_ms=it['t_ms'], draw=c, variant=it['variant']))
         rec.update(status='ok' if ds is not None else 'error', inputs=_scalars(inputs), code_wall_s=_code_wall_s(),
                    error=None if ds is not None else dict(signature='no combined_xr'))
-        if ds is not None and flag:
-            rec['stride_flagged_n'] = stride_flagged_n(ds, flag)
+        if ds is not None and flag:                                         # never fails the draw
+            try:
+                rec['stride_flagged_n'] = stride_flagged_n(ds, flag)
+            except Exception as e:                                          # unreadable: no Delta', every n
+                rec.update(stride_flagged_n=ds.nn.values.tolist(), stride_flag_error=fq.error_signature(e))
         if ds is not None and spot and _coin(spot.seed, key) < spot.fraction:      # never fails the draw
             t = time.time()
             rec['spot_errors'] = _run_spot_checks(spot, eq, kwargs, os.path.join(ddir, f'{c}.spot'), wd)

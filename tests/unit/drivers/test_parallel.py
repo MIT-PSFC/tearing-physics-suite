@@ -424,13 +424,21 @@ def test_code_check_feed_order(study):
 
 
 def test_stride_flag_recorded_and_compiled(study, monkeypatch):
-    """With code_check.flag, each draw records its STRIDE-flagged n, and the main store gets stride_flag(nn)."""
-    uid = _record(study, 100, 1500, selected=(0, 2))
+    """With code_check.flag, each draw records its STRIDE-flagged n, and the main store gets stride_flag(nn). A flag
+    that cannot be evaluated flags every n and does not fail the draw."""
+    uid = _record(study, 100, 1500, selected=(0, 2, 3))
     st.feed(study)
     _fake_pipeline(monkeypatch, {})
     _set_code_check(study, flag=dict(im_re_max=0.01, psi_n=[0.01, 0.9]))
-    monkeypatch.setattr(st, 'stride_flagged_n', lambda ds, flag: [1] if int(ds.draw) == 0 else [])
+
+    def flagged(ds, flag):
+        if int(ds.draw) == 3:
+            raise KeyError('Im_Delta_prime_surf')
+        return [1] if int(ds.draw) == 0 else []
+    monkeypatch.setattr(st, 'stride_flagged_n', flagged)
     st.run_item(study, f'{uid}.c0')
-    assert _status(study, uid, 0)['stride_flagged_n'] == [1] and _status(study, uid, 2)['stride_flagged_n'] == []
+    st.run_item(study, f'{uid}.c1')
+    assert [_status(study, uid, c)['stride_flagged_n'] for c in (0, 2, 3)] == [[1], [], [1]]
+    assert _status(study, uid, 3)['status'] == 'ok' and 'KeyError' in _status(study, uid, 3)['stride_flag_error']
     st.compile_shot(study, 100)
-    np.testing.assert_array_equal(xr.open_zarr(st.shot_store(study, 100)).stride_flag.values, [[1], [0]])
+    np.testing.assert_array_equal(xr.open_zarr(st.shot_store(study, 100)).stride_flag.values, [[1], [0], [1]])

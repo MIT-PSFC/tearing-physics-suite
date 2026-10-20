@@ -13,7 +13,7 @@ Work items (``<unit_id>.c<k>``, a chunk of one bouquet unit's draws) are claimed
 With ``--code-check``, feed/work/compile/status act on the code checks (config ``code_check``): the other codes on
 the 'ok' draws of a seeded random fraction of shots or draws (STRIDE-flagged draws first, further draws when the
 workers would idle), from ``<study>/_queue/tps_codes``, filled into ``draws/<count>.codes.nc`` (status
-``.codes.json``) and compiled into ``<shot>_codes.zarr``.
+``.codes.json``) and compiled into ``<shot>_codes.zarr``. ``code-check-pending`` lists the draw files to keep for them.
 """
 import argparse
 import collections
@@ -272,11 +272,9 @@ def feed_codes(study, cfg=None, extra=0):
             continue
         r = fq.read_json(p) or {}
         uid = f"{r.get('unit_id')}.d{r.get('draw')}"
-        if r.get('status') != 'ok' or uid in units:
+        if r.get('status') != 'ok' or uid in units or not os.path.exists(p[:-len('.json')] + '.nc'):   # cleaned
             continue
-        u = _coin(check['seed'], str(r['shot']) if check['by'] == 'shot' else r['case_key'])
-        reason = '+'.join(k for k, on in (('flagged', r.get('stride_flagged_n')), ('random', u < check['fraction']))
-                          if on) or 'extra'
+        u, reason = _pick(check, r)
         new[reason.split('+')[0]].append((u, uid, dict(
             id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')}, draws=[r['draw']], est=1,
             reason=reason)))
@@ -312,6 +310,14 @@ def _coin(seed, key):
     """A seeded uniform number per key (draw or shot), the same however the draws are chunked or retried; the key is
     picked when it is below the fraction."""
     return np.random.default_rng([seed, zlib.crc32(key.encode())]).random()
+
+
+def _pick(check, r):
+    """(coin, reason) of an 'ok' draw's code check, from its status record: 'flagged', 'random' (picked by the coin),
+    'flagged+random', or 'extra'."""
+    u = _coin(check['seed'], str(r['shot']) if check['by'] == 'shot' else r['case_key'])
+    return u, '+'.join(k for k, on in (('flagged', r.get('stride_flagged_n')), ('random', u < check['fraction']))
+                       if on) or 'extra'
 
 
 def _run_spot_checks(spot, eq, kwargs, sdir, wd):
@@ -610,6 +616,29 @@ def _shot_draws(study, cfg, shot, code_check=False):
     return out
 
 
+def code_check_pending(study, shot, cfg=None):
+    """The <count>.nc of the shot's 'ok' draws whose code check is still to come (queued and not finished, or not yet
+    queued and flagged or picked), which must stay until it is done."""
+    cfg = cfg or load_config(study)
+    check = code_check_config(cfg)
+    if check is None:
+        return []
+    q = fq.Queue(qroot(study, code_check=True))
+    units, done = q.units(refresh=True), q.done_ids()
+    out = []
+    for nc, r in _shot_draws(study, cfg, shot).values():
+        uid = f"{r['unit_id']}.d{r['draw']}"
+        if (uid in units and uid not in done) or (uid not in units and _pick(check, r)[1] != 'extra'):
+            out.append(nc)
+    return sorted(out)
+
+
+def cmd_code_check_pending(a):
+    for shot in a.shots or study_shots(a.study):
+        for nc in code_check_pending(a.study, shot):
+            print(nc)
+
+
 def _spot_flag(nc_path, rec, nn, codes):
     """spot_check_flag(nn, code) of one draw (-1 where it was not checked)."""
     from tearing_physics_suite.drivers import spot_check as sc
@@ -859,6 +888,8 @@ def main(argv=None):
     p = add('compile', cmd_compile)
     p.add_argument('--shots', type=int, nargs='*')
     p.add_argument('--finalize', action='store_true', help='rechunk the stores')
+    p = add('code-check-pending', cmd_code_check_pending, code_check=False)
+    p.add_argument('--shots', type=int, nargs='*')
     p = add('status', cmd_status)
     p.add_argument('--json', default=None)
     p.add_argument('-v', '--verbose', action='store_true')

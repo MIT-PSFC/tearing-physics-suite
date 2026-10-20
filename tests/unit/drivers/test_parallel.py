@@ -388,33 +388,39 @@ def test_stride_flagged_n():
 
 
 def _ok_draw(study, uid, c, **rec):
-    os.makedirs(os.path.join(study, '100', 'tps', uid, 'draws'), exist_ok=True)
-    fq.write_json(os.path.join(study, '100', 'tps', uid, 'draws', f'{c}.json'), dict(
-        case_key=f'{uid}_{c}', shot=100, t_ms=1500, variant='base', unit_id=uid, draw=c, archive='a.h5', status='ok',
-        **rec))
+    d = os.path.join(study, '100', 'tps', uid, 'draws')
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, f'{c}.nc'), 'w').close()
+    fq.write_json(os.path.join(d, f'{c}.json'), dict(case_key=f'{uid}_{c}', shot=100, t_ms=1500, variant='base',
+                                                     unit_id=uid, draw=c, archive='a.h5', status='ok', **rec))
+    return os.path.join(d, f'{c}.nc')
 
 
 def test_code_check_feed_order(study):
     """Flagged draws first; the coin's picks once no flagged one waits for a worker; then, from the work feeder,
-    its worker count of further draws in the coin's order, whenever nothing more urgent waits."""
+    its worker count of further draws in the coin's order, whenever nothing more urgent waits. Draws whose check is
+    to come are pending (their files stay); cleaned draws are not fed."""
     uid = '100_1500_base'
-    for c in range(6):
-        _ok_draw(study, uid, c, stride_flagged_n=[2] if c == 1 else [])
+    nc = [_ok_draw(study, uid, c, stride_flagged_n=[2] if c == 1 else []) for c in range(7)]
+    os.remove(nc[6])                                            # cleaned before it was picked
     _set_code_check(study, fraction=0.0)
     q = fq.Queue(st.qroot(study, code_check=True))
 
     def reasons():
         return {k: it['reason'] for k, it in q.units(refresh=True).items()}
+    assert st.code_check_pending(study, 100) == [nc[1]]       # flagged, not queued yet
     assert st.feed_codes(study, extra=2) == 1 and reasons() == {f'{uid}.d1': 'flagged'}
     assert st.feed_codes(study, extra=2) == 0                   # the flagged draw waits
     q.finish(f'{uid}.d1')
+    assert st.code_check_pending(study, 100) == []
     assert st.feed_codes(study) == 0 and st.feed_codes(study, extra=2) == 2
     coin = sorted((st._coin(0, f'{uid}_{c}'), c) for c in (0, 2, 3, 4, 5))
     assert {k for k, r in reasons().items() if r == 'extra'} == {f'{uid}.d{c}' for _, c in coin[:2]}
+    assert st.code_check_pending(study, 100) == sorted(nc[c] for _, c in coin[:2])
     _set_code_check(study, fraction=1.0)                        # the rest picked: ahead of the waiting extras
     assert st.feed_codes(study, extra=2) == 3 and list(reasons().values()).count('random') == 3
-    _ok_draw(study, uid, 6, stride_flagged_n=[1])
-    assert st.feed_codes(study, extra=2) == 1 and reasons()[f'{uid}.d6'] == 'flagged+random'
+    _ok_draw(study, uid, 7, stride_flagged_n=[1])
+    assert st.feed_codes(study, extra=2) == 1 and reasons()[f'{uid}.d7'] == 'flagged+random'
 
 
 def test_stride_flag_recorded_and_compiled(study, monkeypatch):

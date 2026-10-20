@@ -58,10 +58,15 @@ of `draws_per_item` draws; a worker claims an item and runs it in a child proces
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.spot/    spot-checks of a picked draw (spot_check)
 <out_root>/<shot>/tps/<unit_id>/logs/<item>.log
 <study>/<shot>/tps/<shot>.zarr, <shot>_inputs.nc, compile_state.json
+<study>/_queue/tps_codes/                            code checks (code_check): items <unit_id>.d<count>
+<out_root>/<shot>/tps/<unit_id>/draws/<count>.codes.nc, .codes.json   a draw filled with the check's codes, its status
+<study>/<shot>/tps/<shot>_codes.zarr, <shot>_codes_inputs.nc, compile_state_codes.json
 ```
 Each run in a store has `case_key` (`<unit_id>_<count>`), `shot_id`, `t_ms`, `draw` and `variant`.
 
 **Timing.** A draw's status records `code_wall_s` (`{'rdcon_n1': s, ..., 'jGPEC_galerkin_n1': s, 'jGPEC_start': s}`: every code run, a failed or timed-out one included, and the Julia server start), `spot_wall_s` (if picked), `wall_s` and `other_wall_s` (the rest: TPS input/output and MRE). The store gets them per run: `code_wall_s(nn, code)`, `draw_wall_s`, `jgpec_start_wall_s`, `spot_wall_s`, `other_wall_s` (NaN for draws recorded before timing). Reading the archive happens once per item, outside the draws.
+
+**Code checks.** Config `code_check` = `{"by": "shot" | "draw", "fraction", "seed", "codes"}` (e.g. a STRIDE-only study checked with `["rdcon", "jGPEC_galerkin", "jGPEC_riccati"]`). `feed --code-check` queues each 'ok' draw of a picked shot or draw (a seeded coin per shot or `case_key`); `work --code-check` runs, in its own jobs, the study's `tps_kwargs` with only the check's codes (and RDCON, whose surfaces every code uses) on the draw's inputs, fills them into the draw's dataset (`pipeline.fill_codes`: same surfaces and surface terms or refused; cross-code comparisons redone) as `<count>.codes.nc`, and compiles `<shot>_codes.zarr`. The draw's own files and the main store are not changed; a draw's `<count>.nc` must stay until its check is final.
 
 **Failures.**
 - A draw that fails in the pipeline is a result (`error`, with its signature); its item still succeeds.

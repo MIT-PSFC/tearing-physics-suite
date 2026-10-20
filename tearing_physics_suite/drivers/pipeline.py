@@ -203,6 +203,24 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
+def fill_codes(combined_xr, other_xr):
+    """combined_xr with other_xr's codes filled in along 'code' (replacing its entries for them, e.g. a STRIDE-only
+    draw's NaN RDCON Delta'), and the cross-code comparisons redone. Both must come from the same draw: the same
+    surfaces, and every variable without 'code' (surface terms, inputs) equal, RDCON's run times aside; else
+    ValueError. Variables without 'code' are other_xr's."""
+    differ = [d for d in ('r', 'r_prime')
+              if d in combined_xr.indexes and not combined_xr.indexes[d].equals(other_xr.indexes[d])]
+    differ += [v for v in combined_xr.data_vars if v in other_xr and 'code' not in combined_xr[v].dims
+               and '_across_' not in v and v not in ('cpu_time', 'wall_time')
+               and not combined_xr[v].equals(other_xr[v])]
+    if differ:
+        raise ValueError(f'fill_codes: not the same draw (differing: {differ[:5]})')
+    kept = combined_xr.drop_sel(code=[c for c in other_xr.code.values if c in combined_xr.code.values])
+    filled = xr.concat([other_xr, kept], dim='code', data_vars='minimal', coords='minimal', compat='override',
+                       join='outer')
+    filled = filled.sel(code=list(ordered_codes(dict.fromkeys(filled.code.values.tolist(), True))))
+    return delta_prime_variability(filled) if filled.sizes['code'] > 1 else filled
+
 def clean_multi_n_dictionaries(input_dict_vec):
     """Merge per-n input dictionaries into a single dict, grouping n-dependent entries.
 

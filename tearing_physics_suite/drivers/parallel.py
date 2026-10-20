@@ -9,6 +9,10 @@
 Work items (``<unit_id>.c<k>``, a chunk of one bouquet unit's draws) are claimed from the fsqueue at
 ``<study>/_queue/tps`` and run in child processes. Each draw writes ``draws/<count>.nc`` and, last,
 ``draws/<count>.json`` (its status). See docs/parallel.md for the layout and the failure policy.
+
+With ``--code-check``, feed/work/compile/status act on the code checks (config ``code_check``): the other codes on
+the 'ok' draws of a seeded random fraction of shots or draws, from ``<study>/_queue/tps_codes``, filled into
+``draws/<count>.codes.nc`` (status ``.codes.json``) and compiled into ``<shot>_codes.zarr``.
 """
 import argparse
 import collections
@@ -49,6 +53,8 @@ DEFAULTS = dict(
     baseline=True,              # also run each archive's bouquet baseline, as draw -1 (item <unit>.base)
     spot_check=None,            # true or SpotCheck fields: re-run a seeded random fraction of the draws through the key
                                 # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
+    code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...]}: run these codes on the
+                                # 'ok' draws of a seeded random fraction of shots or draws, filled in (--code-check)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -58,8 +64,8 @@ INFRA_ERRNO = {28, 30, 122}     # ENOSPC, EROFS, EDQUOT
 
 # --- paths and config -------------------------------------------------------------------------
 
-def qroot(study):
-    return os.path.join(study, '_queue', 'tps')
+def qroot(study, code_check=False):
+    return os.path.join(study, '_queue', 'tps_codes' if code_check else 'tps')
 
 
 def config_path(study):
@@ -82,8 +88,8 @@ def unit_dir(study, cfg, shot, unit_id):
     return os.path.join(out_root(study, cfg), str(shot), 'tps', unit_id)
 
 
-def shot_store(study, shot):
-    return os.path.join(study, str(shot), 'tps', f'{shot}.zarr')
+def shot_store(study, shot, code_check=False):
+    return os.path.join(study, str(shot), 'tps', f'{shot}_codes.zarr' if code_check else f'{shot}.zarr')
 
 
 def open_store(path):
@@ -124,6 +130,7 @@ def cmd_init(a):
     if cfg['tau_e']:
         tau_e_lookup(cfg['tau_e'])                       # fail now, not in every work item
     spot_config(cfg)
+    code_check_config(cfg)
     cfg['hash'] = hashlib.sha256(json.dumps(cfg, sort_keys=True, default=str).encode()).hexdigest()[:12]
     cfg['versions'] = versions()
     old = fq.read_json(config_path(a.study))
@@ -153,6 +160,25 @@ def spot_config(cfg):
     if unknown:
         raise ValueError(f'spot_check: unknown scans {sorted(unknown)}')
     return spot
+
+
+def code_check_config(cfg):
+    """The study's code check {by, fraction, seed, codes} (defaults filled in), or None; bad values raise."""
+    from tearing_physics_suite.physics.combine import CODE_ORDER
+    c = cfg.get('code_check')
+    if not c:
+        return None
+    c = dict(dict(by='draw', fraction=0.01, seed=0, codes=[]), **c)
+    if c['by'] not in ('shot', 'draw') or not c['codes'] or set(c['codes']) - (set(CODE_ORDER) - {'stride'}):
+        raise ValueError(f"code_check: by 'shot' or 'draw', codes from {[k for k in CODE_ORDER if k != 'stride']}: {c}")
+    return c
+
+
+def code_check_kwargs(cfg, check):
+    """The study's tps_kwargs for a code check: only the check's codes, and RDCON (whose surfaces every code uses)."""
+    solvers = [c.removeprefix('jGPEC_') for c in check['codes'] if c.startswith('jGPEC_')]
+    return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'], run_stride=False,
+                run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers), jgpec_solvers=solvers)
 
 
 # --- feed --------------------------------------------------------------------------------------
@@ -203,15 +229,38 @@ def feed(study, cfg=None):
     return n_new
 
 
+def feed_codes(study, cfg=None):
+    """Add a code-check item (<unit_id>.d<count>) for each 'ok' draw of a picked shot or draw not yet fed."""
+    cfg = cfg or load_config(study)
+    check = code_check_config(cfg)
+    if check is None:
+        raise SystemExit('feed --code-check: the study has no code_check')
+    q = fq.Queue(qroot(study, code_check=True))
+    fed = set(q.units(refresh=True))
+    items = []
+    for p in sorted(glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json'))):
+        r = {} if p.endswith('.codes.json') else fq.read_json(p) or {}
+        uid = f"{r.get('unit_id')}.d{r.get('draw')}"
+        key = str(r.get('shot')) if check['by'] == 'shot' else r.get('case_key', '')
+        if r.get('status') == 'ok' and uid not in fed and _picked(check['seed'], check['fraction'], key):
+            items.append(dict(id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')},
+                              draws=[r['draw']], est=1))
+    n_new = q.add_units(items)
+    print(f'feed: {n_new} code-check item(s) added', flush=True)
+    return n_new
+
+
 class Feeder:
     """on_idle hook: feed, unless any worker fed in the last ``every`` seconds."""
 
-    def __init__(self, study, every):
-        self.study, self.every = study, every
+    def __init__(self, study, every, code_check=False):
+        self.study, self.every, self.code_check = study, every, code_check
 
     def __call__(self):
+        fn = feed_codes if self.code_check else feed
         try:
-            return bool(fq.Queue(qroot(self.study)).periodic('feeder', self.every, lambda: feed(self.study) > 0))
+            return bool(fq.Queue(qroot(self.study, self.code_check)).periodic('feeder', self.every,
+                                                                              lambda: fn(self.study) > 0))
         except Exception as e:
             print(f'feeder failed: {fq.error_signature(e)}', flush=True)
             return False
@@ -219,9 +268,9 @@ class Feeder:
 
 # --- one item (child process) ------------------------------------------------------------------
 
-def _spot_picked(spot, case_key):
-    """A seeded coin per draw, so the same draws are checked however they are chunked or retried."""
-    return np.random.default_rng([spot.seed, zlib.crc32(case_key.encode())]).random() < spot.fraction
+def _picked(seed, fraction, key):
+    """A seeded coin per key (draw or shot), so the same ones are checked however they are chunked or retried."""
+    return np.random.default_rng([seed, zlib.crc32(key.encode())]).random() < fraction
 
 
 def _run_spot_checks(spot, eq, kwargs, sdir, wd):
@@ -288,27 +337,29 @@ def tau_e_lookup(spec):
     return lookup
 
 
-def run_item(study, item_id):
-    """Run the draws of one work item that are not final yet. Returns a summary dict."""
+def run_item(study, item_id, code_check=False):
+    """Run the draws of one work item (a code-check item: their code checks) that are not final yet.
+    Returns a summary dict."""
     from tearing_physics_suite.drivers.multi_run import run_case
     from tearing_physics_suite.drivers.profile_read import read_bouquet_archive
     cfg = load_config(study)
-    it = fq.Queue(qroot(study)).units()[item_id]
+    it = fq.Queue(qroot(study, code_check)).units()[item_id]
     if cfg.get('code_timeout'):
         os.environ['TPS_CODE_TIMEOUT'] = str(cfg['code_timeout'])
     ddir = os.path.join(unit_dir(study, cfg, it['shot'], it['unit_id']), 'draws')
     os.makedirs(ddir, exist_ok=True)
-    states = {c: _draw_state(os.path.join(ddir, f'{c}.json')) for c in it['draws']}
+    sfx = '.codes' if code_check else ''
+    states = {c: _draw_state(os.path.join(ddir, f'{c}{sfx}.json')) for c in it['draws']}
     for c, (final, _) in states.items():                 # a draw left 'running' crashed its process twice
-        r = fq.read_json(os.path.join(ddir, f'{c}.json')) or {}
+        r = fq.read_json(os.path.join(ddir, f'{c}{sfx}.json')) or {}
         if final and r.get('status') == 'running':
-            fq.write_json(os.path.join(ddir, f'{c}.json'), dict(r, status='crashed'))
+            fq.write_json(os.path.join(ddir, f'{c}{sfx}.json'), dict(r, status='crashed'))
     todo = [c for c, (final, _) in states.items() if not final]
     out = dict(item=item_id, draws=[])
     if not todo:
         return out
-    kwargs = dict(cfg['tps_kwargs'])
-    spot = spot_config(cfg)
+    kwargs = code_check_kwargs(cfg, code_check_config(cfg)) if code_check else dict(cfg['tps_kwargs'])
+    spot = None if code_check else spot_config(cfg)
     if cfg.get('tau_e'):
         kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
     wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
@@ -320,7 +371,7 @@ def run_item(study, item_id):
                                           impurity_mass_amu=cfg['impurity_mass_amu'])
         for eq, prof in zip(eqs, profs):
             out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
-                                          os.path.join(wd, 'work'), run_case, spot))
+                                          os.path.join(wd, 'work'), _check_case if code_check else run_case, spot, sfx))
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     if any(d['status'] in ('timeout',) for d in out['draws']):
@@ -329,10 +380,10 @@ def run_item(study, item_id):
     return out
 
 
-def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None):
+def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None, sfx=''):
     c = prof['bq_count']
     key = f"{it['unit_id']}_{c}"
-    stat = os.path.join(ddir, f'{c}.json')
+    stat = os.path.join(ddir, f'{c}{sfx}.json')
     rec = dict(case_key=key, shot=it['shot'], t_ms=it['t_ms'], variant=it['variant'], unit_id=it['unit_id'],
                draw=c, archive=it['archive'], profile_coord=prof.get('bq_profile_coord'), attempts=attempt,
                config_hash=cfg['hash'], host=socket.gethostname(), slurm_job=os.environ.get('SLURM_JOB_ID', ''),
@@ -343,12 +394,12 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None)
     try:
         if cfg.get('tau_e') and kwargs.get('energy_confinement_time') is None:
             raise LookupError(f"no {cfg['tau_e']['variable']} for shot {it['shot']} at {it['t_ms']} ms")
-        ds, inputs = run_case(eq, prof, kwargs, wd, nc_path=os.path.join(ddir, f'{c}.nc'),
-                              pkl_path=os.path.join(ddir, f'{c}.pkl') if cfg['keep_pickle'] else None, label=key,
+        ds, inputs = run_case(eq, prof, kwargs, wd, nc_path=os.path.join(ddir, f'{c}{sfx}.nc'),
+                              pkl_path=os.path.join(ddir, f'{c}{sfx}.pkl') if cfg['keep_pickle'] else None, label=key,
                               labels=dict(shot_id=it['shot'], t_ms=it['t_ms'], draw=c, variant=it['variant']))
         rec.update(status='ok' if ds is not None else 'error', inputs=_scalars(inputs), code_wall_s=_code_wall_s(),
                    error=None if ds is not None else dict(signature='no combined_xr'))
-        if ds is not None and spot and _spot_picked(spot, key):     # never fails the draw
+        if ds is not None and spot and _picked(spot.seed, spot.fraction, key):     # never fails the draw
             t = time.time()
             rec['spot_errors'] = _run_spot_checks(spot, eq, kwargs, os.path.join(ddir, f'{c}.spot'), wd)
             rec['spot_wall_s'] = round(time.time() - t, 1)
@@ -368,6 +419,24 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None)
     rec['other_wall_s'] = round(rec['wall_s'] - sum(rec['code_wall_s'].values()) - rec.get('spot_wall_s', 0.0), 1)
     fq.write_json(stat, rec)
     return dict(draw=c, unit_id=it['unit_id'], status=rec['status'], signature=(rec['error'] or {}).get('signature'))
+
+
+def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None):
+    """run_case for a code check: the check's codes on the draw's inputs, filled into its dataset (<count>.nc), the
+    result written to nc_path (<count>.codes.nc)."""
+    import xarray as xr
+
+    from tearing_physics_suite.drivers import multi_run
+    from tearing_physics_suite.drivers.pipeline import fill_codes
+    other, inputs = multi_run.run_case(eq, prof, kwargs, wd, os.path.join(wd, 'codes.nc'), pkl_path, label, labels)
+    if other is None:
+        return None, inputs
+    with xr.open_dataset(nc_path.removesuffix('.codes.nc') + '.nc', engine='scipy') as ds:
+        ds = fill_codes(ds.load(), other)
+    tmp = f'{nc_path}.tmp.{os.getpid()}'
+    ds.to_netcdf(tmp, engine='scipy')
+    os.replace(tmp, nc_path)
+    return ds, inputs
 
 
 def _code_wall_s():
@@ -393,10 +462,10 @@ def _err(e):
 
 
 def cmd_run_item(a):
-    res = a.result or os.path.join(qroot(a.study), 'results', f'{a.item}.json')
+    res = a.result or os.path.join(qroot(a.study, a.code_check), 'results', f'{a.item}.json')
     os.makedirs(os.path.dirname(res), exist_ok=True)
     try:
-        fq.write_json(res, run_item(a.study, a.item))
+        fq.write_json(res, run_item(a.study, a.item, a.code_check))
     except BaseException as e:
         traceback.print_exc()
         infra = isinstance(e, INFRA) or (isinstance(e, OSError) and e.errno in INFRA_ERRNO)
@@ -413,6 +482,7 @@ class Runner:
         self.study, self.timeout, self.min_left = a.study, a.item_timeout, a.min_left
         self.allow_drift, self.deadline = a.allow_build_drift, fq.job_deadline(0.0)
         self.compile = not getattr(a, 'no_compile', False)
+        self.code_check = getattr(a, 'code_check', False)
 
     def __call__(self, q, worker):
         cfg = load_config(self.study)
@@ -432,7 +502,7 @@ class Runner:
                 fh.write(f'\n=== {time.ctime()} {worker} attempt {q.n_attempts(uid)}\n')
             res_path = os.path.join(q.root, 'results', f'{uid}.{worker}.{q.n_attempts(uid)}.json')
             argv = [sys.executable, '-m', 'tearing_physics_suite.drivers.parallel', 'run-item',
-                    '--study', self.study, '--item', uid, '--result', res_path]
+                    '--study', self.study, '--item', uid, '--result', res_path] + ['--code-check'] * self.code_check
             try:
                 res = fq.run_child(argv, log, timeout=self.timeout, result_path=res_path)
             except RuntimeError:
@@ -450,7 +520,7 @@ class Runner:
             n = collections.Counter(d['status'] for d in res.get('draws', []))
             if self.compile and _shot_finished(q, item['shot'], uid):
                 try:
-                    compile_shot(self.study, item['shot'], cfg)
+                    compile_shot(self.study, item['shot'], cfg, code_check=self.code_check)
                 except Exception as e:
                     print(f'[{worker}] compile of shot {item["shot"]} failed: {fq.error_signature(e)}', flush=True)
             return dict(n_draws=len(res.get('draws', [])), **n)
@@ -467,23 +537,23 @@ def cmd_work(a):
     d = fq.job_deadline(a.margin)
     print(f'work: {a.workers} worker(s) on {socket.gethostname()}, deadline {time.ctime(d) if d else "none"}',
           flush=True)
-    out = fq.launch(qroot(a.study), a.workers, Runner(a), deadline=d, idle_exit_s=a.idle_exit,
-                    on_idle=Feeder(a.study, a.feed_every) if a.feed_every else None)
+    out = fq.launch(qroot(a.study, a.code_check), a.workers, Runner(a), deadline=d, idle_exit_s=a.idle_exit,
+                    on_idle=Feeder(a.study, a.feed_every, a.code_check) if a.feed_every else None)
     for w, why in sorted(out.items()):
         print(f'  {w}: {why}', flush=True)
     if not a.no_compile:          # catch draws that finished while their shot was being compiled
-        fq.Queue(qroot(a.study)).periodic('compile_all', 600, lambda: [compile_shot(a.study, s)
-                                                                       for s in study_shots(a.study)])
+        fq.Queue(qroot(a.study, a.code_check)).periodic('compile_all', 600, lambda: [
+            compile_shot(a.study, s, code_check=a.code_check) for s in study_shots(a.study)])
 
 
 # --- compile -----------------------------------------------------------------------------------
 
-def _shot_draws(study, cfg, shot):
-    """{case_key: (nc path, status record)} of the shot's draws with status 'ok'."""
+def _shot_draws(study, cfg, shot, code_check=False):
+    """{case_key: (nc path, status record)} of the shot's draws (code checks) with status 'ok'."""
     out = {}
     root = os.path.join(out_root(study, cfg), str(shot), 'tps')
     for p in glob.glob(os.path.join(root, '*', 'draws', '*.json')):
-        r = fq.read_json(p) or {}
+        r = {} if p.endswith('.codes.json') != code_check else fq.read_json(p) or {}
         if r.get('status') == 'ok':
             out[r['case_key']] = (p[:-len('.json')] + '.nc', r)
     return out
@@ -497,8 +567,9 @@ def _spot_flag(nc_path, rec, nn, codes):
     return sc.spot_check_flag(ds, 0, nn, codes)
 
 
-def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32):
-    """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (single writer, under a lease).
+def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32, code_check=False):
+    """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (code checks: to <shot>_codes.zarr) (single
+    writer, under a lease).
 
     Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
     whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. With
@@ -514,15 +585,15 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     )
     from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, stack_episodes, truncate_zarr_store
     cfg = cfg or load_config(study)
-    q = fq.Queue(qroot(study))
+    q = fq.Queue(qroot(study, code_check))
     lease = f'compile_{shot}'
     while not q.acquire('leases', lease, socket.gethostname()):
         if not finalize:
             print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
             return None
         time.sleep(q.HEARTBEAT_S)
-    zpath = shot_store(study, shot)
-    spath = os.path.join(os.path.dirname(zpath), 'compile_state.json')
+    zpath = shot_store(study, shot, code_check)
+    spath = os.path.join(os.path.dirname(zpath), f'compile_state{"_codes" * code_check}.json')
     try:
         with fq.Heartbeat(q, lease, kind='leases'):
             state = fq.read_json(spath) or dict(compiled=[], broken=[], signature=None)
@@ -531,9 +602,9 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
             elif os.path.exists(zpath):
                 truncate_zarr_store(zpath, 'run_idx', len(state['compiled']))
             seen = set(state['compiled']) | set(state['broken'])
-            draws = _shot_draws(study, cfg, shot)
-            codes = study_codes(cfg['tps_kwargs'])
-            spot = spot_config(cfg)
+            draws = _shot_draws(study, cfg, shot, code_check)
+            codes = study_codes(cfg['tps_kwargs'], code_check_config(cfg)['codes'] if code_check else ())
+            spot = None if code_check else spot_config(cfg)
             new = sorted(k for k in draws if k not in seen)
             for i in range(0, len(new), batch):
                 keys, dsets = [], []
@@ -567,14 +638,15 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     return state
 
 
-def study_codes(tps_kwargs):
-    """The codes a study runs, in CODE_ORDER (run_resistive_calculation's defaults for unset flags)."""
+def study_codes(tps_kwargs, extra=()):
+    """The codes a study runs, and extra ones (a code check's), in CODE_ORDER (run_resistive_calculation's defaults
+    for unset flags)."""
     from tearing_physics_suite.physics.combine import CODE_ORDER
     k = tps_kwargs
     on = {'rdcon': k.get('run_rdcon', True), 'stride': k.get('run_stride', True), 'pest3': k.get('run_pest3', True)}
     if k.get('run_jgpec', False):
         on.update({f'jGPEC_{s}': True for s in k.get('jgpec_solvers', ('galerkin',))})
-    return [c for c in CODE_ORDER if on.get(c)]
+    return [c for c in CODE_ORDER if on.get(c) or c in extra]
 
 
 def _vlen_strings(ds):
@@ -622,17 +694,17 @@ def study_shots(study):
 def cmd_compile(a):
     cfg = load_config(a.study)
     for shot in (a.shots or study_shots(a.study)):
-        compile_shot(a.study, shot, cfg, finalize=a.finalize)
+        compile_shot(a.study, shot, cfg, finalize=a.finalize, code_check=a.code_check)
 
 
-def open_study(study, shots=None):
-    """Lazy dataset of every compiled shot store, concatenated along run_idx.
+def open_study(study, shots=None, code_check=False):
+    """Lazy dataset of every compiled shot store (code-check store), concatenated along run_idx.
 
     Like the stores themselves (add_to_zarr_store), ragged dims are NaN-padded at the end and aligned by
     position, not by coordinate value.
     """
     import xarray as xr
-    paths = [p for p in (shot_store(study, s) for s in (shots or study_shots(study)))
+    paths = [p for p in (shot_store(study, s, code_check) for s in (shots or study_shots(study)))
              if os.path.exists(p) or os.path.exists(p + '.zip')]
     dss = [open_store(p) for p in paths]
     size = {}
@@ -646,11 +718,13 @@ def open_study(study, shots=None):
 
 # --- status ------------------------------------------------------------------------------------
 
-def draw_status(study, cfg=None):
-    """Counts of draw statuses per shot, and draw-failure signatures with counts and an example."""
+def draw_status(study, cfg=None, code_check=False):
+    """Counts of draw (code-check) statuses per shot, and failure signatures with counts and an example."""
     cfg = cfg or load_config(study)
     per_shot, sigs = {}, {}
     for p in glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json')):
+        if p.endswith('.codes.json') != code_check:
+            continue
         r = fq.read_json(p) or {}
         c = per_shot.setdefault(r.get('shot'), collections.Counter())
         c[r.get('status')] += 1
@@ -661,14 +735,14 @@ def draw_status(study, cfg=None):
 
 
 def cmd_status(a):
-    q = fq.Queue(qroot(a.study))
+    q = fq.Queue(qroot(a.study, a.code_check))
     s = q.status()
     print(f"items {s['total']}: done {s['done']}, failed {s['failed']}, running {s['running']}, "
           f"stale {s['stale']}, open {s['open']}" + (' [STOP]' if s['stopped'] else '')
           + (' [DRAIN]' if s['draining'] else ''))
     for sig, v in sorted(s['failures'].items(), key=lambda kv: -kv[1]['n']):
         print(f"  item failures {v['n']:4d} x {sig}  (e.g. {v['units'][0]})")
-    per_shot, sigs = draw_status(a.study)
+    per_shot, sigs = draw_status(a.study, code_check=a.code_check)
     tot = sum(per_shot.values(), collections.Counter())
     print('draws: ' + ', '.join(f'{k} {v}' for k, v in sorted(tot.items(), key=str)))
     for sig, (n, ex) in sorted(sigs.items(), key=lambda kv: -kv[1][0]):
@@ -684,7 +758,7 @@ def cmd_status(a):
 
 
 def cmd_flag(a):
-    q = fq.Queue(qroot(a.study))
+    q = fq.Queue(qroot(a.study, a.code_check))
     if a.cmd == 'undrain':
         os.remove(q.path('DRAIN'))
     else:
@@ -698,13 +772,14 @@ def main(argv=None):
     def add(name, fn):
         p = sub.add_parser(name)
         p.add_argument('--study', required=True)
+        p.add_argument('--code-check', action='store_true', help='act on the code checks (config code_check)')
         p.set_defaults(fn=fn)
         return p
 
     p = add('init', cmd_init)
     p.add_argument('--config', default=None, help='JSON file of settings (see DEFAULTS)')
     p.add_argument('--force', action='store_true')
-    add('feed', lambda a: feed(a.study))
+    add('feed', lambda a: feed_codes(a.study) if a.code_check else feed(a.study))
     p = add('work', cmd_work)
     p.add_argument('--workers', type=int, default=int(os.environ.get('SLURM_CPUS_PER_TASK', 1)))
     p.add_argument('--item-timeout', type=float, default=6 * 3600)

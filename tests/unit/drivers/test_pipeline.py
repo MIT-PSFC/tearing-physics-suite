@@ -88,3 +88,28 @@ def test_stride_only_with_rdcon_surface_pass(monkeypatch, code_fixture, kin_file
         assert surf[v].sel(code='rdcon').isnull().all(), v
     for v in ('X0_surf', 'Wc_prefac_m_surf', 'chi_perp_surf', 'Delta_prime_crit', 'Delta_prime_tcrit'):
         np.testing.assert_array_equal(surf[v].values, full[v].values, err_msg=v)
+
+
+def test_fill_codes_gives_the_full_run(monkeypatch, code_fixture, kin_file):
+    """A STRIDE-only draw filled with RDCON's full run equals the draw run with both codes; another draw is refused."""
+    import numpy as np
+    import xarray as xr
+    from tearing_physics_suite.drivers.profile_read import read_kin_file
+    p = read_kin_file(kin_file)
+
+    def run(rdcon_xr, stride=True):
+        res = CodeResults(rdcon_xr, code_fixture('stride') if stride else None, None, True, stride, False, {'nn': 1},
+                          None, {}, {})
+        monkeypatch.setattr(pl, 'run_resistive_calculation', lambda *a, **k: res)
+        return pl.nonlinear_resistive_calculation('eq', p['ni_spline'], p['ne_spline'], p['te_keV_spline'],
+                                                  p['ti_keV_spline'], Zeff=1.5, average_ion_mass=2.5, nvec=[1],
+                                                  energy_confinement_time=0.1, run_pest3=False)[0]
+    rd = code_fixture('rdcon')
+    full = run(rd)
+    stride_only = run(rd.drop_vars([v for v in DELTA_PRIME_RUN_VARS if v in rd]))
+    filled = pl.fill_codes(stride_only, run(rd, stride=False))
+    assert list(filled.code.values) == list(full.code.values) and set(filled.data_vars) == set(full.data_vars)
+    for v in full.data_vars:
+        xr.testing.assert_equal(filled[v].transpose(*full[v].dims), full[v])
+    with pytest.raises(ValueError, match='not the same draw'):
+        pl.fill_codes(stride_only, run(rd.assign(Wc=rd.Wc * 1.01), stride=False))

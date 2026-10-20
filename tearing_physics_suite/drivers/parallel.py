@@ -239,7 +239,9 @@ def feed_codes(study, cfg=None):
     fed = set(q.units(refresh=True))
     items = []
     for p in sorted(glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json'))):
-        r = {} if p.endswith('.codes.json') else fq.read_json(p) or {}
+        if p.endswith('.codes.json'):
+            continue
+        r = fq.read_json(p) or {}
         uid = f"{r.get('unit_id')}.d{r.get('draw')}"
         key = str(r.get('shot')) if check['by'] == 'shot' else r.get('case_key', '')
         if r.get('status') == 'ok' and uid not in fed and _picked(check['seed'], check['fraction'], key):
@@ -502,7 +504,9 @@ class Runner:
                 fh.write(f'\n=== {time.ctime()} {worker} attempt {q.n_attempts(uid)}\n')
             res_path = os.path.join(q.root, 'results', f'{uid}.{worker}.{q.n_attempts(uid)}.json')
             argv = [sys.executable, '-m', 'tearing_physics_suite.drivers.parallel', 'run-item',
-                    '--study', self.study, '--item', uid, '--result', res_path] + ['--code-check'] * self.code_check
+                    '--study', self.study, '--item', uid, '--result', res_path]
+            if self.code_check:
+                argv.append('--code-check')
             try:
                 res = fq.run_child(argv, log, timeout=self.timeout, result_path=res_path)
             except RuntimeError:
@@ -553,7 +557,9 @@ def _shot_draws(study, cfg, shot, code_check=False):
     out = {}
     root = os.path.join(out_root(study, cfg), str(shot), 'tps')
     for p in glob.glob(os.path.join(root, '*', 'draws', '*.json')):
-        r = {} if p.endswith('.codes.json') != code_check else fq.read_json(p) or {}
+        if p.endswith('.codes.json') != code_check:
+            continue
+        r = fq.read_json(p) or {}
         if r.get('status') == 'ok':
             out[r['case_key']] = (p[:-len('.json')] + '.nc', r)
     return out
@@ -593,7 +599,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
             return None
         time.sleep(q.HEARTBEAT_S)
     zpath = shot_store(study, shot, code_check)
-    spath = os.path.join(os.path.dirname(zpath), f'compile_state{"_codes" * code_check}.json')
+    spath = os.path.join(os.path.dirname(zpath), 'compile_state_codes.json' if code_check else 'compile_state.json')
     try:
         with fq.Heartbeat(q, lease, kind='leases'):
             state = fq.read_json(spath) or dict(compiled=[], broken=[], signature=None)
@@ -769,14 +775,15 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
 
-    def add(name, fn):
+    def add(name, fn, code_check=True):
         p = sub.add_parser(name)
         p.add_argument('--study', required=True)
-        p.add_argument('--code-check', action='store_true', help='act on the code checks (config code_check)')
+        if code_check:
+            p.add_argument('--code-check', action='store_true', help='act on the code checks (config code_check)')
         p.set_defaults(fn=fn)
         return p
 
-    p = add('init', cmd_init)
+    p = add('init', cmd_init, code_check=False)
     p.add_argument('--config', default=None, help='JSON file of settings (see DEFAULTS)')
     p.add_argument('--force', action='store_true')
     add('feed', lambda a: feed_codes(a.study) if a.code_check else feed(a.study))

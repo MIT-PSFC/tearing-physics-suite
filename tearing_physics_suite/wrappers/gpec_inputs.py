@@ -370,7 +370,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             ishape=6,                            # Set to 8 for DIII-D wall, 6 for a conformal shell (see vacuum_vac.f for more information)
             ##### Not written to a namelist #####
             rpec_flag='f',          # Resistive perturbed equilibrium computation
-            rdcon_delta_prime=True,              # False: RDCON computes only the MRE surface terms (gal_flag, ode_flag, vac_flag 'f' in rdcon.in: no Delta', no energies)
+            rdcon_delta_prime=True,              # False: RDCON runs for the MRE surface terms only (no Delta')
             verbose = False,                     # Print verbose output to terminal
             #Scan logic: Default values will not affect above inputs.
             set_delta_mlow_to_delta_mhigh=False, # If true, delta_mlow is set to delta_mhigh.

@@ -61,6 +61,8 @@ of `draws_per_item` draws; a worker claims an item and runs it in a child proces
 ```
 Each run in a store has `case_key` (`<unit_id>_<count>`), `shot_id`, `t_ms`, `draw` and `variant`.
 
+**Timing.** A draw's status records `code_wall_s` (`{'rdcon_n1': s, ..., 'jGPEC_galerkin_n1': s, 'jGPEC_start': s}`: every code run, a failed or timed-out one included, and the Julia server start), `spot_wall_s` (if picked), `wall_s` and `other_wall_s` (the rest: TPS input/output and MRE). The store gets them per run: `code_wall_s(nn, code)`, `draw_wall_s`, `jgpec_start_wall_s`, `spot_wall_s`, `other_wall_s` (NaN for draws recorded before timing). Reading the archive happens once per item, outside the draws.
+
 **Failures.**
 - A draw that fails in the pipeline is a result (`error`, with its signature); its item still succeeds.
 - A draw that times out (`code_timeout`) or whose process dies is retried once, then final (`timeout`/`crashed`).

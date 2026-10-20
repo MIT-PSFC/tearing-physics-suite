@@ -2,7 +2,7 @@ import os
 import pickle as pkl
 import shutil
 
-from tearing_physics_suite.utils import eq_stem, tps_home
+from tearing_physics_suite.utils import code_timer, eq_stem, tps_home
 from tearing_physics_suite.wrappers import rdcon as rdcon_wrapper
 from tearing_physics_suite.wrappers import stride as stride_wrapper
 from tearing_physics_suite.wrappers.gpec_common import copy_terminal_output, executable, save_output
@@ -121,10 +121,15 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
 
     os.chdir(working_dir)  # Change to the working directory
     run_opts = dict(fresh_start=fresh_start, save_terminal_output=save_terminal_output, verbose=verbose)
-    rdcon_xr, rdcon_ran = rdcon_wrapper.run_rdcon(gpec_dir, working_dir, nn, **run_opts) if run_rdcon else (None, False)
+    rdcon_xr, stride_xr, rdcon_ran, stride_ran = None, None, False, False
+    if run_rdcon:
+        with code_timer(f'rdcon_n{nn}'):
+            rdcon_xr, rdcon_ran = rdcon_wrapper.run_rdcon(gpec_dir, working_dir, nn, **run_opts)
     if require_rdcon and run_rdcon and not rdcon_ran:
         raise RuntimeError(f'RDCON failed for n={nn} (require_rdcon)')
-    stride_xr, stride_ran = stride_wrapper.run_stride(gpec_dir, working_dir, nn, **run_opts) if run_stride else (None, False)
+    if run_stride:
+        with code_timer(f'stride_n{nn}'):
+            stride_xr, stride_ran = stride_wrapper.run_stride(gpec_dir, working_dir, nn, **run_opts)
 
     #########################################################################################################
     # Save results to output locations:

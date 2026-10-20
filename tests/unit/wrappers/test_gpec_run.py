@@ -88,3 +88,12 @@ def test_jgpec_skipped_when_rdcon_fails(tmp_path, eq_file, monkeypatch):
 def test_rel_diff():
     assert _rel_diff(2.0, 2.0) == 0.0 and _rel_diff(0.0, 0.0) == 0.0
     assert _rel_diff(1.0, 3.0) == 1.0 and _rel_diff(0.0, 1e-3) == 2.0
+
+
+def test_rdcon_run_is_timed(tmp_path, eq_file):
+    """GPEC_resistive_calculation records each code's wall time under '<code>_n<n>' (utils.CODE_WALL_S)."""
+    from tearing_physics_suite.utils import CODE_WALL_S
+    CODE_WALL_S.clear()
+    GPEC_resistive_calculation(eq_file, 1, run_rdcon=True, working_dir=str(tmp_path / 'work'), gpec_dir=_fake_gpec(tmp_path))
+    assert list(CODE_WALL_S) == ['rdcon_n1'] and CODE_WALL_S['rdcon_n1'] > 0
+    CODE_WALL_S.clear()

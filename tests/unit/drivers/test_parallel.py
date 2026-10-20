@@ -290,3 +290,26 @@ def test_spot_check_draws(study, monkeypatch):
         st.spot_config(dict(spot_check=dict(scans=['no_scan'])))
     with pytest.raises(ValueError, match='unknown scans'):
         st.spot_config(dict(spot_check=dict(scan_vals={'no_scan': [1]})))
+
+
+def test_draw_timing(study, monkeypatch):
+    """A draw records its code wall times and the rest (other_wall_s); the store gets them per draw."""
+    from tearing_physics_suite.utils import CODE_WALL_S
+    uid = _record(study, 100, 1500, selected=(0, 1))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    fake = multi_run.run_case
+
+    def timed(*a, **k):
+        CODE_WALL_S.update({'rdcon_n1': 3.0, 'stride_n1': 2.0, 'jGPEC_start': 1.0})
+        return fake(*a, **k)
+    monkeypatch.setattr(multi_run, 'run_case', timed)
+    st.run_item(study, f'{uid}.c0')
+    rec = _status(study, uid, 0)
+    assert rec['code_wall_s'] == {'rdcon_n1': 3.0, 'stride_n1': 2.0, 'jGPEC_start': 1.0}
+    assert rec['other_wall_s'] == pytest.approx(rec['wall_s'] - 6.0, abs=0.11)
+    st.compile_shot(study, 100)
+    ds = xr.open_zarr(st.shot_store(study, 100)).load()
+    np.testing.assert_array_equal(ds.code_wall_s.sel(code=['rdcon', 'stride']).isel(nn=0).values, [[3.0, 2.0]] * 2)
+    assert (ds.jgpec_start_wall_s == 1.0).all() and (ds.spot_wall_s == 0).all() and ds.draw_wall_s.notnull().all()
+    CODE_WALL_S.clear()

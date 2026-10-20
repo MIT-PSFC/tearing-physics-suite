@@ -146,6 +146,19 @@ def work_root():
     return os.environ.get('TPS_WORK_ROOT') or os.environ.get('TMPDIR') or '/tmp'
 
 
+CODE_WALL_S = {}  # '<code>_n<n>' (and 'jGPEC_start'): wall seconds of the code runs in this process (parallel: per draw)
+
+
+@contextlib.contextmanager
+def code_timer(key):
+    """Add the block's wall time to CODE_WALL_S[key], also when it raises."""
+    t = time.perf_counter()
+    try:
+        yield
+    finally:
+        CODE_WALL_S[key] = CODE_WALL_S.get(key, 0.0) + time.perf_counter() - t
+
+
 @contextlib.contextmanager
 def node_slot(name, n, poll=5.0):
     """Hold one of ``n`` per-node slots called ``name`` (flock on files under work_root()); falsy n: no limit.

@@ -4,6 +4,8 @@ import os
 
 import numpy as np
 
+from tearing_physics_suite.utils import tps_threads
+
 ZEFF_MAX_PTS = 998 # rdcon's variable-length namelist read-in limit (GPEC Zeff_profile_support)
 
 def zeff_dict(Zeff):
@@ -39,6 +41,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         etol=1e-10,
         newq0=0,            #Grad-Shafranov solution invariant adjustment of the q profile to give the specified value of q at the axis. Default 0 uses input file value.
         use_classic_splines='f', # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
+        profile_source="""'integrate'""", # F and p from the g-file's FF' and p' integrated inward ('integrate') or its F and p columns ('values'). GPEC's default differs by branch, so always written.
         input_only='f',      #Generate information about the input and then quit with no further calculation
         #EQUIL_OUTPUT
         gse_flag='t',       #Produces diagnostic output for accuracy of solution to Grad-Shafranov equation
@@ -87,6 +90,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('    etol='+str(etol)+'\n')
     f.write('    newq0='+str(newq0)   +'\n') #Grad-Shafranov solution invariant adjustment of the q profile to give the specified value of q at the axis. Default 0 uses input file value.
     f.write('    use_classic_splines ='+use_classic_splines +'\n') # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
+    f.write('    profile_source='+profile_source+'\n')
 
     f.write('    input_only='+input_only+'\n') #Generate information about the input and then quit with no further calculation
     f.write('/'+'\n')
@@ -224,6 +228,7 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         'etol': etol,
         'newq0': newq0,
         'use_classic_splines': use_classic_splines,
+        'profile_source': profile_source,
         'input_only': input_only,
         'gse_flag': gse_flag,
         'out_eq_1d': out_eq_1d,
@@ -249,7 +254,7 @@ SHARED_KEYS = (
 RDCON_KEYS = (
     'nx', 'pfac', 'gal_tol', 'dx1dx2_flag', 'dx0', 'dx1', 'dx2', 'cutoff', 'solver', 'nq', 'interp_np',
     'restore_uh', 'restore_us', 'restore_ul', 'bin_delmatch', 'out_galsol', 'bin_galsol', 'b_flag', 'bin_coilsol',
-    'ode_flag', 'dump_MRE_data', 'reform_eq_with_psilim', 'sing_start', 'sing1_flag', 'gal_xmin_flag',
+    'ode_flag', 'reform_eq_with_psilim', 'sing_start', 'sing1_flag', 'gal_xmin_flag',
     'sing_order_ceiling', 'regrid_flag', 'Zeff', 'MRE_flag', 'geom_flag', 'flag', 'phase',
 )
 STRIDE_KEYS = (
@@ -321,7 +326,6 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             bin_coilsol='f',        # Output binary files for every unit-m driven solution
             ##RDCON_CONTROL
             ode_flag='t',           # RDCON control only (forced true for STRIDE) - Integrate ODEs for determining stability of internal long-wavelength mode.
-            dump_MRE_data=False,    # Dump MRE data, exits before gal_flag can run
             reform_eq_with_psilim='t', # Reform the equilibrium with the specified psi limits
             sing_start=0,           # Start integration at the sing_start'th rational from the axis (psilow)
             sing1_flag='t',         # Special power series treatment
@@ -340,10 +344,10 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             use_classic_splines='f', # Use a classical cubic spline instead of tri-diagonal solution for splines with extrapolation boundary conditions
             use_notaknot_splines='f', # Use not-a-knot boundary conditions for splines with extrapolation boundary conditions
             #STRIDE_PARAMS
-            nThreads=32,                         # Number of threads used to calculate intervals in parallel
+            nThreads=None,                       # Threads for STRIDE's intervals (None: utils.tps_threads())
             fourfit_metric_parallel='f',         # Compute equilibrium metric tensor components in parallel
             vac_parallel='t',                    # Doubles the number of main level threads, creating more threads than processors
-            nIntervalsTot=33,                    # Number of radial intervals calculated in separately and recombined at end
+            nIntervalsTot=132,                   # Radial intervals; 33 under-resolves the innermost Delta' (item G)
             grid_packing="""'singularities'""",  # Choose from "singularities" and "naive"
             axis_mid_pt_skew=12.0,               # Skews the distribution of intervals between psilow and psihigh
             asymp_at_sing='t',                   # Use asymptotic expansions at singular surfaces
@@ -372,11 +376,13 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             set_dx1dx2_dx0_mult = 0.0,           # If set, dx1, dx2 = dx0 multiplied by this value.
             set_singfac_min_to_dx = False,       # If true, set singfac_min to dx0. This is useful for scans where you want to see the effect of changing asymptotic matching point on Delta Prime.
             set_int_tolerances_equal = False,    # If true, set tol_nr, gal_tol equal to tol_r.
+            set_tolerances = 0.0,                # If set, tol_r, tol_nr, gal_tol (and Julia's eulerlagrange_tolerance_jgpec, run_codes) = this.
             **kwargs):
     """Write the RDCON and STRIDE input namelists (rdcon.in and stride.in) for GPEC.
 
     Keyword arguments correspond to RDCON_CONTROL, RDCON_OUTPUT, STRIDE_CONTROL,
     and STRIDE_OUTPUT namelist entries. See inline comments for descriptions.
+    A shared key with the suffix '_stride' (e.g. tol_nr_stride) is written to stride.in only.
 
     Parameters
     ----------
@@ -411,6 +417,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         if verbose: print("Warning: nx is not even, increasing by 1 to make it even.")
         nx += 1
 
+    nThreads = nThreads or tps_threads()
     if set_delta_mlow_to_delta_mhigh:
         delta_mlow = delta_mhigh
     if set_dx1dx2_dx0_mult > 0.0:
@@ -421,6 +428,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     if set_int_tolerances_equal:
         tol_nr = tol_r
         gal_tol = tol_r
+    if set_tolerances > 0.0:
+        tol_r = tol_nr = gal_tol = set_tolerances
 
     #Turn all inputs to write_rdcon_stride_inputs into a dictionary to return
     return_dict = {
@@ -451,7 +460,6 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'ode_flag': ode_flag,
         'vac_flag': vac_flag,
         'gal_flag': gal_flag,
-        'dump_MRE_data': dump_MRE_data,
         'sas_flag': sas_flag,
         'reform_eq_with_psilim': reform_eq_with_psilim,
         'dmlim': dmlim,
@@ -517,6 +525,10 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     }
 
     writer_inputs = dict(return_dict)  # before equil.in values (e.g. its use_classic_splines) are merged in
+    # '<key>_stride' sets a shared key for STRIDE only (e.g. tol_nr_stride); rdcon.in keeps <key>
+    stride_only = {k.removesuffix('_stride'): kwargs.pop(k) for k in list(kwargs)
+                   if k.endswith('_stride') and k.removesuffix('_stride') in SHARED_KEYS}
+    return_dict.update({f'{k}_stride': v for k, v in stride_only.items()})
     equil_dict = write_equil_in(working_dir,eq_filename,write_equil_filename=write_equil_filename,eq_type=eq_type,a_wall=a_wall,ishape=ishape,out_ahg2msc=out_ahg2msc,**kwargs)
     #combine the dictionaries
     return_dict.update(equil_dict)
@@ -526,7 +538,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     if run_stride:
         # rdcon.in forces sing1_flag on with gal_xmin_flag; STRIDE warns about the value RDCON uses.
         stride_sing1 = 't' if (run_rdcon and gal_xmin_flag == 't') else sing1_flag
-        write_stride_in(working_dir + write_stride_filename, **{**writer_inputs, 'sing1_flag': stride_sing1})
+        write_stride_in(working_dir + write_stride_filename, **{**writer_inputs, 'sing1_flag': stride_sing1, **stride_only})
 
 
 
@@ -537,7 +549,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
 
 def write_rdcon_in(path, *, nx, pfac, gal_tol, dx1dx2_flag, dx0, dx1, dx2, cutoff, solver, nq, interp_np, restore_uh,
                    restore_us, restore_ul, bin_delmatch, out_galsol, bin_galsol, b_flag, bin_coilsol, bal_flag,
-                   mat_flag, ode_flag, vac_flag, gal_flag, dump_MRE_data, sas_flag, reform_eq_with_psilim, dmlim,
+                   mat_flag, ode_flag, vac_flag, gal_flag, sas_flag, reform_eq_with_psilim, dmlim,
                    sing_start, qlow, qhigh, nn, delta_mlow, delta_mhigh, delta_mband, mthvac, thmax0, tol_nr, tol_r,
                    crossover, singfac_min, ucrit, cyl_flag, sing1_flag, gal_xmin_flag, sing_order, sing_order_ceiling,
                    regrid_flag, Zeff, crit_break, ahb_flag, msol_ahb, mthsurf0, bin_euler, euler_stride, out_bal1,
@@ -576,8 +588,6 @@ def write_rdcon_in(path, *, nx, pfac, gal_tol, dx1dx2_flag, dx0, dx1, dx2, cutof
     f.write('    ode_flag='+ode_flag +'\n') #Integrate ODEs for determining stability of internal long-wavelength mode (must be true for GPEC)
     f.write('    vac_flag='+vac_flag +'\n') #Compute plasma, vacuum, and total energies for free-boundary modes
     f.write('    gal_flag='+gal_flag +'\n') #Compute outer regime using resonant Galerkin method
-    if not dump_MRE_data==False:  # noqa: E712 (dump_MRE_data may be a string)
-        f.write('    dump_MRE_data='+dump_MRE_data +'\n') #Dump MRE data, exits before gal_flag can run
 
     f.write('    sas_flag='+sas_flag +'\n') #Safety factor (q) limit determined as q_ir+dmlim where q_ir is the equil outermost rational
     f.write('    reform_eq_with_psilim='+reform_eq_with_psilim +'\n') #Reform the equilibrium with the specified psi limits

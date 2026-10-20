@@ -1,11 +1,14 @@
 """Study mode (drivers/parallel.py) without Fortran: feed, run_item with a fake pipeline, compile, the breaker."""
 import json
 import os
+import shutil
+import zipfile
 
 import numpy as np
 import pytest
 import xarray as xr
 
+from tearing_physics_suite.analysis.shot_data import open_shot
 from tearing_physics_suite.drivers import fsqueue as fq
 from tearing_physics_suite.drivers import multi_run, profile_read
 from tearing_physics_suite.drivers import parallel as st
@@ -39,17 +42,27 @@ def test_feed(study):
     uid = _record(study, 100, 1500)
     _record(study, 100, 1600, status='failed')
     _record(study, 101, 1500, variant='other')
-    assert st.feed(study) == 3                          # 5 selected draws, 2 per item
+    assert st.feed(study) == 4                          # 5 selected draws, 2 per item, and the baseline
     items = fq.Queue(st.qroot(study)).units()
-    assert sorted(items) == [f'{uid}.c0', f'{uid}.c1', f'{uid}.c2']
+    assert sorted(items) == [f'{uid}.base', f'{uid}.c0', f'{uid}.c1', f'{uid}.c2']
     assert items[f'{uid}.c2']['draws'] == [4]
+    assert items[f'{uid}.base']['draws'] == [-1]
     assert st.feed(study) == 0
     _record(study, 102, 900, selected=(1,))
-    assert st.feed(study) == 1
+    assert st.feed(study) == 2
+
+
+def test_feed_adds_baseline_to_a_fed_unit(study):
+    uid = _record(study, 100, 1500, selected=(0,))
+    cfg = st.load_config(study)
+    assert st.feed(study, dict(cfg, baseline=False)) == 1
+    assert st.feed(study) == 1                          # only <unit>.base is new
+    assert sorted(fq.Queue(st.qroot(study)).units()) == [f'{uid}.base', f'{uid}.c0']
 
 
 def _run_dataset(c, n_r=3):
-    return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), np.full((1, 2, n_r), float(c))), 'qlim': ((), 3.0)},
+    return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), np.full((1, 2, n_r), float(c))), 'qlim': ((), 3.0),
+                       'dwdt_surf': (('nn', 'code', 'r'), np.zeros((1, 2, n_r)))},
                       coords={'nn': [1], 'code': ['rdcon', 'stride'], 'r': np.arange(n_r)})
 
 
@@ -109,6 +122,19 @@ def test_crashed_draw_is_final_after_two_attempts(study, monkeypatch):
     assert _status(study, uid, 0)['status'] == 'crashed'
 
 
+def test_species_masses_reach_reader(study, monkeypatch):
+    cfg = st.load_config(study)
+    cfg.update(main_ion_mass_amu=2.5, impurity_mass_amu=16.0)
+    fq.write_json(st.config_path(study), cfg)
+    uid = _record(study, 100, 1500, selected=(0,))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    seen, read = [], profile_read.read_bouquet_archive
+    monkeypatch.setattr(profile_read, 'read_bouquet_archive', lambda *a, **k: seen.append(k) or read(*a, **k))
+    st.run_item(study, f'{uid}.c0')
+    assert (seen[0]['main_ion_mass_amu'], seen[0]['impurity_mass_amu']) == (2.5, 16.0)
+
+
 def test_infra_error_propagates(study, monkeypatch):
     uid = _record(study, 100, 1500, selected=(0,))
     st.feed(study)
@@ -133,12 +159,58 @@ def test_compile_incremental(study, monkeypatch):
     np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0])
     assert set(ds.variant.values) == {'base'} and set(ds.t_ms.values) == {1500}
     assert list(ds.code.values) == ['rdcon', 'stride']
+    assert 'dwdt_surf' not in ds and ds.Delta_prime.dtype == np.float32    # reduced as multi_compile_zarr does (F)
     dp = ds.Delta_prime.isel(nn=0, r=0)                  # draw 1 had no STRIDE: NaN there, RDCON in place
     assert dp.sel(code='rdcon').values[1] == 1.0 and np.isnan(dp.sel(code='stride').values[1])
     inputs = xr.open_dataset(st.shot_store(study, 100).removesuffix('.zarr') + '_inputs.nc')
     assert list(inputs.case_key.values) == list(ds.case_key.values) and set(inputs.vac_flag.values) == {'t'}
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # nothing new
     assert st.open_study(study).sizes['run_idx'] == 3
+
+
+def test_compile_repairs_an_interrupted_append(study, monkeypatch):
+    import zarr
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {3: ValueError('x')})
+    st.run_item(study, f'{uid}.c0')
+    st.compile_shot(study, 100)
+    z = st.shot_store(study, 100)
+    arr = zarr.open_group(z, mode='r+')['Delta_prime']        # a killed append: one array a run longer
+    arr.resize((3,) + arr.shape[1:])
+    st.run_item(study, f'{uid}.c1')
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']
+    ds = xr.open_zarr(z).load()
+    np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0])
+
+
+def test_compile_finalize_waits_for_a_dead_lease(study, monkeypatch):
+    uid = _record(study, 100, 1500, selected=(0,))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    st.run_item(study, f'{uid}.c0')
+    qcfg = os.path.join(st.qroot(study), 'config.json')
+    fq.write_json(qcfg, dict(STALE_S=60, HEARTBEAT_S=0.1))
+    assert fq.Queue(st.qroot(study)).acquire('leases', 'compile_100', 'killed job')   # never beats again
+    assert st.compile_shot(study, 100) is None
+    fq.write_json(qcfg, dict(STALE_S=0.3, HEARTBEAT_S=0.1))
+    assert st.compile_shot(study, 100, finalize=True)['compiled'] == [f'{uid}_0']
+
+
+def test_open_study_reads_published_zip(tmp_path):
+    """A shot published as one <shot>.zarr.zip (directory store removed) reads like the directory store."""
+    ds = xr.Dataset({'Delta_prime': ('run_idx', [1.0, 2.0]), 'shot_id': ('run_idx', [100, 100]),
+                     't_ms': ('run_idx', [1500, 1600])})
+    z = st.shot_store(str(tmp_path), 100)
+    ds.to_zarr(z, consolidated=True)
+    with zipfile.ZipFile(z + '.zip', 'w') as f:
+        for root, _, files in os.walk(z):
+            for name in files:
+                f.write(os.path.join(root, name), os.path.relpath(os.path.join(root, name), z))
+    shutil.rmtree(z)
+    xr.testing.assert_equal(st.open_study(str(tmp_path)).load(), ds)
+    np.testing.assert_array_equal(open_shot(str(tmp_path), 100)['Delta_prime'].values, [1.0, 2.0])
+    np.testing.assert_array_equal(open_shot(z + '.zip', 100)['t_ms'].values, [1500, 1600])
 
 
 def test_runner_breaker(study, monkeypatch):
@@ -185,3 +257,36 @@ def test_tau_e_from_i2(study, monkeypatch, tmp_path):
     st.run_item(study, f'{uid}.c0')
     assert seen == [0.08]
     assert st.run_item(study, '100_3000_base.c0')['draws'][0]['signature'].startswith('LookupError: no tau_e')
+
+
+def test_spot_check_draws(study, monkeypatch):
+    from tearing_physics_suite.drivers import spot_check as sc
+    cfg = st.load_config(study)
+    cfg['spot_check'] = dict(fraction=0.5, scans=['mpsi_scan'])
+    fq.write_json(st.config_path(study), cfg)
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    tasks = []
+
+    def run_spot_task(task, wd, sdir):
+        tasks.append((os.path.basename(task[2]), task[3], task[4]))
+        if task[2].endswith('eq3'):
+            raise RuntimeError('scan failed')
+    monkeypatch.setattr(sc, 'run_spot_task', run_spot_task)
+    monkeypatch.setattr(sc, 'spot_dataset', lambda results: xr.Dataset(
+        {'rel_exceeded_psi95': (('spot', 'code'), [[0, 1]]), 'run_idx': ('spot', [0]), 'nn': ('spot', [1])},
+        coords={'code': ['rdcon', 'stride']}))
+    st.run_item(study, f'{uid}.c0')
+    st.run_item(study, f'{uid}.c1')
+    assert tasks == [('eq0', 'mpsi_scan', 1), ('eq3', 'mpsi_scan', 1)]        # the seeded coin picks draws 0 and 3
+    assert [_status(study, uid, c)['status'] for c in range(4)] == ['ok'] * 4   # a failed spot task never fails a draw
+    assert _status(study, uid, 0)['spot_errors'] == {} and 'spot_errors' not in _status(study, uid, 1)
+    assert _status(study, uid, 3)['spot_errors'] == {'mpsi_scan_n1': 'RuntimeError: scan failed'}
+    st.compile_shot(study, 100)
+    flag = xr.open_zarr(st.shot_store(study, 100)).spot_check_flag.load()
+    np.testing.assert_array_equal(flag.isel(nn=0).values, [[0, 1], [-1, -1], [-1, -1], [0, 1]])
+    with pytest.raises(ValueError, match='unknown scans'):
+        st.spot_config(dict(spot_check=dict(scans=['no_scan'])))
+    with pytest.raises(ValueError, match='unknown scans'):
+        st.spot_config(dict(spot_check=dict(scan_vals={'no_scan': [1]})))

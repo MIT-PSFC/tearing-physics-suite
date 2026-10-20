@@ -39,10 +39,10 @@
     netcdf_out=t
 /
 &stride_params
-    nThreads=32
+    nThreads=1
     fourfit_metric_parallel=f
     vac_parallel=t
-    nIntervalsTot=33
+    nIntervalsTot=132
     grid_packing='singularities'
     axis_mid_pt_skew=12.0
     asymp_at_sing=t

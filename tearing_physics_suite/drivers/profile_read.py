@@ -9,16 +9,10 @@ import xarray as xr
 from scipy.interpolate import PchipInterpolator
 
 
-def _average_ion_mass(psi_n, n_main, n_imp, main_mass_amu=2.0, imp_mass_amu=12.0):
-    """rho-weighted (area-like) mean thermal ion mass [AMU] over psi_n <= 1."""
-    psi_n = np.asarray(psi_n, dtype=float)
-    mask = (psi_n >= 0) & (psi_n <= 1.0)
-    rho = np.sqrt(psi_n[mask])
-    n_main = np.asarray(n_main, dtype=float)[mask]
-    n_imp = np.asarray(n_imp, dtype=float)[mask]
-    mass = np.trapezoid(rho*(main_mass_amu*n_main + imp_mass_amu*n_imp), rho)
-    dens = np.trapezoid(rho*(n_main + n_imp), rho)
-    return float(mass/dens)
+def _species(impurity_Z, impurity_mass, main_mass=2.0, **fast):
+    """Deuterium main ions, one fully stripped impurity (masses in amu) and optional fast-ion splines z_fast, z2_fast,
+    for mre_terms_on_modes(species=...)."""
+    return dict(main_mass=float(main_mass), impurity_Z=float(impurity_Z), impurity_mass=float(impurity_mass), **fast)
 
 def read_kin_file(filename):
     """Read a .kin profile file and create splines for kinetic profiles.
@@ -87,7 +81,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
     dict
         Keys include ne_spline, te_keV_spline, ni_spline, ti_keV_spline,
         omega_tor_12C6_spline, v_pol_spline, Er_spline, time, time_idx,
-        omega_splines, average_ion_mass (D + C), extra_keys, and optionally shot_id.
+        omega_splines, species (deuterium + carbon), extra_keys, and optionally shot_id.
         If time_idx is None, returns a list of such dicts (one per time).
     """
 
@@ -140,7 +134,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
             omega_tor_spline = PchipInterpolator(psi_n_vals, omega_tor_12C6_vals, extrapolate=False)
             v_pol_spline = PchipInterpolator(psi_n_vals, v_pol_vals, extrapolate=False)
             Er_spline = PchipInterpolator(psi_n_vals, E_r_vals, extrapolate=False)
-            average_ion_mass = _average_ion_mass(psi_n_vals, n_i_vals, n_iC12_vals) # n_i assumed deuterium
+            species = _species(6, 12)  # n_i = n_e - 6 n_C: deuterium and carbon
             extra_key_vals = [rotation_xr[key].isel(time=time_idx).values for key in extra_keys]
             time_val = rotation_xr.time.values[time_idx]
 
@@ -178,7 +172,7 @@ def read_IDA_lite(filename, verbose=False, time_idx=None, shot_id=None, extra_ke
         'omega_splines': {
             'omega_tor_12C6': omega_tor_spline
         },
-        'average_ion_mass': average_ion_mass,
+        'species': species,
     }
 
     for key, val in zip(extra_keys, extra_key_vals):
@@ -237,7 +231,7 @@ def read_IDA_lite_all_times(filename, verbose=False, **kwargs):
 
 def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_dir=None,
                          ida_path=None, ida_extra_keys=None, ida_time_tol_ms=1.0,
-                         meta_data=False, sample_limit=None, impurity_mass_amu=None,
+                         meta_data=False, sample_limit=None, impurity_mass_amu=None, main_ion_mass_amu=2.0,
                          eq_source='geqdsk', draw_counts=None, verbose=False):
     """Unpack a bouquet (schema v2) archive into multi_run_ inputs.
 
@@ -254,8 +248,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         Scan keys (time slices, ms) to read. None reads all.
     selection : {'selected', 'all', 'excluded'}
         Which draws to read (bouquet filter flags).
-    eqdsk_out_dir : str or None
-        Where to write g-files. Defaults to '<archive dir>/TPS_eqdsks'.
+    eqdsk_out_dir : str
+        Where to write g-files (required: the archive's directory is a read-only study directory).
     ida_path : str or None
         IDA-lite file for scalar extras (tau_e_basic, tau_th_basic, ida_extra_keys).
         If None, the archive config's ida_path is used when present. Rotation is
@@ -269,15 +263,17 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
     sample_limit : int or None
         Max draws per scan key.
     impurity_mass_amu : float or None
-        Impurity mass for average_ion_mass. Default 2*Z_imp.
+        Impurity mass for the species model (mre_terms_on_modes). Default 2*Z_imp.
+    main_ion_mass_amu : float
+        Main-ion (thermal and fast) mass for the species model. Default 2 (deuterium).
     eq_source : {'geqdsk', 'ifile'}
         Equilibrium written per draw: the g-file, or the OFT i-file (bouquet
         write_ifile=True runs; GPEC reads it as eq_type 'ldp_i', see
         run_resistive_calculation).
     draw_counts : list of int or None
-        Read only these draws (by count), whatever their selection flag.
+        Read only these draws (by count), whatever their selection flag. -1 is the scan's baseline.
 
-    Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with that draw's g-file q.
+    Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with the q of the equilibrium file it unpacks (g-file or i-file).
     Profile dicts carry shot_id / bq_unit_id / bq_variant when the archive's root attrs have them.
 
     Returns
@@ -285,6 +281,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
     eq_filenames : list of str
     profile_list : list of dict
     """
+    if eqdsk_out_dir is None:
+        raise ValueError("read_bouquet_archive: pass eqdsk_out_dir (the archive's directory is read-only study data)")
     try:
         import bouquet as bq
     except ImportError as e:
@@ -293,8 +291,6 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
 
     ar = bq.BouquetArchive(path)
     header = os.path.splitext(os.path.basename(ar.path))[0]
-    if eqdsk_out_dir is None:
-        eqdsk_out_dir = os.path.join(os.path.dirname(os.path.abspath(ar.path)), 'TPS_eqdsks')
     os.makedirs(eqdsk_out_dir, exist_ok=True)
     if eq_source not in ('geqdsk', 'ifile'):
         raise ValueError(f"eq_source must be 'geqdsk'|'ifile', got {eq_source!r}")
@@ -312,27 +308,31 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         sc = ar[key]
         cfg = _bouquet_scan_config(bq, ar.path, key)
         draws = getattr(sc, selection) if draw_counts is None else [d for d in sc.all if d.count in set(draw_counts)]
+        if draw_counts is not None and -1 in draw_counts:
+            draws = [sc.baseline_view()] + draws
         if sample_limit is not None:
             draws = draws[:sample_limit]
         ida_extras = _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, ida_time_tol_ms, verbose)
 
         for d in draws:
+            count = -1 if d.is_baseline else d.count
             prof = d.profiles
             attrs = d.attrs
             eq_bytes = d.eqdsk_bytes if eq_source == 'geqdsk' else d.ifile_bytes
             if eq_bytes is None:
-                raise KeyError(f"Bouquet draw {key}/{d.count} has no stored {eq_source} "
+                raise KeyError(f"Bouquet draw {key}/{count} has no stored {eq_source} "
                                f"(i-files need a bouquet run with write_ifile=True).")
-            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{d.count}.{eq_source}")
+            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{count}.{eq_source}")
             with open(eq_path, 'wb') as fh:
                 fh.write(eq_bytes)
             coord = attrs.get('profile_coord', 'psi_n')
             if coord == 'phi_n':
-                prof = _phi_n_to_psi_n(prof, d.eqdsk_bytes)
+                prof = _phi_n_to_psi_n(prof, *(gfile_q if eq_source == 'geqdsk' else ifile_q)(eq_bytes))
             elif coord != 'psi_n':
-                raise NotImplementedError(f"Bouquet draw {key}/{d.count} has profile_coord={coord!r}.")
+                raise NotImplementedError(f"Bouquet draw {key}/{count} has profile_coord={coord!r}.")
             eq_filenames.append(eq_path)
-            p = _bouquet_draw_profiles(prof, attrs, cfg, key, d.count, ida_extras, meta_data, impurity_mass_amu)
+            p = _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu,
+                                       main_ion_mass_amu)
             profile_list.append(dict(p, bq_profile_coord=coord, **labels))
         if verbose:
             print(f"[read_bouquet_archive] scan {key}: {len(draws)} draws unpacked to {eqdsk_out_dir}")
@@ -358,16 +358,25 @@ def gfile_q(eq_bytes):
     return np.linspace(0.0, 1.0, nw), np.abs(np.asarray(vals[need - nw:need]))
 
 
-def _phi_n_to_psi_n(prof, eq_bytes):
+def ifile_q(eq_bytes):
+    """(psi_N, q) of an OFT i-file given as bytes (psi_N from its psi-bounds record when present)."""
+    from bouquet.utils import read_ifile
+    d = read_ifile(eq_bytes)
+    b0, b1 = d.get('psi_bounds', d['psi'][[0, -1]])
+    return (d['psi'] - b0) / (b1 - b0), np.abs(d['q'])
+
+
+def _phi_n_to_psi_n(prof, psi, q):
     """Profiles of a Φ_N bouquet draw with their grids (psi_N, psi_N_kinetic) mapped to ψ_N.
 
-    Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's g-file (bouquet.coords.phi_n_from_q).
+    Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's equilibrium-file q (bouquet.coords.phi_n_from_q).
     """
-    psi, q = gfile_q(eq_bytes)
+    if psi[-1] < 1.0:                       # an i-file stops at the LCFS pad: q held to ψ_N = 1
+        psi, q = np.append(psi, 1.0), np.append(q, q[-1])
     phi = np.concatenate([[0.0], np.cumsum(0.5*(q[1:] + q[:-1])*np.diff(psi))])
     phi /= phi[-1]
     if not np.all(np.diff(phi) > 0):
-        raise ValueError("Φ_N(ψ_N) from the g-file q is not monotonic")
+        raise ValueError("Φ_N(ψ_N) from the equilibrium-file q is not monotonic")
     out = dict(prof)
     for grid in ('psi_N', 'psi_N_kinetic'):
         if grid in prof:
@@ -389,7 +398,8 @@ def _scan_time(key):
     except (TypeError, ValueError):
         return key
 
-def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu):
+def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu,
+                           main_ion_mass_amu=2.0):
     """Build one multi_run_ profile dict from a bouquet draw."""
     psi_k = prof.get('psi_N_kinetic', prof['psi_N'])
     def spl(y):
@@ -411,12 +421,20 @@ def _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, 
         out['omega_splines'] = {'omega_tor': spl(prof['aux_omega_tor'])}
     if 'aux_e_r' in prof:
         out['Er_spline'] = spl(prof['aux_e_r'])
+    if 'chi_perp_e' in prof:                            # power balance [m^2/s]
+        out['chi_perp_spline'] = spl(prof['chi_perp_e'])
+    if 'chi_perp_i' in prof:                            # bouquet's is per main ion n_e/Zeff (IMAS.jl); TPS weights it by n_i
+        n_main = prof['n_e']/np.asarray(zeff) if zeff is not None else prof['n_i']
+        out['chi_perp_i_spline'] = spl(prof['chi_perp_i']*n_main/prof['n_i'])
+    for name in ('tau_E_th', 'tau_E'):                  # [s]
+        if name in attrs:
+            out[name] = float(attrs[name])
 
-    # Single fully-stripped impurity: n_imp = (n_e - n_i)/Z_imp
+    # Single fully-stripped impurity: n_imp = (n_e - n_i - z_fast)/Z_imp (in mre_terms_on_modes); n_i is thermal
     Z_imp = attrs.get('Z_imp', getattr(getattr(cfg, 'source', None), 'impurity_Z', 6.0))
     imp_mass = 2.0*Z_imp if impurity_mass_amu is None else impurity_mass_amu
-    n_imp = np.clip((prof['n_e'] - prof['n_i'])/Z_imp, 0.0, None)
-    out['average_ion_mass'] = _average_ion_mass(psi_k, prof['n_i'], n_imp, imp_mass_amu=imp_mass)
+    out['species'] = _species(Z_imp, imp_mass, main_ion_mass_amu,
+                              **{k: spl(prof[k]) for k in ('z_fast', 'z2_fast') if k in prof})
 
     out.update(ida_extras)
 

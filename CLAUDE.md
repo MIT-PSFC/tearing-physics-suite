@@ -40,6 +40,9 @@
   positional fill buffers, and `expand_dims`+`concat` chains.
 - `r`/`r_prime` are positional indices; real values are `r_value`/`r_prime_value` (`sel_rational`,
   `collapse_to_primary` in `physics/combine.py`).
+- The compiled zarr is reduced by `drivers/store_schema.py` (dropped, blanked, float32 variables; old -> new in
+  `docs/zarr_schema.md`). A new k0/k1/C0 recompute input goes in `mre_recompute.INPUTS` so it stays float64.
+- PEST3-only variable names end in `_pest3` (e.g. `di_pest3`); see `wrappers/pest3.py:PEST3_RENAMES`.
 
 ## Adding a code (e.g. jGPEC)
 - Per-code datasets go through `add_code_dim` and `combine_codes` (`physics/combine.py`); `CODE_ORDER` sets the
@@ -52,7 +55,7 @@
 ## Environment and git
 - Python: `/fusion/projects/tmdb/scripts/eq_stab/venvs/genvenv1/.venv`. `TPSHOME` (from
   `tearing_physics_suite_env.sh`) is read lazily via `utils.tps_home()`; never read it at import time.
-- Fortran GPEC default branch: `OFT_interface` (`submodules/GPEC`); PEST3: `master`.
+- Fortran GPEC pin: 71a2b71b (`submodules/GPEC`; Fortran PSFC_dev = develop 3c0b8f3b + #300 + #325 + #326 + #327 + #328 + #329 + 'original' grid fix + version.inc fixed-form fix + Wc comment + opt-in RDCON_LIBSCIHOME), fetchable as the Princeton tag `tps-pin-71a2b71b` (tps-build's clone default); version.inc takes any `git describe`; on Perlmutter build with RDCON_LIBSCIHOME=$CRAY_LIBSCI_PREFIX_DIR (rdcon on serial LibSci); PEST3: `master`.
 - `submodules/GPEC` and `submodules/PEST3` are git submodules pinned to a commit (clone TPS with
   `--recurse-submodules`). The build never resets an existing checkout; it warns when HEAD differs from the pin.
   Bump a pin: `cd submodules/GPEC && git checkout <sha> && cd ../.. && git add submodules/GPEC && git commit`.

@@ -1,9 +1,7 @@
 """Shared-filesystem work queue: many workers on many nodes claim units by ``mkdir``.
 
 Stdlib only. Correct on NFSv4 and Lustre: ``mkdir``'s EEXIST is the claim, ``rename`` is the
-single point that serialises stealing an expired lease. Vendored byte-identically as
-``bouquet/workqueue.py`` and ``tearing_physics_suite/drivers/fsqueue.py``; edit the eq_stab copy
-(``D3D_V1/FUSE_IDAlite_BOUQUET/common/fsqueue.py``) and copy it over.
+single point that serialises stealing an expired lease.
 
 Layout under ``root`` (one queue per tool)::
 
@@ -72,7 +70,7 @@ def error_signature(exc):
 
 
 def slurm_info():
-    return {k: os.environ.get(f'SLURM_{k.upper()}', '') for k in ('job_id', 'array_task_id', 'procid')}
+    return {k: os.environ.get(f'SLURM_{k.upper()}', '') for k in ('job_id', 'array_task_id', 'step_id', 'procid')}
 
 
 class Queue:
@@ -268,7 +266,7 @@ class Queue:
 
     def record_failure(self, uid, worker, exc=None, signature=None, detail=''):
         sig = signature or (error_signature(exc) if exc is not None else 'unknown')
-        tb = ''.join(traceback.format_exception(exc))[-8000:] if isinstance(exc, BaseException) else detail
+        tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-8000:] if isinstance(exc, BaseException) else detail
         self._record(uid, 'fail', dict(worker=worker, signature=sig, traceback=tb))
         return sig
 
@@ -282,9 +280,9 @@ class Queue:
             self.drop('claims', uid)
 
     def reopen(self, uid):
-        """Make a terminal unit claimable again (clears its done marker and failure records)."""
+        """Make a terminal unit claimable again, with a fresh attempt and failure budget."""
         for f in _ls(self.path('state', uid)):
-            if f.startswith('fail_'):
+            if f.startswith(('fail_', 'attempt_')):
                 os.remove(self.path('state', uid, f))
         try:
             os.remove(self.path('done', uid))
@@ -611,12 +609,14 @@ def launch(root, n_workers, make_run, tag=None, policy=None, deadline=None, **wo
     """Start ``n_workers`` worker processes on this node; returns {worker: exit reason}.
 
     ``make_run(q, worker)`` (picklable, module level) returns the worker's ``run(uid, unit)``.
-    Workers are '<tag>.w<i>'; tag defaults to '<host>.<job>.<procid>'. If every worker exits
+    Workers are '<tag>.w<i>'; tag defaults to '<host>.<job>[.s<step>].<procid>'
+    (the step keeps sessions run as concurrent job steps on one node apart). If every worker exits
     'broken', the job is marked broken (see Queue.mark_broken)."""
     import multiprocessing
     import signal
     s = slurm_info()
-    tag = tag or f'{socket.gethostname()}.{s["job_id"] or os.getpid()}.{s["procid"] or 0}'
+    step = f'.s{s["step_id"]}' if s['step_id'].isdigit() else ''
+    tag = tag or f'{socket.gethostname()}.{s["job_id"] or os.getpid()}{step}.{s["procid"] or 0}'
     ctx = multiprocessing.get_context('spawn')
     names = [f'{tag}.w{i}' for i in range(n_workers)]
     procs = [ctx.Process(target=_worker_main, args=(root, policy or {}, w, make_run, deadline, work_kw), name=w)

@@ -17,6 +17,8 @@ from tearing_physics_suite.physics.combine import (
     ordered_codes,
 )
 from tearing_physics_suite.physics.cross_field_transport import (
+    chi_ion_weight_on_modes,
+    chi_para_ion_on_modes,
     chi_para_lmfp_no_w_on_modes,
     chi_para_lmfp_noisland_on_modes,
     chi_para_smfp_on_modes,
@@ -32,6 +34,7 @@ from tearing_physics_suite.wrappers.run_codes import run_resistive_calculation
 def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_spline, ti_keV_spline,
     Zeff = None,
     average_ion_mass = None,
+    species=None,
     diamagnetic_rotation_ion_charge=None,
     # Rotation splines
     Er_spline=None, # Assuming input units of V/m
@@ -43,6 +46,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     nvec = None,
     energy_confinement_time = None,
     chi_perp_spline=None,
+    chi_perp_i_spline=None,
+    chi_model='tau_E', # chi_perp/chi_par model for the transport-threshold width, see cross_field_transport.CHI_MODELS
     k0=0.8227, # MRE constants k0, k1, C0: scalars, or 1D lists for a grid (see extract_critical_mre_factors_on_modes)
     k1=1.7,
     C0=0.6,
@@ -69,7 +74,9 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         Effective ion charge (for chi_para and bootstrap current).
         If dict, 'x' are psi_n values, 'y' are Zeff(psi_n) values.
     average_ion_mass : float
-        Mean ion mass in AMU (for Alfven speed / mass density).
+        Mean ion mass in AMU (for Alfven speed / mass density) of a single ion species.
+    species : dict or None
+        Main ions + one impurity instead: {'main_mass', 'impurity_Z', 'impurity_mass'} (see mre_terms_on_modes).
     nvec : list of int
         Toroidal mode numbers to analyse.
     **kwargs
@@ -98,8 +105,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
     if Zeff is None:
         raise ValueError("Zeff must be provided for nonlinear resistive calculation.")
     Zeff = zeff_dict(Zeff)
-    if average_ion_mass is None:
-        raise ValueError("average_ion_mass must be provided for nonlinear resistive calculation.")
+    if average_ion_mass is None and species is None:
+        raise ValueError("average_ion_mass or species must be provided for nonlinear resistive calculation.")
 
     xarray_vec = []
     pest3_xr_vec = []
@@ -120,14 +127,19 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
             psi_surfs_of_interest=psi_surfs_of_interest,
             energy_confinement_time=energy_confinement_time,
             chi_perp_spline=chi_perp_spline,
+            chi_perp_i_spline=chi_perp_i_spline,
+            chi_model=chi_model,
             k0=k0,
             k1=k1,
             C0=C0,
             wd_static=wd_static,
             Zeff=Zeff,
             average_ion_mass=average_ion_mass,
+            species=species,
             diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge,
             force_lmfp=force_lmfp,
+            Coulomb_logarithm=Coulomb_logarithm,
+            eta_fac=eta_fac,
             **kwargs)
 
         xarray_vec.append(comb_n_xr)
@@ -186,6 +198,7 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         # Settings the MRE outputs were computed with, so they can be recomputed from the dataset (drivers/mre_recompute.py)
         combined_xr = combined_xr.assign(
             wd_static=wd_static, force_lmfp=force_lmfp, psi_pedestal_cutoff=psi_pedestal_cutoff,
+            chi_model=chi_model,
             dwdt_k0=float(np.atleast_1d(k0)[0]), dwdt_k1=float(np.atleast_1d(k1)[0]), dwdt_C0=float(np.atleast_1d(C0)[0]))
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
@@ -385,6 +398,8 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         psi_surfs_of_interest=None,
         energy_confinement_time = None,
         chi_perp_spline=None,
+        chi_perp_i_spline=None,
+        chi_model='tau_E', # see cross_field_transport.CHI_MODELS
         k0=0.8227,
         k1=1.7,
         C0=0.6,
@@ -393,6 +408,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         debug=False,
         delete_attrs=True,
         average_ion_mass=2.5, # Average ion mass in amu, used for alfven time calculation
+        species=None, # Or main ions + one impurity: {'main_mass', 'impurity_Z', 'impurity_mass'} (see mre_terms_on_modes)
         force_lmfp=False, # Default False <=> whichever parallel transport calculation is more physical, lmfp or smfp, is used. Set True to always use lmfp.
         Coulomb_logarithm=None, # If None, calculate using Wesson formula. Otherwise use this value for all rational surfaces.
         eta_fac=1.0, # Factor to multiply Spitzer resistivity by, to match artificial manipulation in resistive simulations.
@@ -425,9 +441,6 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     if q_surfs_of_interest is None:
         q_surfs_of_interest = [1.0]
 
-    # Check that either energy_confinement_time or chi_perp_spline is defined:
-    assert not (chi_perp_spline is None and energy_confinement_time is None), "Must either define energy_confinement_time or chi_perp_spline for MRE analysis."
-
     #########################################################################################################
     # Run resistive delta prime calculation:
     #########################################################################################################
@@ -441,6 +454,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     # Add wd_static, energy_confinement_time, k0, k1, C0, wd_static to input_dict:
     input_dict['wd_static'] = wd_static
     input_dict['energy_confinement_time'] = energy_confinement_time
+    input_dict['chi_model'] = chi_model
     input_dict['k0'] = k0
     input_dict['k1'] = k1
     input_dict['C0'] = C0
@@ -448,12 +462,16 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Fill out rdcon_xr with important MRE terms:
     #########################################################################################################
-    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline=ni_spline, ne_spline=ne_spline, ti_spline=ti_keV_spline, te_spline=te_keV_spline, average_ion_mass=average_ion_mass, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
+    rdcon_xr = mre_terms_on_modes(rdcon_xr, ni_spline=ni_spline, ne_spline=ne_spline, ti_spline=ti_keV_spline, te_spline=te_keV_spline, average_ion_mass=average_ion_mass, species=species, Coulomb_logarithm=Coulomb_logarithm, eta_fac=eta_fac, Er_spline=Er_spline, omega_splines=omega_splines, q_surfs_of_interest=q_surfs_of_interest, psi_surfs_of_interest=psi_surfs_of_interest, diamagnetic_rotation_ion_charge=diamagnetic_rotation_ion_charge)
     rdcon_xr = chi_para_lmfp_no_w_on_modes(rdcon_xr)
     rdcon_xr = chi_para_lmfp_noisland_on_modes(rdcon_xr)
     rdcon_xr = chi_para_smfp_on_modes(rdcon_xr)
-    rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline)
+    rdcon_xr = chi_para_ion_on_modes(rdcon_xr)
+    rdcon_xr = chi_ion_weight_on_modes(rdcon_xr, chi_model=chi_model)
+    rdcon_xr = chi_perp_on_modes(rdcon_xr, energy_confinement_time=energy_confinement_time, chi_perp_spline=chi_perp_spline,
+                                 chi_perp_i_spline=chi_perp_i_spline, chi_model=chi_model)
     rdcon_xr = deltaprime_crit_on_modes(rdcon_xr, force_lmfp=force_lmfp)
+    surface_terms = [v for v in rdcon_xr.data_vars if v not in res.rdcon_xr.data_vars]  # stored without 'code'
 
     if debug_mre_terms:
         return rdcon_xr, None, None
@@ -474,7 +492,7 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
         expanded[code] = ds
 
     # PEST3 is also returned on its own if it could not be combined (see combine_codes).
-    combined_xr, dropped = combine_codes(expanded, input_dict.get('nn'), debug=debug)
+    combined_xr, dropped = combine_codes(expanded, input_dict.get('nn'), debug=debug, rdcon_only=surface_terms)
     pest3_xr_out = dropped.get('pest3')
 
     return combined_xr, pest3_xr_out, input_dict

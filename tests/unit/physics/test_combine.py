@@ -111,3 +111,26 @@ def test_combine_codes_debug_raises():
 
 def test_combine_codes_empty():
     assert combine_codes({'rdcon': None}, nn=None) == (None, {})
+
+
+def test_strip_inherited_attrs():
+    from tearing_physics_suite.physics.combine import strip_inherited_attrs
+    lab = {'long_name': 'Normalized Poloidal Flux at Rational Surfaces'}
+    ds = xr.Dataset({'psi_n_rational': ('r', [0.5, 0.8], lab), 'chi_perp_surf': ('r', [1.0, 2.0], lab),
+                     'q': ('r', [2.0, 3.0], {'long_name': 'Safety Factor'})})
+    out = strip_inherited_attrs(ds)
+    assert out.chi_perp_surf.attrs == {} and out.psi_n_rational.attrs == lab and out.q.attrs['long_name'] == 'Safety Factor'
+    assert ds.chi_perp_surf.attrs == lab  # input unchanged
+
+
+def test_combine_codes_needs_equal_surfaces():
+    """join='exact': a code on other surfaces is left out (never padded or aligned by position); no FutureWarning."""
+    import warnings
+    a = add_code_dim(xr.Dataset({'x': ('r', [1.0, 2.0])}, coords={'r': [2.0, 3.0]}), 'rdcon')
+    b = add_code_dim(xr.Dataset({'x': ('r', [5.0])}, coords={'r': [3.0]}), 'pest3')
+    c = add_code_dim(xr.Dataset({'x': ('r', [3.0, 4.0])}, coords={'r': [2.0, 3.0]}), 'stride')
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', FutureWarning)
+        out, dropped = combine_codes({'rdcon': a, 'stride': c, 'pest3': b}, nn=1)
+    assert list(dropped) == ['pest3'] and out.code.values.tolist() == ['rdcon', 'stride']
+    assert out.r.values.tolist() == [2.0, 3.0]

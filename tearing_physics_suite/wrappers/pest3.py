@@ -518,6 +518,10 @@ def pest3_special_truncation_single(eq_filename, nn, qlim_actual, pest3_kwargs_d
         return psi_trunc_frac, pest3_trunc_ran, pest3_xr['qa'].values, (pest3_xr['psinew'].values/(pest3_xr['psinew'].values[-1] - pest3_xr['psinew'].values[0]))
     return psi_trunc_frac, pest3_trunc_ran
 
+# PEST3 variables whose names RDCON also uses for a different array (META_PLAN §1.7: '_pest3' suffix)
+PEST3_RENAMES = {'di': 'di_pest3', 'dr': 'dr_pest3', 'qa': 'q_pest3'}
+
+
 def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r=None, r_prime=None):
     """Standardize PEST3 NetCDF output dimensions, variables, and unit conventions.
 
@@ -617,8 +621,8 @@ def pest3_clean_netcdf(ps3, debug=True, drop_soln_info=True, q_rationals=None, r
     ps3 = ps3.assign_coords(r=r, r_prime=r_prime)
 
     if len(ps3.cmatch.dims) > 0:
-        return pest3_rescale_deltaprimes(ps3)
-    return ps3
+        ps3 = pest3_rescale_deltaprimes(ps3)
+    return ps3.rename_vars({k: v for k, v in PEST3_RENAMES.items() if k in ps3})
 
 def pest3_rescale_deltaprimes(ps3, debug=False):
     """
@@ -646,7 +650,7 @@ def pest3_rescale_deltaprimes(ps3, debug=False):
     ps3=ps3.assign(psio=ps3.psimax-ps3.psimin)
     ps3=ps3.assign(psio_alt=ps3.psia-ps3.psi0)
 
-    assert ps3.psio.values-ps3.psio_alt.values < 1e-4, "Competing values of total (pol. flux/2pi). Check PEST3 output."
+    assert abs(ps3.psio.values-ps3.psio_alt.values) < 1e-4, "Competing values of total (pol. flux/2pi). Check PEST3 output."
 
     #List of variables to rename:
     varlista=[['aprim_re','aprim_im'], ['bprim_re', 'bprim_im'], ['gprim_re', 'gprim_im'], ['dprim_re', 'dprim_im']]

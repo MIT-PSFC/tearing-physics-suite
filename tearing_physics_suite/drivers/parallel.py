@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 import traceback
+import zlib
 
 import numpy as np
 
@@ -37,12 +38,17 @@ DEFAULTS = dict(
     draws_per_item=8,
     ida_extra_keys=[],
     meta_data=False,            # bq_* per-draw metadata in the profile dicts
+    main_ion_mass_amu=2.0,      # species model masses (amu): main ions (thermal and fast) and the one impurity
+    impurity_mass_amu=None,     # (None: 2 Z_imp)
     keep_pickle=False,          # also keep multi_run-style result pickles
     code_timeout=3600,          # s per Fortran code run (TPS_CODE_TIMEOUT)
     out_root=None,              # per-draw outputs under <out_root>/<shot>/tps (default: the study dir); $VARS expanded
     n_same_sig=6,               # this many draw failures in a row with one signature, over >= 2 units: worker broken
     tau_e=None,                 # {"path": I2 netCDF(s), ':'-separated globs, $VARS expanded, "variable": name}: the
                                 # energy confinement time per draw (see tau_e_lookup)
+    baseline=True,              # also run each archive's bouquet baseline, as draw -1 (item <unit>.base)
+    spot_check=None,            # true or SpotCheck fields: re-run a seeded random fraction of the draws through the key
+                                # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -80,6 +86,14 @@ def shot_store(study, shot):
     return os.path.join(study, str(shot), 'tps', f'{shot}.zarr')
 
 
+def open_store(path):
+    """A compiled store, from its published one-file copy `<path>.zip` when that exists, else the directory."""
+    import xarray as xr
+    import zarr
+    zp = path + '.zip'
+    return xr.open_zarr(zarr.storage.ZipStore(zp, mode='r') if os.path.exists(zp) else path, consolidated=True)
+
+
 def _describe(path):
     try:
         return subprocess.run(['git', '-C', path, 'describe', '--always', '--dirty'], capture_output=True,
@@ -109,6 +123,7 @@ def cmd_init(a):
         raise SystemExit(f'unknown config keys {sorted(unknown)}')
     if cfg['tau_e']:
         tau_e_lookup(cfg['tau_e'])                       # fail now, not in every work item
+    spot_config(cfg)
     cfg['hash'] = hashlib.sha256(json.dumps(cfg, sort_keys=True, default=str).encode()).hexdigest()[:12]
     cfg['versions'] = versions()
     old = fq.read_json(config_path(a.study))
@@ -127,6 +142,19 @@ def check_build(cfg, allow_drift=False):
         raise fq.Broken(f'build differs from the study config: {drift} (--allow-build-drift to run anyway)')
 
 
+def spot_config(cfg):
+    """The study's SpotCheck, or None; unknown fields or scans raise."""
+    from tearing_physics_suite.drivers import spot_check as sc
+    s = cfg.get('spot_check')
+    if not s:
+        return None
+    spot = sc.SpotCheck() if s is True else sc.SpotCheck(**dict(s, scans=tuple(s['scans']) if s.get('scans') else None))
+    unknown = (set(spot.scans or ()) | set(spot.scan_vals or ())) - set(sc.SCANS)
+    if unknown:
+        raise ValueError(f'spot_check: unknown scans {sorted(unknown)}')
+    return spot
+
+
 # --- feed --------------------------------------------------------------------------------------
 
 def _archive_counts(path, selection):
@@ -140,17 +168,26 @@ def _archive_counts(path, selection):
 
 
 def feed(study, cfg=None):
-    """Add work items for bouquet units recorded 'done' and not yet fed; returns how many were added."""
+    """Add work items for bouquet units recorded 'done' and not yet fed; returns how many were added.
+
+    The baseline is its own item (<unit>.base), so it also reaches units fed before it was enabled.
+    """
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study))
-    fed = {u.get('unit_id') for u in q.units(refresh=True).values()}
+    units = q.units(refresh=True)
+    fed = {u.get('unit_id') for u in units.values()}
     items = []
     for rec_path in sorted(glob.glob(os.path.join(study, '*', 'bouquet', '*.json'))):
         r = fq.read_json(rec_path) or {}
         uid = r.get('unit_id')
-        if r.get('status') != 'done' or uid in fed or r.get('variant') not in cfg['variants']:
+        if r.get('status') != 'done' or r.get('variant') not in cfg['variants']:
             continue
         archive = os.path.join(os.path.dirname(rec_path), r['archive'])
+        if cfg.get('baseline', True) and f'{uid}.base' not in units:
+            items.append(dict(id=f'{uid}.base', unit_id=uid, shot=r['shot'], t_ms=r['t_ms'], variant=r['variant'],
+                              archive=archive, draws=[-1], est=1))
+        if uid in fed:
+            continue
         counts = r.get('selected_counts' if cfg['selection'] == 'selected' else 'all_counts')
         if counts is None:
             counts = _archive_counts(archive, cfg['selection'])
@@ -181,6 +218,23 @@ class Feeder:
 
 
 # --- one item (child process) ------------------------------------------------------------------
+
+def _spot_picked(spot, case_key):
+    """A seeded coin per draw, so the same draws are checked however they are chunked or retried."""
+    return np.random.default_rng([spot.seed, zlib.crc32(case_key.encode())]).random() < spot.fraction
+
+
+def _run_spot_checks(spot, eq, kwargs, sdir, wd):
+    """Spot-check one draw into sdir (its run_idx is 0); returns {'<scan>_n<n>': error} of the failed tasks."""
+    from tearing_physics_suite.drivers import spot_check as sc
+    errors = {}
+    for task in sc.spot_tasks(sc.plan_spot_checks(1, spot, kwargs, sdir), [eq], kwargs, spot):
+        try:
+            sc.run_spot_task(task, wd, sdir)
+        except Exception as e:
+            errors[f'{task[3]}_n{task[4]}'] = fq.error_signature(e)
+    return errors
+
 
 def _draw_state(path):
     """(final, attempts) of a draw's status file."""
@@ -254,16 +308,19 @@ def run_item(study, item_id):
     if not todo:
         return out
     kwargs = dict(cfg['tps_kwargs'])
+    spot = spot_config(cfg)
     if cfg.get('tau_e'):
         kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
     wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
     try:
         eqs, profs = read_bouquet_archive(it['archive'], selection='all', draw_counts=todo,
                                           eqdsk_out_dir=os.path.join(wd, 'eq'), eq_source=cfg['eq_source'],
-                                          ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'])
+                                          ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'],
+                                          main_ion_mass_amu=cfg['main_ion_mass_amu'],
+                                          impurity_mass_amu=cfg['impurity_mass_amu'])
         for eq, prof in zip(eqs, profs):
             out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
-                                          os.path.join(wd, 'work'), run_case))
+                                          os.path.join(wd, 'work'), run_case, spot))
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     if any(d['status'] in ('timeout',) for d in out['draws']):
@@ -272,7 +329,7 @@ def run_item(study, item_id):
     return out
 
 
-def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case):
+def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None):
     c = prof['bq_count']
     key = f"{it['unit_id']}_{c}"
     stat = os.path.join(ddir, f'{c}.json')
@@ -290,6 +347,8 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case):
                               labels=dict(shot_id=it['shot'], t_ms=it['t_ms'], draw=c, variant=it['variant']))
         rec.update(status='ok' if ds is not None else 'error', inputs=_scalars(inputs),
                    error=None if ds is not None else dict(signature='no combined_xr'))
+        if ds is not None and spot and _spot_picked(spot, key):     # never fails the draw
+            rec['spot_errors'] = _run_spot_checks(spot, eq, kwargs, os.path.join(ddir, f'{c}.spot'), wd)
     except TimeoutError as e:
         rec.update(status='timeout', error=_err(e))
     except Exception as e:
@@ -408,8 +467,20 @@ def _shot_draws(study, cfg, shot):
     return out
 
 
-def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
-    """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (single writer, under a lease)."""
+def _spot_flag(nc_path, rec, nn, codes):
+    """spot_check_flag(nn, code) of one draw (-1 where it was not checked)."""
+    from tearing_physics_suite.drivers import spot_check as sc
+    sdir = nc_path[:-len('.nc')] + '.spot'
+    ds = sc.spot_dataset(sc.load_spot_results(sdir)) if 'spot_errors' in rec else None
+    return sc.spot_check_flag(ds, 0, nn, codes)
+
+
+def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32):
+    """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (single writer, under a lease).
+
+    Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
+    whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. With
+    ``finalize``, a lease held elsewhere is waited for (a dead one is stolen once stale) instead of skipped."""
     import xarray as xr
 
     from tearing_physics_suite.drivers.multi_run import (
@@ -419,13 +490,15 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
         rechunk_store,
         store_ready,
     )
-    from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store
+    from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, stack_episodes, truncate_zarr_store
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study))
     lease = f'compile_{shot}'
-    if not q.acquire('leases', lease, socket.gethostname()):
-        print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
-        return None
+    while not q.acquire('leases', lease, socket.gethostname()):
+        if not finalize:
+            print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
+            return None
+        time.sleep(q.HEARTBEAT_S)
     zpath = shot_store(study, shot)
     spath = os.path.join(os.path.dirname(zpath), 'compile_state.json')
     try:
@@ -433,23 +506,32 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10):
             state = fq.read_json(spath) or dict(compiled=[], broken=[], signature=None)
             if state['compiled'] and not os.path.exists(zpath):
                 state = dict(compiled=[], broken=[], signature=None)
+            elif os.path.exists(zpath):
+                truncate_zarr_store(zpath, 'run_idx', len(state['compiled']))
             seen = set(state['compiled']) | set(state['broken'])
             draws = _shot_draws(study, cfg, shot)
             codes = study_codes(cfg['tps_kwargs'])
+            spot = spot_config(cfg)
             new = sorted(k for k in draws if k not in seen)
-            for key in new:
-                with xr.open_dataset(draws[key][0], engine='scipy') as ds:
-                    ds = ds.load().drop_encoding()
-                ds = store_ready(_vlen_strings(align_codes(ds, codes)))
-                sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
-                if state['signature'] is None:
-                    state['signature'] = sig
-                if sig != state['signature']:
-                    state['broken'].append(key)
-                else:
-                    ds = bare_episode(ds.assign(case_key=np.array(key, dtype=object)))
-                    add_to_zarr_store(ds, zpath, episode_dim='run_idx')
-                    state['compiled'].append(key)
+            for i in range(0, len(new), batch):
+                keys, dsets = [], []
+                for key in new[i:i + batch]:
+                    with xr.open_dataset(draws[key][0], engine='scipy') as ds:
+                        ds = ds.load().drop_encoding()
+                    ds = store_ready(_vlen_strings(align_codes(ds, codes)))
+                    if spot:
+                        ds['spot_check_flag'] = (('nn', 'code'), _spot_flag(*draws[key], ds.nn.values, codes))
+                    sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
+                    if state['signature'] is None:
+                        state['signature'] = sig
+                    if sig != state['signature']:
+                        state['broken'].append(key)
+                    else:
+                        keys.append(key)
+                        dsets.append(bare_episode(ds.assign(case_key=np.array(key, dtype=object))))
+                if dsets:
+                    add_to_zarr_store(stack_episodes(dsets, 'run_idx'), zpath, episode_dim='run_idx')
+                    state['compiled'] += keys
                 fq.write_json(spath, state)
             if state['compiled']:
                 _write_inputs(zpath, state['compiled'], draws)
@@ -527,8 +609,9 @@ def open_study(study, shots=None):
     position, not by coordinate value.
     """
     import xarray as xr
-    paths = [shot_store(study, s) for s in (shots or study_shots(study)) if os.path.exists(shot_store(study, s))]
-    dss = [xr.open_zarr(p, consolidated=True) for p in paths]
+    paths = [p for p in (shot_store(study, s) for s in (shots or study_shots(study)))
+             if os.path.exists(p) or os.path.exists(p + '.zip')]
+    dss = [open_store(p) for p in paths]
     size = {}
     for ds in dss:
         for d, n in ds.sizes.items():

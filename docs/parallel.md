@@ -40,7 +40,10 @@ python -m tearing_physics_suite.drivers.parallel stop|drain|undrain --study S
 `cfg.json` keys (`study.DEFAULTS`): `tps_kwargs` (for `nonlinear_resistive_calculation`), `variants`, `selection`,
 `eq_source`, `draws_per_item`, `code_timeout`, `out_root` (per-draw outputs, e.g. on scratch), `keep_pickle`,
 `ida_extra_keys`, `meta_data`, `n_same_sig`, `tau_e` (energy confinement time per draw from the I2 netCDF of bouquet_prep:
-`{"path": ..., "variable": ...}`, see `parallel.tau_e_lookup`). Production sets `require_rdcon` in `tps_kwargs`, so a draw whose RDCON fails stops at
+`{"path": ..., "variable": ...}`, see `parallel.tau_e_lookup`), `spot_check` (`true` or `SpotCheck` fields, e.g. `{"fraction": 0.01, "scans": [...], "scan_vals": {"<scan>": [...]}}`: a seeded coin per
+draw picks `fraction` of the ok draws, which then run `spot_check.spot_check_tests` (quick values, or `scan_vals`; the draw's settings) inside
+the same item; a failed scan is recorded in the draw's `spot_errors`, never fails the draw; the store gets
+`spot_check_flag(nn, code)`: -1 not checked, 0 passed, 1 flagged). At 1 % this adds about 20 % compute. Coupled runs set `chi_model: "total"` and `tau_e_label: "tau_E_th"` in `tps_kwargs` (the archive's χ_⊥e/i profiles and τ_E reach every draw; the default `chi_model` is `"tau_E"`). Production sets `require_rdcon` in `tps_kwargs`, so a draw whose RDCON fails stops at
 once instead of running the other codes first. Workers refuse to run if the TPS/GPEC/jGPEC build differs from the one
 `init` recorded (`--allow-build-drift`).
 
@@ -52,6 +55,7 @@ of `draws_per_item` draws; a worker claims an item and runs it in a child proces
 <study>/_queue/tps/            fsqueue state; study.json (settings); results/<item>.json
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.nc     combined_xr of one draw
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.json   status, written last: ok | error | timeout | crashed
+<out_root>/<shot>/tps/<unit_id>/draws/<count>.spot/    spot-checks of a picked draw (spot_check)
 <out_root>/<shot>/tps/<unit_id>/logs/<item>.log
 <study>/<shot>/tps/<shot>.zarr, <shot>_inputs.nc, compile_state.json
 ```

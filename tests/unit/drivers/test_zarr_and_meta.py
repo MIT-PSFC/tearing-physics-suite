@@ -2,8 +2,8 @@ import numpy as np
 import xarray as xr
 from scipy.interpolate import Akima1DInterpolator, CubicSpline
 
-from tearing_physics_suite.drivers.multi_run import DROP_KEYS, meta_dict_to_dataset
-from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store
+from tearing_physics_suite.drivers.multi_run import DROP_KEYS, meta_dict_to_dataset, rechunk_store
+from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, stack_episodes, truncate_zarr_store
 
 
 def _run(r_vals, idx):
@@ -32,6 +32,43 @@ def test_add_to_zarr_store_ragged_with_strings(tmp_path):
         add_to_zarr_store(ds, z, 'run_idx')
     ds = xr.open_zarr(z).load()
     assert ds.sizes['r'] == 3 and list(ds.key.values) == ['k0', 'k1'] and ds.label.values[1, 2] == 'ab'
+
+
+def test_rechunk_store_one_shard_per_variable(tmp_path):
+    import os
+    import zarr
+    z = str(tmp_path / 's.zarr')
+    for i in range(7):
+        add_to_zarr_store(_run([1.0 + i, 2.0, 3.0], i), z, 'run_idx')
+    before = xr.open_zarr(z).load()
+    rechunk_store(z, 'run_idx', mb_per_chunk=2.5*before.isel(run_idx=0).nbytes/2**20)    # 2 runs per chunk
+    xr.testing.assert_identical(xr.open_zarr(z).load(), before)
+    a = zarr.open_group(z)['w_marg_surf']
+    assert a.chunks == (2, 3) and a.shards == (8, 3)
+    assert os.listdir(os.path.join(z, 'w_marg_surf', 'c')) == ['0']        # one shard file, not 4 chunk files
+
+
+def test_stack_episodes_matches_one_by_one(tmp_path):
+    runs = [_run([1.0, 2.0, 3.0], 0), _run([4.0, 5.0], 1), _run([6.0, 7.0, 8.0, 9.0], 2)]
+    add_to_zarr_store(runs[0], tmp_path / 'a.zarr', 'run_idx')
+    add_to_zarr_store(stack_episodes(runs[1:], 'run_idx'), tmp_path / 'a.zarr', 'run_idx')
+    for r in runs:
+        add_to_zarr_store(r, tmp_path / 'b.zarr', 'run_idx')
+    a, b = xr.open_zarr(tmp_path / 'a.zarr').load(), xr.open_zarr(tmp_path / 'b.zarr').load()
+    np.testing.assert_array_equal(a.w_marg_surf.values, b.w_marg_surf.values)
+    np.testing.assert_array_equal(a.qlim.values, b.qlim.values)
+
+
+def test_truncate_zarr_store(tmp_path):
+    z = tmp_path / 's.zarr'
+    for i in range(3):
+        add_to_zarr_store(_run([1.0 + i, 2.0], i), z, 'run_idx')
+    truncate_zarr_store(z, 'run_idx', 2)
+    ds = xr.open_zarr(z).load()
+    np.testing.assert_array_equal(ds.qlim.values, [3.0, 4.0])
+    assert ds.sizes['r'] == 2
+    truncate_zarr_store(z, 'run_idx', 0)
+    assert not z.exists()
 
 
 def test_meta_dict_to_dataset():

@@ -21,6 +21,7 @@ from scipy.interpolate import Akima1DInterpolator, PPoly
 
 from tearing_physics_suite.drivers import spot_check as sc
 from tearing_physics_suite.drivers.pipeline import nonlinear_resistive_calculation
+from tearing_physics_suite.drivers.store_schema import prepare_for_store
 from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, zarr_chunk
 from tearing_physics_suite.physics.combine import CODE_ORDER
 from tearing_physics_suite.utils import _get_num_cpus
@@ -261,8 +262,8 @@ def _init_multi_run_worker(worker_id_queue, master_working_dir):
         'master_working_dir': master_working_dir,
     })
 
-_PER_CASE_KEYS = ('Er_spline', 'omega_splines', 'Zeff', 'chi_perp_spline',
-                  'energy_confinement_time', 'average_ion_mass')
+_PER_CASE_KEYS = ('Er_spline', 'omega_splines', 'Zeff', 'chi_perp_spline', 'chi_perp_i_spline',
+                  'energy_confinement_time', 'average_ion_mass', 'species')
 
 def _profile_kwargs(profile_dict, kwargs):
     """Merge per-case profile_dict entries into kwargs (explicit kwargs win).
@@ -566,7 +567,7 @@ def multi_compile(eq_filenames, master_working_dir, shot_time_list=None, debug=F
 
     # Concatenate xarrays along a new 'equilibrium' dimension
     try:
-        compiled_xr = xr.concat(combined_xr_list, dim='run_idx')
+        compiled_xr = xr.concat(combined_xr_list, dim='run_idx', join='outer')
         broken_xr_list = None
     except Exception:
         print("[multi_compile] Regular concat failed, attempting intelligent_concat...")
@@ -620,7 +621,7 @@ def _divide_and_conquer(chunk, dim='run_idx'):
         if not sub:
             return None
         try:
-            return xr.concat(sub, dim=dim)
+            return xr.concat(sub, dim=dim, join='outer')
         except Exception:
             if len(sub) == 1:
                 broken.append(sub[0])
@@ -632,7 +633,7 @@ def _divide_and_conquer(chunk, dim='run_idx'):
             if not parts:
                 return None
             try:
-                return xr.concat(parts, dim=dim)
+                return xr.concat(parts, dim=dim, join='outer')
             except Exception:
                 # Two individually-clean halves are mutually incompatible.
                 # Keep the larger half; demote the smaller's members to broken.
@@ -693,7 +694,7 @@ def intelligent_concat(combined_xr_list, dim='run_idx'):
 
     # --- Step 3: concat, with value-level fallback ------------------------
     try:
-        combined = xr.concat(candidates, dim=dim)
+        combined = xr.concat(candidates, dim=dim, join='outer')
     except Exception:
         combined, extra_broken = _divide_and_conquer(candidates, dim)
         broken.extend(extra_broken)
@@ -729,6 +730,8 @@ def multi_compile_zarr(
     mb_per_chunk=10,
     report_errs=True,
     meta_data_dicts=None,       # optional per-run dicts (e.g. profile_list) stored via meta_dict_to_dataset
+    store_float32=True,         # store results as float32 (k0/k1/C0 recompute inputs stay float64)
+    drop_duplicates=True,       # drop/blank values that repeat others (drivers/store_schema.py)
 ):
     """Memory-bounded version of multi_compile.
 
@@ -744,6 +747,9 @@ def multi_compile_zarr(
         fully materialized in memory; slice/compute the parts you need.
     compiled_inputs_xr : xr.Dataset
         Small scalar-input dataset (safe to keep in memory).
+
+    Each run is reduced by store_schema.prepare_for_store before it is stored (dwdt_surf dropped,
+    duplicates removed, float32); the per-run files keep everything.
     """
     n_runs = len(eq_filenames)
     meta_data_dicts = meta_data_dicts or []
@@ -810,7 +816,7 @@ def multi_compile_zarr(
 
         eq_label = os.path.basename(eq_filenames[i])
 
-        ds = store_ready(ds)
+        ds = store_ready(ds, store_float32=store_float32, drop_duplicates=drop_duplicates)
         if 'code' in ds.dims:
             used_codes.update(str(c) for c in ds.code.values)
             ds = align_codes(ds, all_codes(ds))
@@ -913,9 +919,10 @@ def multi_compile_zarr(
     print(f"[multi_compile] Compiled {n_added} runs into {zarr_path}")
     return compiled_xr, compiled_inputs_xr
 
-def store_ready(ds):
-    """One run's dataset as the zarr store holds it: Zeff on psi_n_Zeff, float r/r_prime (NaN-paddable)."""
-    ds = _zeff_on_psi_n_Zeff(ds)
+def store_ready(ds, store_float32=True, drop_duplicates=True):
+    """One run's dataset as the zarr store holds it: Zeff on psi_n_Zeff, reduced (store_schema.prepare_for_store),
+    float r/r_prime (NaN-paddable)."""
+    ds = prepare_for_store(_zeff_on_psi_n_Zeff(ds), store_float32=store_float32, drop_duplicates=drop_duplicates)
     for _dim in ("r", "r_prime"):
         if _dim in ds.coords and np.issubdtype(ds[_dim].dtype, np.integer):
             ds = ds.assign_coords({_dim: ds[_dim].astype("float64")})
@@ -946,17 +953,24 @@ def bare_episode(ds, episode_dim="run_idx"):
 def rechunk_store(zarr_path, episode_dim="run_idx", mb_per_chunk=10, codes=None):
     """Rewrite a store chunked along episode_dim (about mb_per_chunk MB per chunk) and consolidate it.
 
-    codes: keep only these entries of the 'code' dim."""
+    Each variable along episode_dim is one zarr v3 shard holding all its chunks, so the store has about one
+    file per variable whatever the number of runs. codes: keep only these entries of the 'code' dim."""
     ds_store = xr.open_zarr(zarr_path, consolidated=True)
     if codes is not None and 'code' in ds_store.dims:
         ds_store = ds_store.sel(code=codes)
     n = ds_store.sizes[episode_dim]
     mean_mb = ds_store.isel({episode_dim: 0}).nbytes / (1024 * 1024)
     episodes_per_chunk = min(max(1, int(mb_per_chunk / max(mean_mb, 1e-9))), n)
-    chunk_spec = {episode_dim: episodes_per_chunk} | {
+    shard = -(-n // episodes_per_chunk) * episodes_per_chunk
+    ds_store = zarr_chunk(ds_store, chunk_spec={episode_dim: shard} | {
         k: ds_store.sizes[k] for k in ds_store.dims if k != episode_dim
-    }
-    ds_store = zarr_chunk(ds_store, chunk_spec=chunk_spec)
+    })
+    for v in ds_store.data_vars:
+        da = ds_store[v]
+        if episode_dim in da.dims:
+            da.encoding.update(
+                chunks=tuple(episodes_per_chunk if d == episode_dim else max(1, da.sizes[d]) for d in da.dims),
+                shards=tuple(shard if d == episode_dim else max(1, da.sizes[d]) for d in da.dims))
     tmp_path = zarr_path + ".tmp"
     ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
     shutil.rmtree(zarr_path)

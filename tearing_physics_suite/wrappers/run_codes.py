@@ -5,7 +5,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from tearing_physics_suite.utils import tps_home
+from tearing_physics_suite.utils import tps_home, tps_threads
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation, _default_eq_type
 from tearing_physics_suite.wrappers.jgpec import check_jgpec_request, run_jgpec_solvers
 from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, pest3_special_truncation_loop
@@ -44,7 +44,8 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         ascii_q_plot=False,       # Print an ascii q-profile plot after the GPEC run
         run_jgpec=False,          # Also compute Delta' with jGPEC (Julia GPEC); needs run_rdcon for the surface map
         jgpec_solvers=('galerkin',), # Any of 'galerkin', 'riccati'; each is its own code (jGPEC_<solver>)
-        jgpec_threads=1,
+        jgpec_threads=None,       # None: utils.tps_threads()
+        jgpec_nvec=None,          # The n values jGPEC runs on (None: every n); at other n only the Fortran codes run
         jgpec_timeout=7200,       # Seconds per jGPEC run (the first run in a process includes Julia compilation)
         require_rdcon=False,      # Raise as soon as RDCON fails (before STRIDE, jGPEC, PEST3): the MRE analysis needs it
         **kwargs):
@@ -107,6 +108,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     #Extract keyword arguments for jGPEC
     jgpec_kwargs = {k: kwargs.pop(k) for k in [k for k in kwargs if k.endswith('_jgpec')]}
+    if kwargs.get('set_tolerances'):  # with tol_r, tol_nr, gal_tol (write_rdcon_stride_inputs)
+        jgpec_kwargs['eulerlagrange_tolerance_jgpec'] = kwargs['set_tolerances']
+    run_jgpec = run_jgpec and (jgpec_nvec is None or nn in jgpec_nvec)
     if run_jgpec:
         check_jgpec_request(jgpec_solvers, kwargs.get('vac_flag', 't'), run_rdcon)
     # Make equilibrium type consistent (default case is eqdsk):
@@ -118,7 +122,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     # Run GPEC resistive calculation
     rdcon_xr, stride_xr, rdcon_ran, stride_ran, rdcon_stride_input_dict = GPEC_resistive_calculation(
         eq_filename=eq_filename, nn=nn, run_rdcon=run_rdcon, run_stride=run_stride,
-        make_working_dir=make_working_dir, working_dir=working_dir, gpec_dir=gpec_dir,
+        make_working_dir=make_working_dir, make_results_dir=make_results_dir, working_dir=working_dir, gpec_dir=gpec_dir,
         verbose=verbose, fresh_start=fresh_start, output_location=output_location,
         output_prefix=output_prefix, save_input=save_input, save_terminal_output=save_terminal_output,
         require_rdcon=require_rdcon, **kwargs)
@@ -130,11 +134,12 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         ascii_q_plotter(rdcon_xr)
 
     jgpec_xrs, jgpec_ran = {}, {}
-    if run_jgpec:
+    if run_jgpec and rdcon_ran:  # jGPEC's surfaces are mapped onto RDCON's
         jgpec_xrs, jgpec_ran = run_jgpec_solvers(
-            eq_filename, nn, working_dir, rdcon_stride_input_dict, rdcon_xr if rdcon_ran else None,
-            solvers=jgpec_solvers, threads=jgpec_threads, timeout=jgpec_timeout, output_location=output_location,
-            output_prefix=output_prefix, override_save=override_save, verbose=verbose, **jgpec_kwargs)
+            eq_filename, nn, working_dir, rdcon_stride_input_dict, rdcon_xr,
+            solvers=jgpec_solvers, threads=jgpec_threads or tps_threads(), timeout=jgpec_timeout,
+            output_location=output_location, output_prefix=output_prefix, override_save=override_save, verbose=verbose,
+            **jgpec_kwargs)
 
     #########################################################################################################
     # Set up pest3 calculation:
@@ -194,10 +199,10 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
     # Set truncation values:
     if (run_stride and stride_ran) and (run_rdcon and rdcon_ran):
-        if 2*(abs(qlim_actual-qlim_actuals)/(abs(qlim_actual)+abs(qlim_actual))) > 1e-4:
+        if _rel_diff(qlim_actual, qlim_actuals) > 1e-4:
             print("WARNING, rdcon and stride truncation is differing.")
             print("qlims: ", qlim_actual, qlim_actuals)
-        if 2*(abs(psilow_actual-psilow_actuals)/(abs(psilow_actuals)+abs(psilow_actuals))) > 1e-4:
+        if _rel_diff(psilow_actual, psilow_actuals) > 1e-4:
             print("WARNING, rdcon and stride truncation is differing.")
             print("psilows: ", psilow_actual,psilow_actuals)
         qlim_actual = min(qlim_actual, qlim_actuals)
@@ -280,7 +285,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
 
         try:
             pest3_xr, pest3_ran, pest3_input_dict = PEST3_resistive_calculation(
-                eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir,
+                eq_filename=eq_filename, nn=nn, make_working_dir=make_working_dir, make_results_dir=make_results_dir,
                 working_dir=working_dir, pest3_dir=pest3_dir, verbose=verbose,
                 fresh_start=fresh_start, output_location=output_location,
                 output_prefix=output_prefix, save_input=save_input,
@@ -297,9 +302,9 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
         # See how accurate the truncation was:
         if pest3_ran and pest3_trunc_ran:
             if verbose:
-                print(f"Verbose output: PEST3 q-truncation point {pest3_xr['qa'].max().values}, GPEC q-truncation point {qlim_actual}.")
-            if abs(pest3_xr['qa'].max().values - qlim_actual) > 0.01:
-                print(f"WARNING: PEST3 q-truncation point {pest3_xr['qa'].max().values} differs from GPEC q-truncation point {qlim_actual}. Results may not be comparable.")
+                print(f"Verbose output: PEST3 q-truncation point {pest3_xr['q_pest3'].max().values}, GPEC q-truncation point {qlim_actual}.")
+            if abs(pest3_xr['q_pest3'].max().values - qlim_actual) > 0.01:
+                print(f"WARNING: PEST3 q-truncation point {pest3_xr['q_pest3'].max().values} differs from GPEC q-truncation point {qlim_actual}. Results may not be comparable.")
     else:
         pest3_xr = None
         pest3_ran = False
@@ -308,6 +313,12 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     # Return all results:
     return CodeResults(rdcon_xr, stride_xr, pest3_xr, rdcon_ran, stride_ran, pest3_ran, rdcon_stride_input_dict,
                        pest3_input_dict, jgpec_xrs, jgpec_ran)
+
+
+def _rel_diff(a, b):
+    """2|a-b|/(|a|+|b|); 0 when both are 0."""
+    total = abs(a) + abs(b)
+    return 2*abs(a - b)/total if total else 0.0
 
 
 def ascii_q_plotter(rdcon_xr):

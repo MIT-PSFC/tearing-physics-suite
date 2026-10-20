@@ -131,6 +131,8 @@ def test_pest3_rebuild_keeps_source(tmp_path, monkeypatch, fake_run):
 
 
 def test_env_file_records_versions(tmp_path, monkeypatch):
+    monkeypatch.delenv('RDCON_LIBSCIHOME', raising=False)
+    monkeypatch.delenv('JULIA_DEPOT_PATH', raising=False)
     import tearing_physics_suite.wrappers.build.compiler_utils as cu
     monkeypatch.setenv('TPSHOME', os.environ.get('TPSHOME', ''))  # the script sets TPSHOME on import
     import tearing_physics_suite.wrappers.build.build_tearing_physics_suite as bts
@@ -138,3 +140,24 @@ def test_env_file_records_versions(tmp_path, monkeypatch):
     monkeypatch.setattr(bts, 'git_describe', lambda p: f'desc-{p.name}')
     text = bts.write_env_file({}, tmp_path).read_text()
     assert '#   GPEC : desc-GPEC' in text and '#   PEST3: desc-PEST3' in text
+    assert 'RDCON_LIBSCIHOME' not in text and 'JULIA_DEPOT_PATH' not in text
+    monkeypatch.setenv('JULIA_DEPOT_PATH', '/d/depot:')
+    assert 'export JULIA_DEPOT_PATH=/d/depot:\n' in bts.write_env_file({}, tmp_path).read_text()
+    monkeypatch.setenv('RDCON_LIBSCIHOME', '/opt/libsci')
+    assert 'export RDCON_LIBSCIHOME=/opt/libsci\n' in bts.write_env_file({}, tmp_path).read_text()
+
+
+def test_env_file_keeps_callers_julia(tmp_path, monkeypatch):
+    import subprocess
+    import tearing_physics_suite.wrappers.build.compiler_utils as cu
+    monkeypatch.setenv('TPSHOME', os.environ.get('TPSHOME', ''))
+    import tearing_physics_suite.wrappers.build.build_tearing_physics_suite as bts
+    monkeypatch.setattr(cu, 'detect_compilers', lambda mpi=True: dict(fc='gfortran', cc='gcc', fflags_base='', compiler_type='gfortran'))
+    monkeypatch.setattr(bts, 'git_describe', lambda p: 'desc')
+    monkeypatch.delenv('JGPEC_JULIA', raising=False)
+    env_file = bts.write_env_file({}, tmp_path)
+    run = lambda env: subprocess.run(['bash', '-c', f'source {env_file} >/dev/null; echo $JGPEC_JULIA'], env=env,
+                                     capture_output=True, text=True).stdout.strip()
+    assert run({'PATH': os.environ['PATH'], 'JGPEC_JULIA': '/depot/launcher'}) == '/depot/launcher'
+    from tearing_physics_suite.wrappers.jgpec import julia_exe
+    assert run({'PATH': os.environ['PATH']}) == julia_exe()

@@ -136,6 +136,11 @@ def _get_num_cpus():
     return len(os.sched_getaffinity(0))
 
 
+def tps_threads():
+    """STRIDE and Julia GPEC threads per TPS worker: $TPS_THREADS (job shape; no effect on results), else 1."""
+    return int(os.environ.get('TPS_THREADS') or 1)
+
+
 def work_root():
     """Root for per-worker scratch dirs: $TPS_WORK_ROOT, else $TMPDIR, else /tmp (node-local where possible)."""
     return os.environ.get('TPS_WORK_ROOT') or os.environ.get('TMPDIR') or '/tmp'
@@ -178,13 +183,21 @@ def _die_with_parent():
         pass
 
 
-def run_code(cmd, shell=True):
+def run_code(cmd, shell=True, env=None, stack_bytes=None):
     """subprocess.call in its own process group; the group is killed after $TPS_CODE_TIMEOUT s (unset: no limit).
 
-    Raises TimeoutError on a timeout.
+    stack_bytes raises the soft stack limit of the child (up to its hard limit). Raises TimeoutError on a timeout.
     """
     timeout = float(os.environ.get('TPS_CODE_TIMEOUT') or 0) or None
-    p = subprocess.Popen(cmd, shell=shell, start_new_session=True, preexec_fn=_die_with_parent)
+
+    def preexec():
+        _die_with_parent()
+        if stack_bytes:
+            import resource
+            hard = resource.getrlimit(resource.RLIMIT_STACK)[1]
+            resource.setrlimit(resource.RLIMIT_STACK,
+                               (stack_bytes if hard == resource.RLIM_INFINITY else min(stack_bytes, hard), hard))
+    p = subprocess.Popen(cmd, shell=shell, start_new_session=True, preexec_fn=preexec, env=env)
     try:
         return p.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

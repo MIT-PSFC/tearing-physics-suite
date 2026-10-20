@@ -2,7 +2,16 @@
 
 import numpy as np
 
+import tearing_physics_suite.physics.constants as gv
 from tearing_physics_suite.physics.xr_utils import like
+
+# chi_perp / chi_par models for the transport-threshold width (chi_model):
+#   'tau_E'    chi_perp from energy_confinement_time (total thermal energy); chi_par averaged over electrons and ions
+#   'electron' chi_perp from chi_perp_spline (electron profile); electron chi_par
+#   'total'    chi_perp and chi_par both averaged over electrons and ions (chi_perp_spline and chi_perp_i_spline);
+#              'electron' on surfaces where the averaged chi_perp is <= 0
+# Averages use the ion share f_i of chi_ion_weight_on_modes.
+CHI_MODELS = ('tau_E', 'electron', 'total')
 
 
 # Checked
@@ -104,16 +113,105 @@ def chi_para_smfp_on_modes(rdcon_xarray):
 
     return rdcon_xarray
 
+def chi_para_ion_on_modes(rdcon_xarray, main_ion_mass_amu=None):
+    """Main-ion parallel thermal diffusivity at rational surfaces [m^2/s], short and long mean free path.
+
+    SMFP: Braginskii chi_par,i = 3.9 T_i tau_i/m_i, with tau_i from Wesson (Tokamaks p. 729) for main ions colliding
+    with all ions (field density sum_j n_j Z_j^2 = Zeff n_e in place of n_i) and Wesson's ion Coulomb logarithm.
+    LMFP: chi_para_lmfp_no_w_surf and chi_para_lmfp_noisland_surf with the main-ion thermal speed in place of v_te.
+
+    Parameters
+    ----------
+    rdcon_xarray : xr.Dataset
+        Must contain ti_keV_surf, ni_m3_surf, ne_m3_surf, Zeff_surf, v_te_surf, chi_para_lmfp_no_w_surf,
+        chi_para_lmfp_noisland_surf.
+    main_ion_mass_amu : float or None
+        Main-ion mass; None takes the species model's main_ion_mass (mre_terms_on_modes), else deuterium (2).
+        Not the impurity-weighted average_ion_mass.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with taui_surf [s], v_ti_main_surf [m/s], chi_para_smfp_i_surf, chi_para_lmfp_no_w_i_surf and
+        chi_para_lmfp_noisland_i_surf [m^2/s] added.
+    """
+    if main_ion_mass_amu is None:
+        main_ion_mass_amu = float(rdcon_xarray['main_ion_mass']) if 'main_ion_mass' in rdcon_xarray else 2.0
+    ti = rdcon_xarray['ti_keV_surf']
+    m_i = main_ion_mass_amu*gv.amu
+    lnLamb_i = 17.3 - 0.5*np.log(rdcon_xarray['ni_m3_surf']/1e20) + 1.5*np.log(ti)
+    taui = 6.60e17*np.sqrt(m_i/gv.mp)*ti**1.5/(rdcon_xarray['Zeff_surf']*rdcon_xarray['ne_m3_surf']*lnLamb_i)
+    v_ti = np.sqrt(2*gv.e*1e3*ti/m_i)
+    return rdcon_xarray.assign(
+        taui_surf=taui,
+        v_ti_main_surf=v_ti,
+        chi_para_smfp_i_surf=3.9*gv.e*1e3*ti*taui/m_i,
+        chi_para_lmfp_no_w_i_surf=rdcon_xarray['chi_para_lmfp_no_w_surf']*v_ti/rdcon_xarray['v_te_surf'],
+        chi_para_lmfp_noisland_i_surf=rdcon_xarray['chi_para_lmfp_noisland_surf']*v_ti/rdcon_xarray['v_te_surf'])
+
+
+def chi_ion_weight_on_modes(rdcon_xarray, chi_model='tau_E'):
+    """Ion share f_i of the single-fluid diffusivities: chi = (1 - f_i) chi_e + f_i chi_i, for chi_perp and chi_par alike.
+
+    With a common island temperature shape for both species (delta T_s = T_s' f), the electron and ion heat equations
+    sum to one equation for f, in which each chi_s is weighted by n_s T_s'. This is the single-fluid equation of
+    Schlutt & Hegna 2012 (Eqs. 35-38), so one W_c follows. 'tau_E' and 'total' use f_i = n_i T_i'/(n_e T_e' + n_i T_i');
+    'electron' uses f_i = 0.
+
+    Returns
+    -------
+    xr.Dataset
+        Input dataset with chi_ion_weight_surf added.
+    """
+    if chi_model not in CHI_MODELS:
+        raise ValueError(f"chi_model must be one of {CHI_MODELS}, got {chi_model!r}")
+    if chi_model in ('tau_E', 'total'):
+        g_e = rdcon_xarray['ne_m3_surf']*rdcon_xarray['te1_keV_surf']
+        g_i = rdcon_xarray['ni_m3_surf']*rdcon_xarray['ti1_keV_surf']
+        f_i = g_i/(g_e + g_i)
+    else:
+        f_i = 0.0*rdcon_xarray['psi_n_rational']
+    return rdcon_xarray.assign(chi_ion_weight_surf=f_i)
+
+
+def single_fluid_chi_para(ds, lmfp, w=1.0, force_lmfp=False, use_Fitz_formula=False):
+    """Single-fluid chi_para [m^2/s] = (1 - f_i) chi_para,e + f_i chi_para,i, f_i = chi_ion_weight_surf (0 if absent).
+
+    Each species takes its long mean-free-path value ds[lmfp + '_surf'] (ions: lmfp + '_i_surf'), divided by w, and its
+    short one (chi_para_smfp_surf, chi_para_smfp_i_surf): their minimum, their harmonic mean (Fitzpatrick 2023
+    Eq. 14.209) with use_Fitz_formula, or the long one alone with force_lmfp. W_c (mre_model.generate_wd_function) uses
+    lmfp='chi_para_lmfp_no_w' at the island width w; the critical Delta' of Connor et al. 2015 (surface_terms) uses
+    lmfp='chi_para_lmfp_noisland'.
+    """
+    def species(sfx):
+        lmfp_s = ds[f'{lmfp}{sfx}_surf'].values/w
+        if force_lmfp:
+            return lmfp_s
+        smfp_s = ds[f'chi_para_smfp{sfx}_surf'].values
+        if not use_Fitz_formula:
+            return np.minimum(lmfp_s, smfp_s)
+        return lmfp_s*smfp_s/(lmfp_s + smfp_s) # If the two are equal, it cuts chi_para in half, which I don't agree with.
+
+    f_i = ds['chi_ion_weight_surf'].values if 'chi_ion_weight_surf' in ds else 0.0
+    chi_para = species('')
+    if np.any(f_i != 0):
+        chi_para = (1 - f_i)*chi_para + f_i*species('_i')
+    return chi_para
+
+
 # Checked
 def chi_perp_on_modes(rdcon_xarray,
         areal_elongation=None,
         minor_radius=None,
         energy_confinement_time=None,
-        chi_perp_spline=None):
+        chi_perp_spline=None,
+        chi_perp_i_spline=None,
+        chi_model='tau_E'):
     """
-    Calculate the perpendicular thermal diffusivity in units m^2/s.
-    Will use chi_perp_spline if provided. Otherwise, energy_confinement_time (alone) is required.
-    Default operation with energy_confinement_time assumes all energy goes through each surface (see **).
+    Calculate the perpendicular thermal diffusivity in units m^2/s; chi_model (see CHI_MODELS) picks the source:
+    'tau_E' energy_confinement_time, 'electron' chi_perp_spline, 'total' (1 - f_i) chi_perp_spline + f_i chi_perp_i_spline
+    (needs chi_ion_weight_surf). Where that is <= 0, 'total' falls back to 'electron' (chi_perp_spline, f_i = 0).
+    'tau_E' assumes all energy goes through each surface (see **).
     However if minor_radius and areal_elongation are provided, we apply the Fitzpatrick 1995 formula (see ***).
 
     Parameters
@@ -128,18 +226,36 @@ def chi_perp_on_modes(rdcon_xarray,
         The energy confinement time of the plasma, used if chi_perp_spline is not provided.
     chi_perp_spline : 1DSpline, optional
         A precomputed spline for the perpendicular thermal diffusivity, used if provided.
+    chi_perp_i_spline : 1DSpline, optional
+        Ion perpendicular thermal diffusivity, for chi_model='total'.
+    chi_model : {'tau_E', 'electron', 'total'}
 
     Returns
     ----------
     xr.Dataset
-        Input dataset with chi_perp_surf [m^2/s] added.
+        Input dataset with chi_perp_surf [m^2/s] added (and chi_ion_weight_surf zeroed where 'total' falls back).
     """
+
+    if chi_model not in CHI_MODELS:
+        raise ValueError(f"chi_model must be one of {CHI_MODELS}, got {chi_model!r}")
+    if chi_model == 'tau_E':
+        chi_perp_spline = None
+    elif chi_model in ('electron', 'total') and chi_perp_spline is None:
+        raise ValueError(f"chi_model={chi_model!r} needs chi_perp_spline.")
+    if chi_model == 'total' and chi_perp_i_spline is None:
+        raise ValueError("chi_model='total' needs chi_perp_i_spline.")
 
     if chi_perp_spline is not None: # Use chi_perp_spline
         chi_perp_on_modes = np.array(chi_perp_spline(rdcon_xarray.psi_n_rational.values))
+        if chi_model == 'total':
+            f_i = rdcon_xarray['chi_ion_weight_surf']
+            total = (1 - f_i.values)*chi_perp_on_modes + f_i.values*np.array(chi_perp_i_spline(rdcon_xarray.psi_n_rational.values))
+            ok = total > 0
+            chi_perp_on_modes = np.where(ok, total, chi_perp_on_modes)
+            rdcon_xarray = rdcon_xarray.assign(chi_ion_weight_surf=f_i.where(ok, 0.0))
 
-    elif energy_confinement_time is None: # If no spline, need energy_confinement_time to continue
-        raise ValueError("Must provide either chi_perp spline, or areal_elongation, minor_radius, and energy_confinement_time to calculate chi_perp.")
+    elif energy_confinement_time is None:
+        raise ValueError("chi_model='tau_E' needs energy_confinement_time.")
 
     elif minor_radius is None: # **Assume all energy goes through each surface. This is the default option!
         minor_radii_squared = rdcon_xarray.avg_r_surf.values*rdcon_xarray.avg_r_surf.values
@@ -154,8 +270,5 @@ def chi_perp_on_modes(rdcon_xarray,
 
     rdcon_xarray = rdcon_xarray.assign(chi_perp_surf=like(chi_perp_on_modes, rdcon_xarray['psi_n_rational']))
 
-    if chi_perp_spline is None:
-        # Add energy_confinement_time to rdcon_xarray:
-        rdcon_xarray = rdcon_xarray.assign(energy_confinement_time=energy_confinement_time)
-
-    return rdcon_xarray
+    # Recorded whichever source was used (NaN: none given)
+    return rdcon_xarray.assign(energy_confinement_time=np.nan if energy_confinement_time is None else energy_confinement_time)

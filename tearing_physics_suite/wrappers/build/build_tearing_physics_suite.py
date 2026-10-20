@@ -105,6 +105,8 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         or str(Path(netcdf_prefix) / "include")
     )
 
+    libsci = os.environ.get("RDCON_LIBSCIHOME")  # GPEC make option: rdcon on serial Cray LibSci (kept for rebuilds)
+    julia_depot = os.environ.get("JULIA_DEPOT_PATH")  # jGPEC's depot (wrappers/jgpec.py has no default)
     gpec_bin  = str(Path(repo_root) / "submodules" / "GPEC" / "bin")
     pest3_bin = str(Path(repo_root) / "submodules" / "PEST3" / "cmake_build" / "pest3")
     gpec_version = git_describe(Path(repo_root) / "submodules" / "GPEC")
@@ -134,6 +136,7 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         "",
         "# ── LAPACK / BLAS ─────────────────────────────────────────────────────────",
         f"export LAPACKHOME={utils_prefix}",
+        *([f"export RDCON_LIBSCIHOME={libsci}"] if libsci else []),
         "",
         "# ── NetCDF ────────────────────────────────────────────────────────────────",
         f"export NETCDFHOME={netcdf_prefix}",
@@ -148,7 +151,8 @@ def write_env_file(lib_paths, repo_root, out_path=None, jgpec_home=None):
         "",
         "# ── jGPEC (Julia GPEC, run_jgpec) ─────────────────────────────────────────",
         f"export JGPEC_HOME={jgpec_home}",
-        f"export JGPEC_JULIA={julia_exe()}",
+        f"export JGPEC_JULIA=${{JGPEC_JULIA:-{julia_exe()}}}",   # a caller's wrapper (e.g. a depot launcher) wins
+        *([f"export JULIA_DEPOT_PATH={julia_depot}"] if julia_depot else []),
         "",
         "echo \"tearing_physics_suite environment loaded.\"",
         f"echo \"  TPSHOME : {repo_root}\"",
@@ -179,7 +183,7 @@ def build_all(
     gpec_single_threaded=False,
     legacy_gpec_test=True,
     work_dir=None,
-    gpec_branch="OFT_interface",
+    gpec_branch="tps-pin-71a2b71b",
     pest3_gpec_vacuum=True,
     jgpec_home=None,
 ):
@@ -227,7 +231,7 @@ def build_all(
         scratch disk); the executables are copied back into submodules/.
         Defaults to ``$TPS_BUILD_DIR``, else in-tree.
     gpec_branch : str
-        GPEC branch to clone if submodules/GPEC does not exist and is not a registered submodule.
+        GPEC branch or tag to clone if submodules/GPEC does not exist and is not a registered submodule.
     pest3_gpec_vacuum : bool
         Link GPEC's VACUUM into PEST3 (pest3x -V, the TPS default vacuum).
     jgpec_home : str, optional
@@ -415,8 +419,8 @@ def main():
     parser.add_argument(
         "--gpec-branch",
         type=str,
-        default="OFT_interface",
-        help="GPEC branch to clone if submodules/GPEC is missing and TPS is not a git checkout (default: OFT_interface)",
+        default="tps-pin-71a2b71b",
+        help="GPEC branch or tag to clone if submodules/GPEC is missing and TPS is not a git checkout (default: tps-pin-71a2b71b, the Princeton tag on the pin)",
     )
 
     # Skip flags

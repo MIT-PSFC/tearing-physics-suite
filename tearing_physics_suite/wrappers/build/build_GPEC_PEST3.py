@@ -17,18 +17,19 @@ from tearing_physics_suite.wrappers.build.compiler_utils import (
 
 # ----------------------------------------------------------------------
 # GPEC install-test reference values: example -> (Delta_prime, tol).
-# "current": upstream develop example inputs as-is (set against 5be646f).
+# "current": upstream example inputs as-is (set against 5be646f; DIIID_resistive_example against the pin
+#            08a74807, whose psihigh 0.993 (GPEC b0402932) moves its first-surface Delta').
 # "legacy" : inputs as at GPEC a8be45d, recreated by GPEC_LEGACY_RECIPE.
 # ----------------------------------------------------------------------
 GPEC_TEST_REFERENCE = {
     "current": {
         "rdcon": {
-            "DIIID_resistive_example":   (3.89,       0.1),
+            "DIIID_resistive_example":   (3.50,       0.1),
             "solovev_resistive_example": (4.676e+09,  1e+08),
             "a5_tearing_example":        (13.2,       0.3),
         },
         "stride": {
-            "DIIID_resistive_example":   (7.40,       0.1),
+            "DIIID_resistive_example":   (13.54,      0.1),
             "solovev_resistive_example": (7.726e+12,  1e+11),
             "a5_tearing_example":        (13.2,       0.3),
             "DIIID_ideal_example":       (7.40,       0.1),
@@ -67,7 +68,7 @@ GPEC_LEGACY_RECIPE = {
     },
     "a5_tearing_example": {},
 }
-# a8be45d built F and p from the tabulated values; later GPEC defaults to
+# a8be45d built F and p from the tabulated values; later GPEC branches may default to
 # profile_source="integrate", so the legacy copies pin "values" when supported.
 GPEC_LEGACY_PROFILE_SOURCE = 'profile_source="values"'
 
@@ -724,7 +725,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     return True
 
 
-def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="OFT_interface", disable_openmp=False, legacy_test=True, work_dir=None):
+def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="tps-pin-71a2b71b", disable_openmp=False, legacy_test=True, work_dir=None):
     """
     Build the GPEC code from the submodules/GPEC submodule (cloned from GitHub when TPS
     is not a git checkout) with make.
@@ -739,6 +740,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         NETCDFHOME  – directory whose lib/ contains libnetcdff & libnetcdf
         NETCDFINC   – directory containing NetCDF Fortran include files
         FFLAGS      – compiler flags (gfortran needs -fallow-argument-mismatch)
+        RDCON_LIBSCIHOME – optional, taken from the caller's environment: rdcon links serial Cray LibSci
 
     Parameters
     ----------
@@ -765,7 +767,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         If True (default), run GPEC_install_test() after a successful build.
         Set to False to skip post-build verification.
     branch : str
-        Git branch to clone when not using the submodule (default: "OFT_interface").
+        Git branch or tag to clone when not using the submodule (default: "tps-pin-71a2b71b", the Princeton tag on the pin).
     disable_openmp : bool
         If True, pass ``OMPFLAG=`` (empty) to make, omitting the OpenMP
         compiler flag so the compiled executables run single-threaded.
@@ -814,7 +816,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         return True
 
     # ------------------------------------------------------------------
-    # Step 1: Get GPEC (submodule, else clone the OFT_interface branch)
+    # Step 1: Get GPEC (submodule, else clone the given branch)
     # ------------------------------------------------------------------
     print("\nStep 1: Preparing GPEC source...")
     if not fetch_source(gpec_source, gpec_url, branch=branch, home_dir=home_dir):

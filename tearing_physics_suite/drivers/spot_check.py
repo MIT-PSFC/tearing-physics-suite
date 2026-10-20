@@ -28,12 +28,14 @@ KNOWN_ISSUES = {
 @dataclass(frozen=True)
 class SpotCheck:
     """Spot-check options: fraction of cases (rounded up), selection seed, Delta' variability thresholds;
-    scans replaces the default scan list (spot_check_tests for the run's settings)."""
+    scans replaces the default scan list (spot_check_tests for the run's settings); scan_vals maps a scan to the
+    values it checks (default: the scan's quick values)."""
     fraction: float = 0.01
     seed: int = 0
     abs_threshold: float = 0.05
     rel_threshold: float = 0.05
     scans: tuple | None = None
+    scan_vals: dict | None = None
 
 
 def as_spot_check(spot_check):
@@ -110,7 +112,8 @@ def spot_tasks(plan, eq_filenames, db_kwargs, spot, warm_start=True):
 
 def estimate_spot_check_cost(plan):
     """Number of extra single-n Delta' runs the spot-checks add (prints it)."""
-    per_case = sum(len(SCANS[s].quick_vals) for s in plan['scans']) * len(plan['nvec'])
+    vals = plan.get('scan_vals') or {}
+    per_case = sum(len(vals.get(s, SCANS[s].quick_vals)) for s in plan['scans']) * len(plan['nvec'])
     n = per_case * len(plan['run_idx'])
     print(f"[spot_check] {len(plan['run_idx'])}/{plan['n_runs']} cases checked: {n} extra single-n Delta' runs "
           f"({per_case} per case; a main case is {len(plan['nvec'])}).")
@@ -132,8 +135,8 @@ def run_spot_task(args, working_dir, master_working_dir):
     spec, kwargs = resolve_spec(SCANS[scan], db_kwargs, nn)
     os.makedirs(os.path.dirname(pkl_path), exist_ok=True)
     result, _ = run_spec(spec, eq_filename, results_dir=os.path.join(os.path.dirname(pkl_path), f'n{nn}'),
-                         quick_test=True, working_dir=working_dir, abs_threshold=spot.abs_threshold,
-                         rel_threshold=spot.rel_threshold, **kwargs)
+                         quick_test=True, scan_vals=(spot.scan_vals or {}).get(scan), working_dir=working_dir,
+                         abs_threshold=spot.abs_threshold, rel_threshold=spot.rel_threshold, **kwargs)
     with open(pkl_path, 'wb') as f:
         pkl.dump(dict(result, run_idx=idx, scan=scan, nn=nn, eq_filename=eq_filename), f)
     open(done_path, 'w').close()
@@ -176,15 +179,22 @@ def load_spot_results(master_working_dir):
     return sorted(out, key=lambda r: (r['run_idx'], r['scan'], r['nn']))
 
 
+def spot_dataset(results):
+    """The spot results as one dataset on dim 'spot' (None if there are none)."""
+    if not results:
+        return None
+    codes = list(dict.fromkeys(c for r in results for c in np.atleast_1d(r['DP_surf_xarray'].code.values).tolist()))
+    ds = xr.concat([_spot_dataset(r, codes) for r in results], dim='spot', join='outer', fill_value={
+        'rel_exceeded_psi95': -1, 'abs_exceeded_psi95': -1})
+    return ds.assign_coords(code=codes)
+
+
 def compile_spot_checks(master_working_dir, verbose=True):
     """Write spot_checks/spot_checks.zarr and report.txt from the spot pickles; returns (dataset, report)."""
     results = load_spot_results(master_working_dir)
     if not results:
         return None, 'No spot-check results.'
-    codes = list(dict.fromkeys(c for r in results for c in np.atleast_1d(r['DP_surf_xarray'].code.values).tolist()))
-    ds = xr.concat([_spot_dataset(r, codes) for r in results], dim='spot', join='outer', fill_value={
-        'rel_exceeded_psi95': -1, 'abs_exceeded_psi95': -1})
-    ds = ds.assign_coords(code=codes)
+    ds = spot_dataset(results)
     path = os.path.join(spot_dir(master_working_dir), 'spot_checks.zarr')
     ds.to_zarr(path, mode='w', consolidated=True)
     report = spot_report(ds, results, master_working_dir)

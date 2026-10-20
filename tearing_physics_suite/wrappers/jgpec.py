@@ -21,11 +21,10 @@ from tearing_physics_suite.wrappers.gpec_common import save_output
 SOLVERS = ('galerkin', 'riccati')
 SERVER_JL = Path(__file__).with_name('jgpec_server.jl')
 JULIA_INSTALL = '/fusion/projects/codes/julia/julia-1.11.7/bin/julia'
-# Defaults where unset (`module load julia` is not used: its purge() would drop the compiler modules)
+# Defaults where unset (`module load julia` is not used: its purge() would drop the compiler modules).
+# The depot comes from JULIA_DEPOT_PATH (recorded in tearing_physics_suite_env.sh) or the JGPEC_JULIA launcher.
 _JULIA_DEFAULTS = {
-    'JULIA_DEPOT_PATH': '/fusion/projects/tmdb/julia_depot_benjamins:',
     'JULIA_CPU_TARGET': 'generic',
-    'OPENBLAS_NUM_THREADS': '1',
 }
 EQUILIBRIUM_KEYS = {'eq_filename', 'eq_type', 'jac_type', 'grid_type', 'psilow', 'psihigh', 'mpsi', 'mtheta',
                     'newq0', 'etol', 'force_termination', 'psi_accuracy', 'profile_source', 'use_galgrid', 'r0exp',
@@ -57,6 +56,7 @@ def julia_env(threads=1):
     for k, v in _JULIA_DEFAULTS.items():
         env.setdefault(k, v)
     env['JULIA_NUM_THREADS'] = str(threads)
+    env['OPENBLAS_NUM_THREADS'] = '1'  # the solver threads are the parallelism (unset: one BLAS thread per CPU)
     env.pop('LD_LIBRARY_PATH', None)  # module libraries (e.g. PCRE) break Julia's bundled ones
     env.pop('JULIA_PROJECT', None)  # the module points it at the global environment; --project is passed
     return env
@@ -153,7 +153,7 @@ def write_gpec_toml(run_dir, sections):
 class JuliaServer:
     """One Julia process running jgpec_server.jl; run(dir) runs jGPEC on dir/gpec.toml."""
 
-    def __init__(self, threads=1, log_path=None, startup_timeout=7200):
+    def __init__(self, threads=1, log_path=None, startup_timeout=3600):
         self.threads, self.startup_timeout = threads, startup_timeout
         self.log_path = log_path or os.path.join(os.getcwd(), f'jgpec_server_{os.getpid()}.log')
         self.proc = None

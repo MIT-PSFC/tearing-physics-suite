@@ -158,7 +158,8 @@ def extract_scanned_xrs(results, input_name, abs_threshold, rel_threshold, outpu
         if xarrays[i] is not None:
             if 'Delta_prime' in xarrays[i]:
                 xarrays_msg.append(xarrays[i])
-    for code in xarrays_msg[0].code.values:  # first-surface Delta' of each code across the scan
+    codes = [c for c in xarrays_msg[0].code.values if all(c in x.code.values for x in xarrays_msg)]
+    for code in codes:  # first-surface Delta' of each code present at every scan value
         dp_first = [x.Delta_prime.sel(code=code, i=0).isel(r=0, r_prime=0).values for x in xarrays_msg]
         if not np.isnan(dp_first[0]):
             message += f"   {str(code).upper()} delta prime:{dp_first}\n"
@@ -345,10 +346,10 @@ def delta_prime_compiler(xarray_list, input_values, input_name, run_concatenatio
             if not run_concatenation:
                 raise ValueError(f"After trimming, coordinates of 'Delta_prime_surf' in xarray for scan value {input_values[i]} still do not match reference coordinates. Cannot compile results.")
 
-    compiled_xr = xr.concat(delta_prime_arrays, dim=input_name)
+    compiled_xr = xr.concat(delta_prime_arrays, dim=input_name, join='outer')
 
     assert len(psi_n_arrays) == len(delta_prime_arrays), "Number of psi_n_arrays does not match number of delta_prime_arrays. Cannot compile results."
-    compiled_psi_n = xr.concat(psi_n_arrays, dim=input_name)
-    compiled_xr = xr.merge([compiled_xr, compiled_psi_n])
+    compiled_psi_n = xr.concat(psi_n_arrays, dim=input_name, join='outer')
+    compiled_xr = xr.merge([compiled_xr, compiled_psi_n], join='outer')
 
     return compiled_xr

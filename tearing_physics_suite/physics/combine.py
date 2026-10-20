@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import xarray as xr
 
@@ -116,6 +118,10 @@ def collapse_to_primary(ds, dims=("r", "r_prime")):
     slice is collapsed separately and re-concatenated with an outer join on the
     real values. {dim}_unique is kept to flag surfaces that were degenerate.
     """
+    if 'r_prime' in dims and 'r_prime' in ds.dims and 'r_prime_value' not in ds and 'r_value' in ds:
+        # Compiled stores drop r_prime_* (identical to r_*, see drivers/store_schema.py)
+        ds = ds.assign({f'r_prime_{s}': ([d if d != 'r' else 'r_prime' for d in ds[f'r_{s}'].dims], ds[f'r_{s}'].values)
+                        for s in ('value', 'occ') if f'r_{s}' in ds})
     present = [d for d in dims if d in ds.dims and f"{d}_value" in ds and f"{d}_occ" in ds]
     if not present:
         return ds
@@ -215,17 +221,69 @@ def code_delta_primes(ds, code):
     return extract_delta_primes(ds)
 
 
-def combine_codes(datasets, nn, debug=False, **concat_kwargs):
+# Variables whose attributes others pick up through arithmetic (xarray keeps a lone operand's attrs)
+ATTR_SOURCES = ('psi_n_rational', 'psi_n', 'q_rational')
+
+
+def strip_inherited_attrs(ds):
+    """Drop attrs that data variables inherited from ATTR_SOURCES (e.g. a '_surf' term labelled
+    'Normalized Poloidal Flux at Rational Surfaces'). Returns a new dataset."""
+    sources = [dict(ds[v].attrs) for v in ATTR_SOURCES if v in ds.variables and ds[v].attrs]
+    stale = [v for v in ds.data_vars if v not in ATTR_SOURCES and ds[v].attrs and dict(ds[v].attrs) in sources]
+    return ds.assign({v: ds[v].drop_attrs() for v in stale})
+
+
+# RDCON outputs (and attributes) that no other code writes (item F, P5); avg_* too
+RDCON_ONLY = ('Dnc', 'Hbs_prefac', 'Wc', 'W_t', 'ftr', 'h', 'mufrac', 'overbar_Rsq', 'tau_a', 'tau_r',
+              'bwall', 'volume', 'cpu_time', 'wall_time')
+
+
+def split_rdcon_only(datasets, rdcon_only=()):
+    """Take RDCON_ONLY, avg_* and rdcon_only out of RDCON's dataset, without its 'code' dim.
+
+    The names are fixed (not chosen by NaN content), so a run keeps its dims when another code fails.
+    A name that another code's dataset also carries keeps its 'code' dim, with a warning.
+    Returns (datasets without those variables, Dataset of them or None).
+    """
+    rdcon = datasets.get('rdcon')
+    if rdcon is None:
+        return datasets, None
+    wanted = set(RDCON_ONLY) | set(rdcon_only)
+    names = [v for v in rdcon.data_vars if v in wanted or v.startswith('avg_')]
+    shared = {v for code, ds in datasets.items() if code != 'rdcon' and ds is not None for v in names if v in ds}
+    if shared:
+        warnings.warn(f'kept on code (another code has them): {sorted(shared)}', stacklevel=2)
+    names = [v for v in names if v not in shared]
+    if not names:
+        return datasets, None
+    out = {code: ds if code != 'rdcon' else ds.drop_vars(names) for code, ds in datasets.items()}
+    return out, rdcon[names].squeeze('code', drop=True)
+
+
+def combine_codes(datasets, nn, debug=False, rdcon_only=(), **concat_kwargs):
     """Concatenate per-code datasets along 'code' (in dict order), then add a leading 'nn' dim.
 
     datasets: {code: Dataset with a 'code' dim, or None}.
-    If the concat fails, codes are added one at a time and any code that will not concatenate is
-    left out, by name, with a warning. Breaks happen when codes have different rational surfaces at
-    the axis (e.g. psilow != 0 while also running PEST3, which has no psilow truncation).
+    RDCON-only variables (split_rdcon_only; rdcon_only adds names) are merged in without 'code'.
+    A code whose rational surfaces (r, r_prime) differ from the first code's (RDCON's when it ran) is left out,
+    by name, with a warning (e.g. PEST3, which has no psilow truncation): surfaces are never padded or matched
+    by position. Other dims (m, mode) are joined by label. If the concat still fails, codes are added one at a
+    time and any code that will not concatenate is left out the same way.
     Returns (combined_xr or None, dropped), dropped = {code: dataset left out}.
     """
+    datasets, rdcon_vars = split_rdcon_only(datasets, rdcon_only)
     items = [(code, ds) for code, ds in datasets.items() if ds is not None]
+    concat_kwargs = {'join': 'outer', **concat_kwargs}  # m, mode: union by label
     combined, dropped = None, {}
+    ref_code, ref = items[0] if items else (None, None)
+    for code, ds in items[1:]:
+        if any(d in ds.indexes and not ds.indexes[d].equals(ref.indexes[d]) for d in ('r', 'r_prime') if d in ref.indexes):
+            msg = f"Leaving code '{code}' out of the combined dataset: its rational surfaces differ from {ref_code}'s"
+            if debug:
+                raise ValueError(msg)
+            print(msg)
+            dropped[code] = ds
+    items = [(code, ds) for code, ds in items if code not in dropped]
     if items:
         try:
             combined = xr.concat([ds for _, ds in items], dim='code', coords='all', **concat_kwargs)
@@ -244,6 +302,9 @@ def combine_codes(datasets, nn, debug=False, **concat_kwargs):
             if not kept:
                 combined = None
     if combined is not None:
+        if rdcon_vars is not None and 'rdcon' in combined['code'].values:
+            combined = combined.merge(rdcon_vars, join='left')
+        combined = strip_inherited_attrs(combined)
         assert 'nn' not in combined, 'nn already defined, debug this function.'
         if nn is None:
             raise KeyError('nn')

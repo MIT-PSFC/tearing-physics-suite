@@ -6,5 +6,4 @@
 [submodule "submodules/GPEC"]
 	path = submodules/GPEC
 	url = https://github.com/PrincetonUniversity/GPEC
-	branch = OFT_interface
 	ignore = untracked

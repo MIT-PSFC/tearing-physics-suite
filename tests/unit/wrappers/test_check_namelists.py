@@ -103,7 +103,6 @@ def test_tps_inputs_match_code_sources():
 
 
 @needs_sources
-@pytest.mark.xfail(strict=True, reason='dump_MRE_data is written to &RDCON_CONTROL but GPEC OFT_interface rdcon does not declare it')
 def test_tps_optional_inputs_match_code_sources():
     reports, _ = check_namelists(all_paths=True)
     assert all(r.ok for r in reports)

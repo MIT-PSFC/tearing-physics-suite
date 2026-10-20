@@ -22,7 +22,6 @@ CONFIGS = {
     'wall_off_conformal': dict(vac_flag='t', a_wall=0, ishape=6),
     'zeff_profile': dict(Zeff={'x': [0.0, 0.5, 1.0], 'y': [1.5, 2.0, 2.5]}),
     'ldp_i': dict(eq_type="'ldp_i'"),
-    'dump_mre': dict(dump_MRE_data='t'),
     'gal_xmin': dict(gal_xmin_flag='t'),
     'classic_splines': dict(use_classic_splines='t'),
     'sing_start': dict(sing_start=2, sing_start_str=3),
@@ -54,7 +53,8 @@ def _write(cfg, d):
 
 
 @pytest.mark.parametrize('name', CONFIGS)
-def test_namelists_match_fixtures(name, tmp_path):
+def test_namelists_match_fixtures(name, tmp_path, monkeypatch):
+    monkeypatch.delenv('TPS_THREADS', raising=False)
     if os.environ.get('TPS_REGEN_NAMELISTS'):
         _write(CONFIGS[name], FIX / name)
     _write(CONFIGS[name], tmp_path)
@@ -78,3 +78,33 @@ def test_key_groups_match_writers():
     assert kw(gi.write_stride_in) == shared | stride | warn_only
     params = set(inspect.signature(gi.write_rdcon_stride_inputs).parameters)
     assert shared | rdcon | stride <= params
+
+
+def test_stride_only_shared_keys(tmp_path):
+    """'<key>_stride' gives STRIDE its own value of a shared key; rdcon.in keeps the shared one."""
+    out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, tol_nr=1e-10, tol_nr_stride=1e-12,
+                                    singfac_min_stride=2e-5)
+    rdcon, stride = ((tmp_path / f).read_text() for f in ('rdcon.in', 'stride.in'))
+    assert 'tol_nr=1e-10\n' in rdcon and 'tol_nr=1e-12\n' in stride
+    assert 'singfac_min=0.0001\n' in rdcon and 'singfac_min=2e-05\n' in stride
+    assert out['tol_nr'] == 1e-10 and out['tol_nr_stride'] == 1e-12
+
+
+def test_stride_threads_from_tps_threads(tmp_path, monkeypatch):
+    """STRIDE's nThreads is $TPS_THREADS (1 when unset) unless given."""
+    monkeypatch.setenv('TPS_THREADS', '12')
+    out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False)
+    assert out['nThreads'] == 12 and 'nThreads=12\n' in (tmp_path / 'stride.in').read_text()
+    assert write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, nThreads=3)['nThreads'] == 3
+    monkeypatch.delenv('TPS_THREADS')
+    assert write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False)['nThreads'] == 1
+
+
+def test_set_tolerances(tmp_path):
+    """set_tolerances sets tol_r, tol_nr (rdcon.in and stride.in) and gal_tol (rdcon.in)."""
+    out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, tol_r=1e-12, tol_nr=1e-12, gal_tol=1e-10,
+                                    set_tolerances=1e-11)
+    rdcon, stride = ((tmp_path / f).read_text() for f in ('rdcon.in', 'stride.in'))
+    assert out['tol_r'] == out['tol_nr'] == out['gal_tol'] == 1e-11
+    assert 'tol_r=1e-11\n' in rdcon and 'tol_nr=1e-11\n' in rdcon and 'gal_tol=1e-11\n' in rdcon
+    assert 'tol_r=1e-11\n' in stride and 'tol_nr=1e-11\n' in stride

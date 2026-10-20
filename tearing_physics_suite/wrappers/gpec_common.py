@@ -6,6 +6,8 @@ import xarray as xr
 
 from tearing_physics_suite.utils import run_code
 
+STRIDE_STACK = 1 << 30  # bytes: main-thread stack limit of a STRIDE run (OMP_STACKSIZE 1G for its threads)
+
 
 def executable(gpec_dir, code):
     """Path of the built GPEC executable for code ('rdcon' or 'stride'); raises if missing."""
@@ -33,14 +35,21 @@ def run_gpec_code(code, working_dir, nn, fresh_start=True, save_terminal_output=
         os.remove(out_nc)
         if verbose: print(f"Removed existing {code} output file from working directory before running {code}")
     if verbose: print(f"Running {code}...")
+    # STRIDE's OpenMP threads need a set stack size: under `ulimit -s unlimited` libgomp's default is 2 MB, which
+    # crashed it at mpert 105; RDCON is serial (serial LibSci): one OpenMP thread, whatever the worker's setting
+    run_env = dict(env={'OMP_STACKSIZE': '1G', **os.environ}, stack_bytes=STRIDE_STACK) if code == 'stride' else \
+        dict(env={**os.environ, 'OMP_NUM_THREADS': '1'})
     if save_terminal_output:
-        status = run_code(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt')
+        status = run_code(f'{working_dir}/{code} > {code}_terminal_output_n{nn}.txt', **run_env)
         if verbose: print(f"{code} terminal output saved to {code}_terminal_output_n{nn}.txt")
     else:
-        status = run_code(f'{working_dir}/{code}', shell=False)
+        status = run_code(f'{working_dir}/{code}', shell=False, **run_env)
     if status != 0 or not os.path.exists(out_nc):
         return None, False
-    return xr.open_dataset(out_nc), True
+    ds = xr.open_dataset(out_nc)
+    if 'Delta_prime' in ds:  # RDCON and STRIDE label it 'PEST3 Delta Prime Matrix'
+        ds['Delta_prime'].attrs['long_name'] = 'Delta prime matrix'
+    return ds, True
 
 
 def save_output(code, ds, path, override_save=False, verbose=False):

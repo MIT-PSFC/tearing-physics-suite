@@ -284,6 +284,7 @@ def _check_same(pest3_file, drop_soln_info=True, **surf):
     if isinstance(old, Exception):
         assert type(new) is type(old)
         return None
+    old = old.rename_vars({k: v for k, v in p3w.PEST3_RENAMES.items() if k in old})  # item F, P2
     xr.testing.assert_identical(new, old)
     if surf.get('r') is not None:
         # Saved file (scipy, as PEST3_resistive_calculation saves it) reads back the same.

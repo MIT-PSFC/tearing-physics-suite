@@ -5,14 +5,18 @@ import os
 
 import numpy as np
 import xarray as xr
+import zarr
 
 
 def open_shot(source, shot, variables=None):
-    """source: a study dir (<study>/<shot>/tps/<shot>.zarr), a zarr store (study or multi_compile_zarr),
-    or a glob of run dirs holding rdcon_xr.nc + meta.json (E7 layout). variables: keep only these."""
+    """source: a study dir (<study>/<shot>/tps/<shot>.zarr, or its published <shot>.zarr.zip), a zarr store
+    (study or multi_compile_zarr, directory or .zip), or a glob of run dirs holding rdcon_xr.nc + meta.json
+    (E7 layout). variables: keep only these."""
     study = os.path.join(source, str(shot), 'tps', f'{shot}.zarr')
-    if os.path.isdir(study) or source.rstrip('/').endswith('.zarr'):
-        ds = xr.open_zarr(study if os.path.isdir(study) else source)
+    study = study + '.zip' if os.path.exists(study + '.zip') else study
+    if os.path.exists(study) or source.rstrip('/').endswith(('.zarr', '.zarr.zip')):
+        path = study if os.path.exists(study) else source.rstrip('/')
+        ds = xr.open_zarr(zarr.storage.ZipStore(path, mode='r') if path.endswith('.zip') else path)
         if 't_ms' not in ds:
             ds = ds.assign(t_ms=ds['bq_scan_key'] if 'bq_scan_key' in ds else ds['time'])
         if 'draw' not in ds and 'bq_count' in ds:

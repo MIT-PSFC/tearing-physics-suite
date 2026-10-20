@@ -176,19 +176,41 @@ class Queue:
         return (read_json(os.path.join(self._lease_dir(kind, name), 'owner.json')) or {}).get('owner') == owner
 
     def _steal(self, kind, name):
+        """ Steal a stale lease. One stealer at a time per lease (mutex dir), and staleness re-read under it:
+            without that, two workers that both saw the old lease stale could each rename the lease the other
+            had just taken, and all of them run the unit. """
         if not self.stale(kind, name):
             return False
-        dead = self.path(kind, '.dead')
-        os.makedirs(dead, exist_ok=True)
+        lock = os.path.join(self.path(kind, '.steal'), name)
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
         try:
-            os.rename(self._lease_dir(kind, name), os.path.join(dead, f'{name}.{_tag()}'))
-        except OSError:
-            return False                    # another worker stole it first
-        try:
-            os.mkdir(self._lease_dir(kind, name))
+            os.mkdir(lock)
         except FileExistsError:
-            return False                    # re-claimed in the gap
-        return True
+            try:
+                if _now() - os.stat(lock).st_mtime > 60:
+                    os.rmdir(lock)              # a stealer died holding it
+            except OSError:
+                pass
+            return False
+        try:
+            if not self.stale(kind, name):
+                return False                    # re-taken since our first look
+            dead = self.path(kind, '.dead')
+            os.makedirs(dead, exist_ok=True)
+            try:
+                os.rename(self._lease_dir(kind, name), os.path.join(dead, f'{name}.{_tag()}'))
+            except OSError:
+                return False
+            try:
+                os.mkdir(self._lease_dir(kind, name))
+            except FileExistsError:
+                return False                    # re-claimed in the gap
+            return True
+        finally:
+            try:
+                os.rmdir(lock)
+            except OSError:
+                pass
 
     def acquire(self, kind, name, owner):
         """mkdir the lease (or steal a stale one); True if we hold it."""

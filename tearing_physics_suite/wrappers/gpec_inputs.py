@@ -376,6 +376,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             set_dx1dx2_dx0_mult = 0.0,           # If set, dx1, dx2 = dx0 multiplied by this value.
             set_singfac_min_to_dx = False,       # If true, set singfac_min to dx0. This is useful for scans where you want to see the effect of changing asymptotic matching point on Delta Prime.
             set_int_tolerances_equal = False,    # If true, set tol_nr, gal_tol equal to tol_r.
+            scale_tolerances = 1.0,              # Multiplies tol_r, tol_nr, gal_tol (and Julia's eulerlagrange_tolerance_jgpec, run_codes) by this.
             **kwargs):
     """Write the RDCON and STRIDE input namelists (rdcon.in and stride.in) for GPEC.
 
@@ -427,6 +428,8 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
     if set_int_tolerances_equal:
         tol_nr = tol_r
         gal_tol = tol_r
+    if scale_tolerances != 1:
+        tol_r, tol_nr, gal_tol = (t*scale_tolerances for t in (tol_r, tol_nr, gal_tol))
 
     #Turn all inputs to write_rdcon_stride_inputs into a dictionary to return
     return_dict = {

@@ -271,3 +271,18 @@ def test_jgpec_nvec(tmp_path, monkeypatch, inputs, code_fixture, nn, runs):
     run_codes.run_resistive_calculation(str(EQ), nn, run_pest3=False, run_jgpec=True, jgpec_nvec=[1, 2],
                                         working_dir=str(tmp_path), verbose=False)
     assert called == ([nn] if runs else [])
+
+
+@pytest.mark.parametrize('scale', [None, 0.1])
+def test_scale_tolerances_reaches_julia(tmp_path, monkeypatch, inputs, code_fixture, scale):
+    """scale_tolerances also scales an explicit eulerlagrange_tolerance_jgpec and reaches the Fortran writer."""
+    from tearing_physics_suite.wrappers import run_codes
+    seen = {}
+    monkeypatch.setattr(run_codes, 'GPEC_resistive_calculation',
+                        lambda *a, **k: seen.update(gpec=k) or (code_fixture('rdcon'), None, True, False, inputs()))
+    monkeypatch.setattr(run_codes, 'run_jgpec_solvers', lambda *a, **k: seen.update(jgpec=k) or ({}, {}))
+    extra = {} if scale is None else dict(scale_tolerances=scale)
+    run_codes.run_resistive_calculation(str(EQ), 1, run_pest3=False, run_jgpec=True, working_dir=str(tmp_path),
+                                        verbose=False, eulerlagrange_tolerance_jgpec=1e-10, **extra)
+    assert seen['jgpec']['eulerlagrange_tolerance_jgpec'] == pytest.approx(1e-10 * (scale or 1), rel=1e-12)
+    assert seen['gpec'].get('scale_tolerances') == scale

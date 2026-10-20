@@ -79,8 +79,8 @@ def test_singfac_min_scan(calls):
 
 
 def test_tolerance_scan(calls):
-    """Quick values: the run's tolerances and all of them 10x tighter; internal mode, no PEST3."""
+    """Quick values: the run's own tolerances, then all of them at 1e-11; internal mode, no PEST3."""
     its.run_scan('tolerance_scan', 'EQ', results_dir='RES', verbose=False)
     (name, vals, _, nn), kw = calls[0]
-    assert (name, vals, nn) == ('scale_tolerances', [1, 0.1], 1)
+    assert (name, vals, nn) == ('set_tolerances', [0, 1e-11], 1)
     assert kw['run_pest3'] is False and kw['vac_flag'] == 'f'

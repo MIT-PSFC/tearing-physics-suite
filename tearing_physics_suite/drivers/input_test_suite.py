@@ -122,9 +122,9 @@ _SPECS = [
     ScanSpec('integrator_tolerance_scan', 'tol_r', [1e-9, 1e-10], [1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11],
              'integrator_tolerance_scan', 'Integrator tolerance scan results:',
              fixed=dict(set_int_tolerances_equal=True, **NO_PEST, **WALL)),
-    # Scaling every integration tolerance the run sets (tol_r, tol_nr, gal_tol, Julia's eulerlagrange_tolerance) at once:
-    ScanSpec('tolerance_scan', 'scale_tolerances', [1, 0.1], [10, 1, 0.1], 'tolerance_scan', 'Tolerance scan results:',
-             fixed=dict(**NO_PEST, **WALL)),
+    # Every integration tolerance (tol_r, tol_nr, gal_tol, Julia's eulerlagrange_tolerance) set to one value; 0: the run's own:
+    ScanSpec('tolerance_scan', 'set_tolerances', [0, 1e-11], [0, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13], 'tolerance_scan',
+             'Tolerance scan results:', fixed=dict(**NO_PEST, **WALL)),
     # Varying singfac_min, the distance |m - nq| from each rational surface where the ODE integration stops and jumps
     # across it (STRIDE and Julia; RDCON's Galerkin Delta' uses dx0-dx2):
     ScanSpec('singfac_min_scan', 'singfac_min', [1e-5, 1e-6],

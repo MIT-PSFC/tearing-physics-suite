@@ -100,12 +100,11 @@ def test_stride_threads_from_tps_threads(tmp_path, monkeypatch):
     assert write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False)['nThreads'] == 1
 
 
-def test_scale_tolerances(tmp_path):
-    """scale_tolerances multiplies tol_r, tol_nr (rdcon.in and stride.in) and gal_tol (rdcon.in)."""
+def test_set_tolerances(tmp_path):
+    """set_tolerances sets tol_r, tol_nr (rdcon.in and stride.in) and gal_tol (rdcon.in)."""
     out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, tol_r=1e-12, tol_nr=1e-12, gal_tol=1e-10,
-                                    scale_tolerances=0.1)
+                                    set_tolerances=1e-11)
     rdcon, stride = ((tmp_path / f).read_text() for f in ('rdcon.in', 'stride.in'))
-    assert np.allclose([out['tol_r'], out['tol_nr'], out['gal_tol']], [1e-13, 1e-13, 1e-11], rtol=1e-12, atol=0)
-    for key in ('tol_r', 'tol_nr'):
-        assert f'{key}={out[key]}\n' in rdcon and f'{key}={out[key]}\n' in stride
-    assert f"gal_tol={out['gal_tol']}\n" in rdcon
+    assert out['tol_r'] == out['tol_nr'] == out['gal_tol'] == 1e-11
+    assert 'tol_r=1e-11\n' in rdcon and 'tol_nr=1e-11\n' in rdcon and 'gal_tol=1e-11\n' in rdcon
+    assert 'tol_r=1e-11\n' in stride and 'tol_nr=1e-11\n' in stride

@@ -44,7 +44,7 @@ python -m tearing_physics_suite.drivers.parallel stop|drain|undrain --study S
 draw picks `fraction` of the ok draws, which then run `spot_check.spot_check_tests` (quick values, or `scan_vals`; the draw's settings) inside
 the same item; a failed scan is recorded in the draw's `spot_errors`, never fails the draw; the store gets
 `spot_check_flag(nn, code)`: -1 not checked, 0 passed, 1 flagged). At 1 % this adds about 20 % compute. Coupled runs set `chi_model: "total"` and `tau_e_label: "tau_E_th"` in `tps_kwargs` (the archive's χ_⊥e/i profiles and τ_E reach every draw; the default `chi_model` is `"tau_E"`). Production sets `require_rdcon` in `tps_kwargs`, so a draw whose RDCON fails stops at
-once instead of running the other codes first. Workers refuse to run if the TPS/GPEC/jGPEC build differs from the one
+once instead of running the other codes first. A STRIDE-only study sets `run_jgpec` false and `rdcon_delta_prime` false: RDCON then computes only the MRE surface terms (Galerkin, ODE and vacuum off in rdcon.in, about 2 s per n, the same terms as its full run), STRIDE supplies Δ′ and the ideal energies, and the `rdcon` code's Δ′ outputs are NaN. Workers refuse to run if the TPS/GPEC/jGPEC build differs from the one
 `init` recorded (`--allow-build-drift`).
 
 **Units of work.** A bouquet unit `<shot>_<t_ms>_<variant>` (one archive) is cut into items `<unit_id>.c<k>`

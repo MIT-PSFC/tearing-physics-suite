@@ -108,3 +108,16 @@ def test_set_tolerances(tmp_path):
     assert out['tol_r'] == out['tol_nr'] == out['gal_tol'] == 1e-11
     assert 'tol_r=1e-11\n' in rdcon and 'tol_nr=1e-11\n' in rdcon and 'gal_tol=1e-11\n' in rdcon
     assert 'tol_r=1e-11\n' in stride and 'tol_nr=1e-11\n' in stride
+
+
+def test_rdcon_surface_pass(tmp_path):
+    """rdcon_delta_prime=False turns RDCON's Galerkin, ODE and vacuum off in rdcon.in only; stride.in is unchanged."""
+    write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False)
+    full = {f: (tmp_path / f).read_text() for f in ('rdcon.in', 'stride.in')}
+    out = write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, rdcon_delta_prime=False)
+    rdcon, stride = ((tmp_path / f).read_text() for f in ('rdcon.in', 'stride.in'))
+    assert stride == full['stride.in'] and out['vac_flag'] == 't'
+    for flag in ('gal_flag', 'ode_flag', 'vac_flag'):
+        assert f'{flag}=t\n' in full['rdcon.in'] and f'{flag}=f\n' in rdcon
+    assert sorted(set(rdcon.splitlines()) ^ set(full['rdcon.in'].splitlines())) == sorted(
+        [f'    {f}={v}' for f in ('gal_flag', 'ode_flag', 'vac_flag') for v in 'tf'])

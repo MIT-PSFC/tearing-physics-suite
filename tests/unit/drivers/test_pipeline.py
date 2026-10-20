@@ -60,3 +60,31 @@ def test_nonlinear_forwards_resistivity_settings(monkeypatch):
         pl.nonlinear_resistive_calculation('eq', None, None, None, None, Zeff=1.5, average_ion_mass=2.5,
                                            energy_confinement_time=0.1, Coulomb_logarithm=17.0, eta_fac=2.0)
     assert seen['Coulomb_logarithm'] == 17.0 and seen['eta_fac'] == 2.0
+
+
+# Variables RDCON writes only when it solves for Delta' (Galerkin) and the energies (ODE + vacuum)
+DELTA_PRIME_RUN_VARS = ('A_prime', 'B_prime', 'Delta', 'Delta_prime', 'Gamma_prime', 'W_t', 'W_p_eigenvalue',
+                        'W_p_eigenvector', 'W_v_eigenvalue', 'W_v_eigenvector', 'W_t_eigenvalue', 'W_t_eigenvector',
+                        'cell_x1', 'cell_x2', 'etypes', 'iitvl', 'interval_icell')
+
+
+def test_stride_only_with_rdcon_surface_pass(monkeypatch, code_fixture, kin_file):
+    """rdcon_delta_prime=False: RDCON brings only the surface terms. STRIDE's MRE outputs and the surface terms equal
+    those with RDCON's full run; RDCON's Delta' outputs are NaN."""
+    import numpy as np
+    from tearing_physics_suite.drivers.profile_read import read_kin_file
+    p = read_kin_file(kin_file)
+
+    def run(rdcon_xr):
+        res = CodeResults(rdcon_xr, code_fixture('stride'), None, True, True, False, {'nn': 1}, None, {}, {})
+        monkeypatch.setattr(pl, 'run_resistive_calculation', lambda *a, **k: res)
+        return pl.nonlinear_resistive_calculation('eq', p['ni_spline'], p['ne_spline'], p['te_keV_spline'],
+                                                  p['ti_keV_spline'], Zeff=1.5, average_ion_mass=2.5, nvec=[1],
+                                                  energy_confinement_time=0.1, run_pest3=False)[0]
+    rd = code_fixture('rdcon')
+    full, surf = run(rd), run(rd.drop_vars([v for v in DELTA_PRIME_RUN_VARS if v in rd]))
+    for v in ('Delta_prime_surf', 'w_marg_surf', 'w_sat_surf', 'dwdtau_max_surf', 'min_w_marg_rank'):
+        np.testing.assert_array_equal(surf[v].sel(code='stride').values, full[v].sel(code='stride').values, err_msg=v)
+        assert surf[v].sel(code='rdcon').isnull().all(), v
+    for v in ('X0_surf', 'Wc_prefac_m_surf', 'chi_perp_surf', 'Delta_prime_crit', 'Delta_prime_tcrit'):
+        np.testing.assert_array_equal(surf[v].values, full[v].values, err_msg=v)

@@ -28,7 +28,7 @@ import zlib
 import numpy as np
 
 from tearing_physics_suite.drivers import fsqueue as fq
-from tearing_physics_suite.utils import tps_home, work_root
+from tearing_physics_suite.utils import CODE_WALL_S, tps_home, work_root
 
 DEFAULTS = dict(
     tps_kwargs={},              # nonlinear_resistive_calculation kwargs (nvec, run_stride, run_jgpec, vac_flag, ...)
@@ -339,16 +339,19 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None)
                started=time.time())
     fq.write_json(stat, dict(rec, status='running'))
     os.makedirs(wd, exist_ok=True)
+    CODE_WALL_S.clear()
     try:
         if cfg.get('tau_e') and kwargs.get('energy_confinement_time') is None:
             raise LookupError(f"no {cfg['tau_e']['variable']} for shot {it['shot']} at {it['t_ms']} ms")
         ds, inputs = run_case(eq, prof, kwargs, wd, nc_path=os.path.join(ddir, f'{c}.nc'),
                               pkl_path=os.path.join(ddir, f'{c}.pkl') if cfg['keep_pickle'] else None, label=key,
                               labels=dict(shot_id=it['shot'], t_ms=it['t_ms'], draw=c, variant=it['variant']))
-        rec.update(status='ok' if ds is not None else 'error', inputs=_scalars(inputs),
+        rec.update(status='ok' if ds is not None else 'error', inputs=_scalars(inputs), code_wall_s=_code_wall_s(),
                    error=None if ds is not None else dict(signature='no combined_xr'))
         if ds is not None and spot and _spot_picked(spot, key):     # never fails the draw
+            t = time.time()
             rec['spot_errors'] = _run_spot_checks(spot, eq, kwargs, os.path.join(ddir, f'{c}.spot'), wd)
+            rec['spot_wall_s'] = round(time.time() - t, 1)
     except TimeoutError as e:
         rec.update(status='timeout', error=_err(e))
     except Exception as e:
@@ -360,9 +363,28 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None)
         for f in os.listdir(wd):
             p = os.path.join(wd, f)
             shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else os.remove(p)
+    rec.setdefault('code_wall_s', _code_wall_s())                  # a failed draw: the codes it ran
     rec['wall_s'] = round(time.time() - rec['started'], 1)
+    rec['other_wall_s'] = round(rec['wall_s'] - sum(rec['code_wall_s'].values()) - rec.get('spot_wall_s', 0.0), 1)
     fq.write_json(stat, rec)
     return dict(draw=c, unit_id=it['unit_id'], status=rec['status'], signature=(rec['error'] or {}).get('signature'))
+
+
+def _code_wall_s():
+    """The draw's code wall times so far ({'rdcon_n1': s, ..., 'jGPEC_start': s})."""
+    return {k: round(v, 1) for k, v in CODE_WALL_S.items()}
+
+
+def _timing_vars(rec, nn, codes):
+    """A draw's wall times for the store: code_wall_s(nn, code), and its total, Julia start-up, spot checks and the
+    rest (TPS input/output and MRE); NaN for a record written before timing."""
+    w = rec.get('code_wall_s')
+    code_wall = np.array([[(w or {}).get(f'{c}_n{n}', np.nan) for c in codes] for n in nn], dtype=np.float32)
+    zero = 0.0 if w is not None else np.nan
+    return dict(code_wall_s=(('nn', 'code'), code_wall), draw_wall_s=np.float32(rec.get('wall_s', np.nan)),
+                other_wall_s=np.float32(rec.get('other_wall_s', np.nan)),
+                spot_wall_s=np.float32(rec.get('spot_wall_s', zero)),
+                jgpec_start_wall_s=np.float32((w or {}).get('jGPEC_start', zero)))
 
 
 def _err(e):
@@ -521,6 +543,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                     ds = store_ready(_vlen_strings(align_codes(ds, codes)))
                     if spot:
                         ds['spot_check_flag'] = (('nn', 'code'), _spot_flag(*draws[key], ds.nn.values, codes))
+                    ds = ds.assign(_timing_vars(draws[key][1], ds.nn.values, codes))
                     sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
                     if state['signature'] is None:
                         state['signature'] = sig

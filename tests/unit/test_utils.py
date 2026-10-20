@@ -5,7 +5,9 @@ import numpy as np
 import pytest
 
 from tearing_physics_suite.utils import (
+    CODE_WALL_S,
     _get_num_cpus,
+    code_timer,
     create_dense_log_paramvals,
     eq_stem,
     node_slot,
@@ -93,3 +95,16 @@ def test_node_slot_limits_concurrency(monkeypatch, tmp_path):
     assert peak[0] == 2
     with node_slot('x', None):
         pass
+
+
+def test_code_timer_adds_up_and_counts_failures():
+    """code_timer adds each block's wall time to CODE_WALL_S[key], also when the block raises."""
+    CODE_WALL_S.clear()
+    for _ in range(2):
+        with code_timer('rdcon_n1'):
+            time.sleep(0.05)
+    with pytest.raises(TimeoutError), code_timer('stride_n1'):
+        time.sleep(0.05)
+        raise TimeoutError
+    assert 0.1 <= CODE_WALL_S['rdcon_n1'] < 1 and 0.05 <= CODE_WALL_S['stride_n1'] < 1
+    CODE_WALL_S.clear()

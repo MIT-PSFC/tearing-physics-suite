@@ -144,8 +144,14 @@ def test_compile_xarrays_with_jgpec(code_fixture):
 
 # ---- runner with a fake server ----
 class _FakeServer:
-    def __init__(self, fail=()):
-        self.fail, self.runs = fail, []
+    def __init__(self, fail=(), started=True):
+        self.fail, self.runs, self.started = fail, [], started
+
+    def alive(self):
+        return self.started
+
+    def start(self):
+        self.started = True
 
     def run(self, run_dir, timeout=0):
         self.runs.append(run_dir)
@@ -286,3 +292,15 @@ def test_set_tolerances_reaches_julia(tmp_path, monkeypatch, inputs, code_fixtur
                                         verbose=False, eulerlagrange_tolerance_jgpec=1e-10, **extra)
     assert seen['jgpec']['eulerlagrange_tolerance_jgpec'] == (tol or 1e-10)
     assert seen['gpec'].get('set_tolerances') == tol
+
+
+def test_solver_runs_and_server_start_are_timed(tmp_path, monkeypatch, inputs, code_fixture):
+    """Each solver run is timed as 'jGPEC_<solver>_n<n>', a server start as 'jGPEC_start' (utils.CODE_WALL_S)."""
+    from tearing_physics_suite.utils import CODE_WALL_S
+    CODE_WALL_S.clear()
+    srv = _FakeServer(started=False)
+    monkeypatch.setattr(jgpec, 'get_server', lambda threads=1: srv)
+    jgpec.run_jgpec_solvers(str(EQ), 2, str(tmp_path), inputs(vac_flag='t'), code_fixture('rdcon'),
+                            solvers=('galerkin', 'riccati'))
+    assert sorted(CODE_WALL_S) == ['jGPEC_galerkin_n2', 'jGPEC_riccati_n2', 'jGPEC_start'] and srv.started
+    CODE_WALL_S.clear()

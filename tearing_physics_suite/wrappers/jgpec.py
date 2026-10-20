@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
-from tearing_physics_suite.utils import eq_stem, node_slot
+from tearing_physics_suite.utils import code_timer, eq_stem, node_slot
 from tearing_physics_suite.wrappers.d3d_wall import write_jgpec_wall_file
 from tearing_physics_suite.wrappers.gpec_common import save_output
 
@@ -323,7 +323,12 @@ def run_jgpec_solvers(eq_filename, nn, working_dir, inputs, rdcon_xr, solvers=('
         if verbose: print(f"Running jGPEC {solver} in {run_dir}...")
         try:
             with node_slot('jgpec', os.environ.get('TPS_JGPEC_SLOTS')):
-                ok, msg = get_server(threads).run(run_dir, timeout)
+                server = get_server(threads)
+                if not server.alive():
+                    with code_timer('jGPEC_start'):
+                        server.start()
+                with code_timer(f'{code}_n{nn}'):
+                    ok, msg = server.run(run_dir, timeout)
         except (TimeoutError, RuntimeError, OSError) as e:
             ok, msg = False, str(e)
         h5 = os.path.join(run_dir, 'gpec.h5')

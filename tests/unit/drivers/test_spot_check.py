@@ -185,6 +185,17 @@ def test_compile_spot_checks_and_flag(tmp_path, spot_results):
     assert sc.spot_check_flag(None, 0, [1], ['rdcon']).tolist() == [[-1]]
 
 
+def test_spot_dataset_pads_ragged_spots(spot_results):
+    """Spots at another n or of another scan have other numbers of surfaces and scan values: NaN-padded at the end."""
+    short = dict(spot_results[1], nn=2, input_values=spot_results[1]['input_values'][:1])
+    short['DP_surf_xarray'] = short['DP_surf_xarray'].isel(r=slice(1), mtheta=slice(1))
+    ds = sc.spot_dataset([spot_results[0], short])
+    assert ds.sizes['surf'] == 5 and ds.sizes['scan_value'] == 2
+    np.testing.assert_array_equal(ds.r_value.values[1], [2.0] + [np.nan] * 4)
+    assert ds.Delta_prime_surf.isel(spot=1, scan_value=1).isnull().all()
+    np.testing.assert_array_equal(sc.spot_check_flag(ds, 3, [1, 2], ['rdcon', 'stride']), [[0, 0], [0, 1]])
+
+
 def test_stride_rdcon_disagreement(spot_results):
     assert sc.stride_rdcon_disagreements(spot_results, 0.05) == []  # first scan value is unscaled
     r = dict(spot_results[0])

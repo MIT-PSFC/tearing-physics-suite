@@ -537,7 +537,7 @@ class Runner:
 
     def __init__(self, a):
         self.study, self.timeout, self.min_left = a.study, a.item_timeout, a.min_left
-        self.allow_drift, self.deadline = a.allow_build_drift, fq.job_deadline(0.0)
+        self.allow_drift, self.deadline = a.allow_build_drift, fq.JobDeadline(0.0)   # live: --time-min limits rise
         self.compile = not getattr(a, 'no_compile', False)
         self.code_check = getattr(a, 'code_check', False)
 
@@ -551,7 +551,8 @@ class Runner:
             if not checked:
                 check_build(cfg, self.allow_drift)
                 checked.append(True)
-            if self.deadline and self.deadline - time.time() < self.min_left:
+            dl = self.deadline()
+            if dl and dl - time.time() < self.min_left:
                 raise fq.Requeue('too little walltime left')
             log = os.path.join(unit_dir(self.study, cfg, item['shot'], item['unit_id']), 'logs', f'{uid}.log')
             os.makedirs(os.path.dirname(log), exist_ok=True)
@@ -593,8 +594,8 @@ def _shot_finished(q, shot, current):
 
 
 def cmd_work(a):
-    d = fq.job_deadline(a.margin)
-    print(f'work: {a.workers} worker(s) on {socket.gethostname()}, deadline {time.ctime(d) if d else "none"}',
+    d = fq.JobDeadline(a.margin)              # re-read: Slurm raises a --time-min job's limit after it starts
+    print(f'work: {a.workers} worker(s) on {socket.gethostname()}, deadline now {time.ctime(d()) if d() else "none"}',
           flush=True)
     out = fq.launch(qroot(a.study, a.code_check), a.workers, Runner(a), deadline=d, idle_exit_s=a.idle_exit,
                     on_idle=Feeder(a.study, a.feed_every, a.code_check, a.workers) if a.feed_every else None)

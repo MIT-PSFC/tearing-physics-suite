@@ -349,23 +349,23 @@ class Queue:
             return None
         ids = cursor.ids(self)
         done = self.done_ids()
+        held = set(_ls(self.path('claims')))     # one listing: a held claim costs a heartbeat read, not a mkdir
         now = _now()
         for _ in range(len(ids)):
             uid = ids[cursor.i % len(ids)]
             cursor.i += 1
             if uid in done or uid in cursor.skip or cursor.defer.get(uid, 0) > now:
                 continue
-            if self.n_failures(uid) >= self.MAX_FAILURES or self.n_attempts(uid) >= self.MAX_ATTEMPTS:
-                why = 'max_failures' if self.n_failures(uid) >= self.MAX_FAILURES else 'max_attempts'
-                if self.acquire('claims', uid, worker):
-                    self.finish(uid, 'failed', reason=why)
-                cursor.skip.add(uid)
-                continue
-            if not self.acquire('claims', uid, worker):
+            if (uid in held and not self.stale('claims', uid)) or not self.acquire('claims', uid, worker):
                 cursor.defer[uid] = now + self.STALE_S
                 continue
             if os.path.exists(self.path('done', uid)):     # finished in the gap
                 self.drop('claims', uid)
+                cursor.skip.add(uid)
+                continue
+            if self.n_failures(uid) >= self.MAX_FAILURES or self.n_attempts(uid) >= self.MAX_ATTEMPTS:
+                self.finish(uid, 'failed', reason='max_failures' if self.n_failures(uid) >= self.MAX_FAILURES
+                            else 'max_attempts')
                 cursor.skip.add(uid)
                 continue
             cursor.attempt = self.record_attempt(uid, worker)

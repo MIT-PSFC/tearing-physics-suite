@@ -1,7 +1,9 @@
-"""fsqueue worker names (drivers/fsqueue.py, a copy of eq_stab common/fsqueue.py)."""
+"""fsqueue (drivers/fsqueue.py, a copy of eq_stab common/fsqueue.py): worker names, claims, deadline."""
 import json
 import multiprocessing
+import os
 import signal
+import time
 from types import SimpleNamespace
 
 from tearing_physics_suite.drivers import fsqueue as fq
@@ -32,8 +34,14 @@ def test_launch_tag_has_slurm_step(tmp_path, monkeypatch):
     assert list(fq.launch(str(tmp_path), 2, None)) == ['nid1.7.s3.0.w0', 'nid1.7.s3.0.w1']
     monkeypatch.setenv('SLURM_STEP_ID', 'batch')  # not a number: no step in the tag
     assert list(fq.launch(str(tmp_path), 1, None)) == ['nid1.7.0.w0']
+    monkeypatch.setenv('SLURM_RESTART_COUNT', '1')  # requeued after preemption: new names
+    assert list(fq.launch(str(tmp_path), 1, None)) == ['nid1.7.r1.0.w0']
 
 FAST = dict(STALE_S=2.0, HEARTBEAT_S=0.3, RESCAN_S=0.5)
+
+
+def _units(n, prefix='u'):
+    return [{'id': f'{prefix}{i:03d}', 'est': i % 7} for i in range(n)]
 
 
 def test_steal_race_one_winner(tmp_path):
@@ -55,3 +63,35 @@ def test_steal_race_one_winner(tmp_path):
     b.stale = stale_then_a_steals
     assert not b.acquire('claims', 'u000', 'b')
     assert json.load(open(a.path('claims', 'u000', 'owner.json')))['owner'] == 'a'
+
+
+def test_claims_follow_manifest_order(tmp_path):
+    """Workers claim from the head of the order (eq_stab 83ce571)."""
+    q = fq.Queue(tmp_path, **FAST)
+    units = [dict(u, est=1) for u in _units(20)]
+    q.add_units(units)
+    seen = []
+    for w in ('a', 'b', 'c'):
+        fq.work(q, w, lambda uid, u: seen.append(uid), idle_exit_s=0, poll_s=0.01, log=lambda *a: None)
+        q.add_units(_units(3, prefix=f'x{w}'))
+    assert seen[:20] == [u['id'] for u in units]
+
+
+def test_live_deadline_is_reread(tmp_path, monkeypatch):
+    """A --time-min job's limit is raised after it starts: workers follow squeue's end, and a failed query keeps the
+    last good end instead of SLURM_JOB_END_TIME's first, short one (eq_stab 179bf09, 4741ba4)."""
+    monkeypatch.setenv('SLURM_JOB_ID', f'test{os.getpid()}')
+    monkeypatch.setenv('SLURM_JOB_END_TIME', str(time.time() - 1))
+    ends = [time.time() + 3600, None]
+    monkeypatch.setattr(fq, '_job_end_squeue', lambda: ends.pop(0) if ends else None)
+    d = fq.JobDeadline(0.0, every_s=0.0)
+    try:
+        assert d() > time.time() + 3000 and d() > time.time() + 3000
+        q = fq.Queue(tmp_path, **FAST)
+        q.add_units(_units(1))
+        seen = []
+        assert fq.work(q, 'w', lambda uid, u: seen.append(uid), deadline=d, idle_exit_s=0, poll_s=0.01,
+                       log=lambda *a: None) == 'drained' and seen == ['u000']
+    finally:
+        if os.path.exists(d._cache()):
+            os.remove(d._cache())

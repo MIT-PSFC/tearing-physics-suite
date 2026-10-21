@@ -28,7 +28,9 @@ import uuid
 
 DEFAULTS = dict(STALE_S=300.0, HEARTBEAT_S=30.0, MAX_ATTEMPTS=4, MAX_FAILURES=2,
                 MAX_CONSECUTIVE_FAILURES=3, BROKEN_JOBS_STOP=2, BROKEN_WINDOW_S=3600.0,
-                RESCAN_S=600.0)
+                RESCAN_S=600.0, CLAIM_IN_ORDER=1)
+# CLAIM_IN_ORDER: workers start at the head of the manifest order (finishes groups, e.g. a shot's slices, first);
+# 0: each at a random offset (spreads claim contention)
 HEARTBEAT_EXPIRED = 1   # epoch written on the way out: the lease is stealable at once
 
 
@@ -403,10 +405,10 @@ class Queue:
 
 
 class Cursor:
-    """A worker's walk over the manifest; starts at a random offset to spread contention."""
+    """A worker's walk over the manifest; starts at ``start``, or at a random offset to spread contention."""
 
-    def __init__(self, seed=None):
-        self.i = random.Random(seed).randrange(1 << 30)
+    def __init__(self, seed=None, start=None):
+        self.i = random.Random(seed).randrange(1 << 30) if start is None else start
         self.skip, self.defer, self.attempt = set(), {}, None
         self._ids, self._t = [], 0.0
 
@@ -447,12 +449,13 @@ class Heartbeat:
 
 
 def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=None, log=print):
-    """Worker loop: claim -> ``run(uid, unit)`` -> finish, until no work, STOP, the deadline or
+    """Worker loop: claim -> ``run(uid, unit)`` -> finish, until no work, STOP, the deadline (epoch, or a callable
+    returning it, e.g. JobDeadline) or
     MAX_CONSECUTIVE_FAILURES failures in a row. ``run`` returning means done; raising means a failure.
     ``Requeue`` gives the unit back uncounted and ends the loop; ``Broken`` records one failure and ends it.
     ``on_idle()`` (e.g. a feeder) runs when a pass finds nothing; True means it added work.
     Returns 'drained' | 'stopped' | 'deadline' | 'broken' | 'idle'."""
-    cur = Cursor()
+    cur = Cursor(start=0 if q.CLAIM_IN_ORDER else None)
     n_bad, n_ok, idle_since = 0, 0, None
     last = None
 
@@ -462,7 +465,8 @@ def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=
     while True:
         if q.stopped():
             return done('stopped')
-        if deadline is not None and _now() >= deadline:
+        dl = deadline() if callable(deadline) else deadline
+        if dl is not None and _now() >= dl:
             return done('deadline')
         uid = q.next_unit(cur, worker)
         if uid is None:
@@ -594,18 +598,62 @@ def kill_group(p, grace=10.0):
             pass
 
 
+def _job_end_squeue():
+    """ The job's end (epoch) from squeue, or None (no job, or squeue failed: slurmctld throttles busy users). """
+    if not os.environ.get('SLURM_JOB_ID'):
+        return None
+    import subprocess
+    try:
+        out = subprocess.run(['squeue', '-h', '-j', os.environ['SLURM_JOB_ID'], '-o', '%e'],
+                             capture_output=True, text=True, timeout=30).stdout.strip()
+        return time.mktime(time.strptime(out, '%Y-%m-%dT%H:%M:%S')) if out[:2].isdigit() else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
 def job_deadline(margin_s=600.0):
-    """Epoch at which to stop claiming: SLURM_JOB_END_TIME (or squeue's end time) minus margin."""
-    t = os.environ.get('SLURM_JOB_END_TIME')
-    if not t and os.environ.get('SLURM_JOB_ID'):
-        import subprocess
-        try:
-            out = subprocess.run(['squeue', '-h', '-j', os.environ['SLURM_JOB_ID'], '-o', '%e'],
-                                 capture_output=True, text=True, timeout=30).stdout.strip()
-            t = time.mktime(time.strptime(out, '%Y-%m-%dT%H:%M:%S')) if out[:2].isdigit() else None
-        except (OSError, ValueError, subprocess.SubprocessError):
-            t = None
+    """Epoch at which to stop claiming: the job's end time (squeue: live, since a --time-min job's limit is raised
+    after it starts and SLURM_JOB_END_TIME keeps the first one; that variable if squeue fails) minus margin."""
+    t = _job_end_squeue() or os.environ.get('SLURM_JOB_END_TIME')
     return float(t) - margin_s if t else None
+
+
+class JobDeadline:
+    """job_deadline(margin_s) that follows a raised time limit: the job's end is read from squeue at most every
+    ``every_s`` per node (shared through a file in /tmp, so a node's workers make one query), and a failed query
+    keeps the last good end. SLURM_JOB_END_TIME (the --time-min end) is used only before any query has worked:
+    falling back to it later made workers stop an hour after start."""
+
+    def __init__(self, margin_s=600.0, every_s=300.0):
+        self.margin_s, self.every_s, self._t, self._end = margin_s, every_s, -1e18, None
+
+    def _cache(self):
+        return os.path.join('/tmp', f"fsqueue_end_{os.environ.get('SLURM_JOB_ID', 'nojob')}")
+
+    def _read(self):
+        try:
+            if time.time() - os.path.getmtime(self._cache()) < self.every_s:
+                with open(self._cache()) as fh:
+                    return float(fh.read())
+        except (OSError, ValueError):
+            pass
+        end = _job_end_squeue()
+        if end:
+            try:
+                tmp = f'{self._cache()}.{os.getpid()}'
+                with open(tmp, 'w') as fh:
+                    fh.write(repr(end))
+                os.replace(tmp, self._cache())
+            except OSError:
+                pass
+        return end
+
+    def __call__(self):
+        if time.time() - self._t >= self.every_s:
+            self._t = time.time()
+            self._end = self._read() or self._end
+        end = self._end or os.environ.get('SLURM_JOB_END_TIME')
+        return float(end) - self.margin_s if end else None
 
 
 def _worker_main(root, policy, worker, make_run, deadline, work_kw):
@@ -631,14 +679,16 @@ def launch(root, n_workers, make_run, tag=None, policy=None, deadline=None, **wo
     """Start ``n_workers`` worker processes on this node; returns {worker: exit reason}.
 
     ``make_run(q, worker)`` (picklable, module level) returns the worker's ``run(uid, unit)``.
-    Workers are '<tag>.w<i>'; tag defaults to '<host>.<job>[.s<step>].<procid>'
+    Workers are '<tag>.w<i>'; tag defaults to '<host>.<job>[.r<restart>][.s<step>].<procid>'
     (the step keeps sessions run as concurrent job steps on one node apart). If every worker exits
     'broken', the job is marked broken (see Queue.mark_broken)."""
     import multiprocessing
     import signal
     s = slurm_info()
     step = f'.s{s["step_id"]}' if s['step_id'].isdigit() else ''
-    tag = tag or f'{socket.gethostname()}.{s["job_id"] or os.getpid()}{step}.{s["procid"] or 0}'
+    rc = os.environ.get('SLURM_RESTART_COUNT', '0')
+    run = f'.r{rc}' if rc not in ('', '0') else ''     # a requeued (preempted) job gets new worker names
+    tag = tag or f'{socket.gethostname()}.{s["job_id"] or os.getpid()}{run}{step}.{s["procid"] or 0}'
     ctx = multiprocessing.get_context('spawn')
     names = [f'{tag}.w{i}' for i in range(n_workers)]
     procs = [ctx.Process(target=_worker_main, args=(root, policy or {}, w, make_run, deadline, work_kw), name=w)

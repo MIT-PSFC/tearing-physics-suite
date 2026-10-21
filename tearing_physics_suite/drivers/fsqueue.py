@@ -349,23 +349,23 @@ class Queue:
             return None
         ids = cursor.ids(self)
         done = self.done_ids()
+        held = set(_ls(self.path('claims')))     # one listing: a held claim costs a heartbeat read, not a mkdir
         now = _now()
         for _ in range(len(ids)):
             uid = ids[cursor.i % len(ids)]
             cursor.i += 1
             if uid in done or uid in cursor.skip or cursor.defer.get(uid, 0) > now:
                 continue
-            if self.n_failures(uid) >= self.MAX_FAILURES or self.n_attempts(uid) >= self.MAX_ATTEMPTS:
-                why = 'max_failures' if self.n_failures(uid) >= self.MAX_FAILURES else 'max_attempts'
-                if self.acquire('claims', uid, worker):
-                    self.finish(uid, 'failed', reason=why)
-                cursor.skip.add(uid)
-                continue
-            if not self.acquire('claims', uid, worker):
+            if (uid in held and not self.stale('claims', uid)) or not self.acquire('claims', uid, worker):
                 cursor.defer[uid] = now + self.STALE_S
                 continue
             if os.path.exists(self.path('done', uid)):     # finished in the gap
                 self.drop('claims', uid)
+                cursor.skip.add(uid)
+                continue
+            if self.n_failures(uid) >= self.MAX_FAILURES or self.n_attempts(uid) >= self.MAX_ATTEMPTS:
+                self.finish(uid, 'failed', reason='max_failures' if self.n_failures(uid) >= self.MAX_FAILURES
+                            else 'max_attempts')
                 cursor.skip.add(uid)
                 continue
             cursor.attempt = self.record_attempt(uid, worker)
@@ -453,7 +453,8 @@ def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=
     returning it, e.g. JobDeadline) or
     MAX_CONSECUTIVE_FAILURES failures in a row. ``run`` returning means done; raising means a failure.
     ``Requeue`` gives the unit back uncounted and ends the loop; ``Broken`` records one failure and ends it.
-    ``on_idle()`` (e.g. a feeder) runs when a pass finds nothing; True means it added work.
+    ``on_idle()`` (e.g. a feeder) runs when a pass finds nothing; True means it added work. While others hold
+    claims, an idle worker stays at least STALE_S + poll_s, so a dead job's claims become stealable before it quits.
     Returns 'drained' | 'stopped' | 'deadline' | 'broken' | 'idle'."""
     cur = Cursor(start=0 if q.CLAIM_IN_ORDER else None)
     n_bad, n_ok, idle_since = 0, 0, None
@@ -479,7 +480,8 @@ def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=
                     and set(q.units(refresh=True)) <= q.done_ids() | cur.skip):
                 return done('drained')
             idle_since = idle_since or _now()
-            if _now() - idle_since > idle_exit_s:
+            wait = max(idle_exit_s, q.STALE_S + poll_s) if q.pending_elsewhere(cur) else idle_exit_s
+            if _now() - idle_since > wait:
                 return done('idle')
             q.write_worker(worker, state='idle', n_ok=n_ok, n_failed_in_row=n_bad, last_error=last)
             time.sleep(poll_s)

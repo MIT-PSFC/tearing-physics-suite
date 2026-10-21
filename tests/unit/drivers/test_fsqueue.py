@@ -95,3 +95,29 @@ def test_live_deadline_is_reread(tmp_path, monkeypatch):
     finally:
         if os.path.exists(d._cache()):
             os.remove(d._cache())
+
+
+def test_held_claims_are_not_retried(tmp_path, monkeypatch):
+    """A unit another worker holds is skipped from one claims listing: no mkdir (hot directory on DVS) and no
+    attempt/failure listings for it; a stale one is still stolen (eq_stab a54bdae)."""
+    q = fq.Queue(tmp_path, **FAST)
+    q.add_units([dict(u, est=1) for u in _units(6)])
+    held = [q.next_unit(fq.Cursor(start=0), 'a') for _ in range(4)]
+    tried = []
+    real = q.acquire
+    monkeypatch.setattr(q, 'acquire', lambda kind, name, owner: tried.append(name) or real(kind, name, owner))
+    got = q.next_unit(fq.Cursor(start=0), 'b')
+    assert got == 'u004' and tried == ['u004'] and got not in held
+    q.expire('claims', held[0])
+    assert q.next_unit(fq.Cursor(start=0), 'c') == held[0]
+
+
+def test_idle_worker_waits_to_steal_a_dead_claim(tmp_path):
+    """A worker started beside a dead job's claim waits until it may steal it (STALE_S from first sight) instead of
+    quitting after a shorter idle_exit_s (tps3 10-21: --idle-exit 120 < STALE_S 300; eq_stab 3df78d4)."""
+    q = fq.Queue(tmp_path, **FAST)
+    q.add_units(_units(1))
+    assert q.next_unit(fq.Cursor(), 'dead') == 'u000'           # claimed, never beaten again
+    seen = []
+    assert fq.work(q, 'w', lambda uid, u: seen.append(uid), idle_exit_s=0.5, poll_s=0.1,
+                   log=lambda *a: None) == 'idle' and seen == ['u000']

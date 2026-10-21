@@ -110,3 +110,14 @@ def test_held_claims_are_not_retried(tmp_path, monkeypatch):
     assert got == 'u004' and tried == ['u004'] and got not in held
     q.expire('claims', held[0])
     assert q.next_unit(fq.Cursor(start=0), 'c') == held[0]
+
+
+def test_idle_worker_waits_to_steal_a_dead_claim(tmp_path):
+    """A worker started beside a dead job's claim waits until it may steal it (STALE_S from first sight) instead of
+    quitting after a shorter idle_exit_s (tps3 10-21: --idle-exit 120 < STALE_S 300; eq_stab 3df78d4)."""
+    q = fq.Queue(tmp_path, **FAST)
+    q.add_units(_units(1))
+    assert q.next_unit(fq.Cursor(), 'dead') == 'u000'           # claimed, never beaten again
+    seen = []
+    assert fq.work(q, 'w', lambda uid, u: seen.append(uid), idle_exit_s=0.5, poll_s=0.1,
+                   log=lambda *a: None) == 'idle' and seen == ['u000']

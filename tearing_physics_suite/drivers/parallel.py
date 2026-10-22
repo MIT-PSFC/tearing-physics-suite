@@ -381,7 +381,7 @@ def feed_codes(study, cfg=None, extra=0, mem_gib=None):
     def tier(it):
         return (it.get('reason') or 'random').split('+')[0]
 
-    def need(it):                                    # predicted only when sessions differ in memory
+    def need(it):                                    # predicted only with classes or a session memory
         if 'need_gib' not in it:
             it['need_gib'] = round(_item_need_gib(study, cfg, it), 1)
         return it['need_gib']

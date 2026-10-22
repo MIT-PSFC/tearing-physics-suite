@@ -11,15 +11,15 @@ STRIDE_STACK = 1 << 30  # bytes: main-thread stack limit of a STRIDE run (OMP_ST
 
 def peak_gib(code, mpert, msing, nx=None):
     """Predicted peak memory (GiB) of a STRIDE run or an RDCON Delta' run ('rdcon') at one n, from that code's mpert
-    and the msing rational surfaces: 2 GiB plus its largest arrays (complex, 16 B). STRIDE: the dense BVP matrix and
-    its copy in ode_calc_delta_prime, nMat^2 each, nMat = (2 + 4 msing) mpert. RDCON: gal_alloc's Galerkin arrays
-    (solver 'LU', np = 3) over nx (msing + 1) cells, per cell the 4 x 4 blocks of mpert^2, the band (12 mpert rows by
-    2 mpert unknowns), and rhs and sol (2 msing columns each)."""
+    and the msing rational surfaces (complex arrays, 16 B). STRIDE (CG, W4 peaks): 2 GiB plus the dense BVP matrix and
+    its copy in ode_calc_delta_prime, nMat^2 each, nMat = (2 + 4 msing) mpert. RDCON (CCG, gal.f; within 0.1-1.05 GiB
+    of 124 measured peaks): 1.1 GiB plus gal_alloc's arrays for solver 'LU' (also the bound for 'cholesky', which can
+    fall back to it): the element matrices, 16 mpert^2 per cell over nx (msing + 1) cells, the band, 12 mpert + 1 rows,
+    and rhs and sol, 4 msing columns, of ndim = 2 mpert (nx (msing + 1) + 1) + 2 msing unknowns."""
     if code == 'stride':
-        elements = 2 * ((2 + 4 * msing) * mpert) ** 2
-    else:
-        elements = nx * (msing + 1) * mpert * (40 * mpert + 8 * msing)
-    return 2 + 16 * elements / 2 ** 30
+        return 2 + 32 * ((2 + 4 * msing) * mpert) ** 2 / 2 ** 30
+    ndim = 2 * mpert * (nx * (msing + 1) + 1) + 2 * msing
+    return 1.1 + 16 * (16 * mpert ** 2 * nx * (msing + 1) + (12 * mpert + 1 + 4 * msing) * ndim) / 2 ** 30
 
 
 def executable(gpec_dir, code):

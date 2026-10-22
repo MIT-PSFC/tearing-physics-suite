@@ -82,10 +82,11 @@ def test_killed_run_is_recorded(tmp_path, monkeypatch, save_terminal_output):
 
 
 def test_peak_gib_matches_measured_peaks():
-    """The predictor against W4/W2c peaks (GiB): STRIDE n=4 at mpert 77 / 44 surfaces 7.7, at 73 / 38 5.7; RDCON's
-    Delta' at 65 / 38 within the 28.7-33.6 GiB of its check sessions (which also hold the TPS worker and Julia)."""
+    """The predictor against measured peaks (GiB): STRIDE n=4 at mpert 77 / 44 surfaces 7.7, at 73 / 38 5.7 (CG, W4);
+    RDCON's Delta' at 69 / 44 37.9 (CCG, 204323_2306 d0), and within W4's 28.7-33.6 GiB check steps at 65 / 38."""
     assert peak_gib('stride', 77, 44) == pytest.approx(7.7, abs=0.2)
     assert peak_gib('stride', 73, 38) == pytest.approx(5.7, abs=0.2)
+    assert peak_gib('rdcon', 69, 44, nx=256) == pytest.approx(38.0, abs=0.1)
     assert 28.7 <= peak_gib('rdcon', 65, 38, nx=256) <= 33.6
 
 

@@ -590,13 +590,13 @@ def test_memory_classes(study, monkeypatch):
     uid = '100_1500_base'
     _set_code_check(study, fraction=0.0, flagged_n_only=True, mem_classes=[9, 16, 35, 64])
     _sized_draw(study, uid, 0, 65, 38, code_killed={'stride': [4]}, stride_flagged_n=[4])   # fill: STRIDE 5.8 GiB
-    _sized_draw(study, uid, 1, 49, 28, stride_flagged_n=[4])                                 # RDCON 13.8 GiB
-    _sized_draw(study, uid, 2, 65, 38, stride_flagged_n=[4])                                 # RDCON 30.1 GiB
-    _sized_draw(study, uid, 3, 93, 64, stride_flagged_n=[4])                                 # RDCON 99.6: no class
+    _sized_draw(study, uid, 1, 49, 28, stride_flagged_n=[4])                                 # RDCON 13.0 GiB
+    _sized_draw(study, uid, 2, 65, 38, stride_flagged_n=[4])                                 # RDCON 29.2 GiB
+    _sized_draw(study, uid, 3, 93, 64, stride_flagged_n=[4])                                 # RDCON 98.7: no class
     q = fq.Queue(st.qroot(study, code_check=True))
     assert st.feed_codes(study) == 4
     need = {k: it['need_gib'] for k, it in q.units(refresh=True).items()}
-    assert need == {f'{uid}.f0': 5.8, f'{uid}.d1': 13.8, f'{uid}.d2': 30.1, f'{uid}.d3': 99.6}
+    assert need == {f'{uid}.f0': 5.8, f'{uid}.d1': 13.0, f'{uid}.d2': 29.2, f'{uid}.d3': 98.7}
     assert [st._mem_class(need[f'{uid}.{k}'], [9, 16, 35, 64]) for k in ('f0', 'd1', 'd2', 'd3')] == [9, 16, 35, 64]
     _set_code_check(study, fraction=1.0, flagged_n_only=True, mem_classes=[9, 16, 35, 64])
     _sized_draw(study, uid, 4, 20, 5)                     # picked, class 9, where the fill still waits
@@ -608,6 +608,6 @@ def test_memory_classes(study, monkeypatch):
     assert [st._fits_session(study, 16, q.units()[f'{uid}.{k}']) for k in ('d1', 'd2', 'd3')] == [True, False, False]
     assert st._fits_session(study, 64, q.units()[f'{uid}.d3'])               # fits no class: taken, then refused
     monkeypatch.setenv('TPS_MEM_GIB', '64')
-    with pytest.raises(RuntimeError, match='predicted peak 100 GiB does not fit the session'):
-        st._check_memory(99.6)
-    st._check_memory(30.1)
+    with pytest.raises(RuntimeError, match='predicted peak 99 GiB does not fit the session'):
+        st._check_memory(98.7)
+    st._check_memory(29.2)

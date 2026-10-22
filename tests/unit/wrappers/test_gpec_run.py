@@ -46,18 +46,19 @@ def test_rdcon_only_runs_without_stride_executable(tmp_path, eq_file):
 
 @pytest.mark.parametrize('code', ['stride', 'rdcon'])
 def test_stride_large_stack_rdcon_one_thread(tmp_path, monkeypatch, code):
-    """STRIDE (OpenMP) gets OMP_STACKSIZE 1G and a 1 GB stack limit; RDCON (serial) gets OMP_NUM_THREADS 1."""
+    """STRIDE (OpenMP) gets OMP_STACKSIZE 1G and a 1 GB stack limit; RDCON (serial) gets OMP_NUM_THREADS 1 and glibc's
+    mmap threshold at 128 KiB."""
     monkeypatch.delenv('OMP_STACKSIZE', raising=False)
     monkeypatch.setenv('OMP_NUM_THREADS', '8')
     monkeypatch.chdir(tmp_path)
     exe = tmp_path / code
-    exe.write_text('#!/bin/sh\necho "$(ulimit -s) $OMP_NUM_THREADS $OMP_STACKSIZE" > env.txt\n')
+    exe.write_text('#!/bin/sh\necho "$(ulimit -s) $OMP_NUM_THREADS $OMP_STACKSIZE $MALLOC_MMAP_THRESHOLD_" > env.txt\n')
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     assert run_gpec_code(code, str(tmp_path), 1) == (None, False)
     soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
     stack = min(1 << 30, hard) if code == 'stride' and hard != resource.RLIM_INFINITY else 1 << 30 if code == 'stride' else soft
     want = 'unlimited' if stack == resource.RLIM_INFINITY else str(stack // 1024)
-    assert (tmp_path / 'env.txt').read_text().split() == [want] + (['8', '1G'] if code == 'stride' else ['1'])
+    assert (tmp_path / 'env.txt').read_text().split() == [want] + (['8', '1G'] if code == 'stride' else ['1', '131072'])
 
 
 def test_failed_run_returns_none(tmp_path, eq_file):

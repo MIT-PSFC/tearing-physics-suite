@@ -329,11 +329,14 @@ def _set_code_check(study, **check):
 def test_code_check_config():
     cfg = dict(tps_kwargs=dict(nvec=[1, 2], jgpec_nvec=[1]))
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon']))) == dict(
-        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None, flag=None)
+        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None, flag=None, flagged_n_only=False)
     flag = dict(im_re_max=0.01, psi_n=[0.01, 0.9])
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=flag)))['flag'] == flag
     big = dict(flag, dp_abs_max=1e3)
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=big)))['flag'] == big
+    full = dict(flag, dp_range=[-300, 150], im_re_m_offset=3)
+    assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=full, flagged_n_only=True)))[
+        'flagged_n_only'] is True
     for bad in (dict(by='slice', codes=['rdcon']), dict(codes=['stride']), dict(codes=[]),
                 dict(codes=['rdcon'], nvec=[3]), dict(codes=['rdcon'], budget='extra'),
                 dict(codes=['rdcon'], flag=dict(flag, no_dp=True))):
@@ -350,6 +353,14 @@ def test_code_check_config():
     refill = st.code_check_kwargs(cfg, dict(codes=['jGPEC_galerkin'], nvec=[2]), {'stride': [1]})   # every study n
     assert {k: refill[k] for k in ('nvec', 'jgpec_nvec', 'run_stride')} == dict(nvec=[1, 2], jgpec_nvec=[2],
                                                                                  run_stride=True)
+    both = dict(codes=['rdcon', 'jGPEC_galerkin', 'jGPEC_riccati'], nvec=None)
+    cfg4 = dict(tps_kwargs=dict(nvec=[1, 2, 3, 4], jgpec_nvec=[1, 2]))
+    n4 = st.code_check_kwargs(cfg4, both, only_n=[4])                       # flagged at n=4: RDCON there, no Julia
+    assert {k: n4[k] for k in ('nvec', 'jgpec_nvec', 'run_jgpec', 'jgpec_solvers')} == dict(
+        nvec=[4], jgpec_nvec=[], run_jgpec=False, jgpec_solvers=[])
+    n24 = st.code_check_kwargs(cfg4, both, only_n=[2, 4])                   # Julia at its n among the flagged
+    assert {k: n24[k] for k in ('nvec', 'jgpec_nvec', 'run_jgpec')} == dict(nvec=[2, 4], jgpec_nvec=[2], run_jgpec=True)
+    assert st.code_check_kwargs(cfg4, both)['nvec'] == [1, 2, 3, 4]         # not flagged-only: the study's n
 
 
 def test_code_check_fills_ok_draws(study, monkeypatch):
@@ -412,6 +423,26 @@ def test_stride_flagged_n_dp_abs_max():
     assert st.stride_flagged_n(ds, dict(im_re_max=0.01, psi_n=[0.0, 0.9], dp_abs_max=1e8)) == []
 
 
+def test_stride_flagged_n_dp_range_and_m_offset():
+    """dp_range flags Re outside [lo, hi] (asymmetric); im_re_m_offset keeps the Im/Re test to m <= n + offset."""
+    dims = ('nn', 'Delta_prime_type', 'code', 'r')
+    re, im = -np.ones((2, 1, 2, 3)) * 10, np.zeros((2, 1, 2, 3))
+    re[0, 0, 1, 1] = 200                                        # n=1: above hi 150
+    im[1, 0, 1, 2] = 0.5                                        # n=2, outer surface (m=7 > 2+3): Im/Re 5 %
+    ds = xr.Dataset({'Delta_prime_surf': (dims, re), 'Im_Delta_prime_surf': (dims, im),
+                     'psi_n_rational': (('nn', 'code', 'r'), np.tile([0.2, 0.5, 0.7], (2, 2, 1))),
+                     'm_rational': (('nn', 'r'), [[2, 3, 4], [3, 5, 7]])},
+                    coords={'nn': [1, 2], 'Delta_prime_type': ['single helicity'], 'code': ['rdcon', 'stride']})
+    flag = dict(im_re_max=0.01, psi_n=[0.01, 0.9])
+    assert st.stride_flagged_n(ds, flag) == [2]
+    assert st.stride_flagged_n(ds, dict(flag, dp_range=[-300, 150])) == [1, 2]
+    assert st.stride_flagged_n(ds, dict(flag, dp_range=[-300, 150], im_re_m_offset=3)) == [1]
+    ds.m_rational.values[1, 2] = 5                                         # now m = n + 3: re-solved
+    assert st.stride_flagged_n(ds, dict(flag, dp_range=[-300, 150], im_re_m_offset=3)) == [1, 2]
+    ds.Delta_prime_surf.values[0, 0, 1, 1] = -301                            # below lo -300
+    assert st.stride_flagged_n(ds, dict(flag, dp_range=[-300, 150], im_re_m_offset=3)) == [1, 2]
+
+
 def _ok_draw(study, uid, c, **rec):
     d = os.path.join(study, '100', 'tps', uid, 'draws')
     os.makedirs(d, exist_ok=True)
@@ -435,6 +466,7 @@ def test_code_check_feed_order(study):
         return {k: it['reason'] for k, it in q.units(refresh=True).items()}
     assert st.code_check_pending(study, 100) == [nc[1]]       # flagged, not queued yet
     assert st.feed_codes(study, extra=2) == 1 and reasons() == {f'{uid}.d1': 'flagged'}
+    assert q.units()[f'{uid}.d1']['flagged_n'] == [2]           # the check can run at the flagged n only
     assert st.feed_codes(study, extra=2) == 0                   # the flagged draw waits
     q.finish(f'{uid}.d1')
     assert st.code_check_pending(study, 100) == []

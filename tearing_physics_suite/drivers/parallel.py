@@ -525,7 +525,8 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
 def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, flag=None):
     """run_case for a code check: the check's codes on the draw's inputs, filled into its dataset (<count>.nc), the
     result written to nc_path (<count>.codes.nc). The draw's killed codes (code_killed) are re-run here and first fill
-    the draw itself (<count>.nc; in its record code_filled, and stride_flagged_n redone with flag), or the check fails."""
+    the draw itself at the re-run n (<count>.nc; in its record code_filled, and stride_flagged_n redone with flag), or
+    the check fails."""
     import xarray as xr
 
     from tearing_physics_suite.drivers import multi_run

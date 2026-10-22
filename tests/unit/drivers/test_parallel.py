@@ -548,3 +548,21 @@ def test_killed_code_filled_by_its_code_check(study, monkeypatch):
     assert dp[:2].tolist() == [2.0, 0.0] and np.isnan(dp[2])
     assert {k: st.draw_status(study)[0][100][k] for k in ('code_killed', 'code_filled')} == dict(code_killed=2,
                                                                                                   code_filled=1)
+
+
+def test_killed_fill_keeps_the_other_n(tmp_path, monkeypatch):
+    """A STRIDE re-run at its killed n only fills that n: the draw (and its check file) keep STRIDE's other n."""
+    from tearing_physics_suite.drivers import pipeline
+    monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
+
+    def dataset(nn, stride):
+        return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), [[[1.0], [s]] for s in stride]), 'qlim': ((), 3.0)},
+                          coords={'nn': nn, 'code': ['rdcon', 'stride'], 'r': [0]})
+    dataset([1, 2], [2.0, np.nan]).to_netcdf(tmp_path / '0.nc', engine='scipy')     # STRIDE n=2 killed
+    fq.write_json(str(tmp_path / '0.json'), dict(status='ok', code_killed={'stride': [2]}))
+    monkeypatch.setattr(multi_run, 'run_case', lambda *a: (dataset([2], [4.0]), {}))   # the check, at n=2 only
+    CODE_KILLED.clear()
+    st._check_case(None, None, {}, str(tmp_path), str(tmp_path / '0.codes.nc'))
+    for f in ('0.nc', '0.codes.nc'):
+        stride = xr.open_dataset(tmp_path / f, engine='scipy').Delta_prime.sel(code='stride', r=0)
+        assert stride.values.tolist() == [2.0, 4.0], f

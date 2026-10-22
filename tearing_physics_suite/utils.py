@@ -229,3 +229,9 @@ def tps_home():
         return os.environ['TPSHOME']
     except KeyError:
         raise KeyError('TPSHOME is not set; source tearing_physics_suite_env.sh first.') from None
+
+
+def gpec_home():
+    """The GPEC executables' root (<root>/<code>/<code>): $TPS_GPEC_DIR (e.g. a portable runtime's copies), else
+    TPSHOME's GPEC build."""
+    return os.environ.get('TPS_GPEC_DIR') or os.path.join(tps_home(), 'submodules/GPEC')

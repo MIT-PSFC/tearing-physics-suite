@@ -62,7 +62,8 @@ def test_feed_adds_baseline_to_a_fed_unit(study):
 
 
 def _run_dataset(c, n_r=3):
-    return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), np.full((1, 2, n_r), float(c))), 'qlim': ((), 3.0),
+    dp = (('nn', 'code', 'r'), np.full((1, 2, n_r), float(c)))
+    return xr.Dataset({'Delta_prime': dp, 'Delta_prime_surf': dp, 'qlim': ((), 3.0),
                        'dwdt_surf': (('nn', 'code', 'r'), np.zeros((1, 2, n_r)))},
                       coords={'nn': [1], 'code': ['rdcon', 'stride'], 'r': np.arange(n_r)})
 
@@ -380,11 +381,9 @@ def test_check_n():
 
 def test_code_check_fills_ok_draws(study, monkeypatch):
     """--code-check: picked 'ok' draws get <count>.codes.nc/.json (their own files untouched) and a separate store."""
-    from tearing_physics_suite.drivers import pipeline
     uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
     st.feed(study)
     _fake_pipeline(monkeypatch, {3: ValueError('x')})
-    monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
     st.run_item(study, f'{uid}.c0')
     st.run_item(study, f'{uid}.c1')                                        # draws 0-2 ok, 3 error
     _set_code_check(study, by='shot', fraction=0.0)
@@ -403,6 +402,21 @@ def test_code_check_fills_ok_draws(study, monkeypatch):
     codes = xr.open_zarr(st.shot_store(study, 100, code_check=True))
     assert list(codes.case_key.values) == [f'{uid}_0'] and list(codes.code_check_reason.values) == ['random']
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # main store: own files only
+
+
+def test_code_check_store_takes_checks_with_and_without_julia(study):
+    """A check flagged only beyond jgpec_nvec runs no Julia, so its file lacks Julia's cross-code comparisons; the
+    store redoes them over its codes, so it takes both kinds of check."""
+    from tearing_physics_suite.physics.global_quantities import delta_prime_variability
+    uid = '100_1500_base'
+    _set_code_check(study, codes=['rdcon', 'jGPEC_galerkin', 'jGPEC_riccati'])
+    for c, codes in ((0, ['rdcon', 'stride']), (1, ['rdcon', 'stride', 'jGPEC_galerkin', 'jGPEC_riccati'])):
+        base = _ok_draw(study, uid, c).removesuffix('.nc')
+        ds = xr.Dataset({'Delta_prime_surf': (('nn', 'code', 'r'), np.ones((1, len(codes), 2)))},
+                        coords={'nn': [1], 'code': codes})
+        delta_prime_variability(ds).to_netcdf(base + '.codes.nc', engine='scipy')
+        fq.write_json(base + '.codes.json', dict(case_key=f'{uid}_{c}', status='ok', reason='flagged'))
+    assert st.compile_shot(study, 100, code_check=True)['compiled'] == [f'{uid}_0', f'{uid}_1']
 
 
 def test_stride_flagged_n():
@@ -523,11 +537,9 @@ def test_stride_flag_recorded_and_compiled(study, monkeypatch):
 def test_killed_code_filled_by_its_code_check(study, monkeypatch):
     """A draw whose STRIDE was killed records code_killed; its code check re-runs STRIDE into the draw itself (record
     code_filled, flag redone), and the main compile holds the draw until then. Killed again, the check fails."""
-    from tearing_physics_suite.drivers import pipeline
     uid = _record(study, 100, 1500, selected=(0, 2, 3))
     st.feed(study)
     _fake_pipeline(monkeypatch, {0: ['killed', None], 3: ['killed', 'killed']})
-    monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
     monkeypatch.setattr(st, 'stride_flagged_n', lambda ds, flag: [
         int(n) for n in ds.nn.values if np.isnan(ds.Delta_prime.sel(code='stride', nn=n)).all()])
     _set_code_check(study, fraction=0.0, flag=dict(im_re_max=0.01, psi_n=[0.01, 0.9]))

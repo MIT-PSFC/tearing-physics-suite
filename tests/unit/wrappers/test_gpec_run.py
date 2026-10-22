@@ -82,18 +82,20 @@ def test_killed_run_is_recorded(tmp_path, monkeypatch, save_terminal_output):
 
 
 def test_peak_gib_matches_measured_peaks():
-    """The predictor against measured peaks (GiB): STRIDE n=4 at mpert 77 / 44 surfaces 7.7, at 73 / 38 5.7 (CG, W4);
-    RDCON's Delta' at 69 / 44 37.9 (CCG, 204323_2306 d0), and within W4's 28.7-33.6 GiB check steps at 65 / 38."""
+    """The predictor against measured peaks (GiB): STRIDE n=4 at mpert 77 / 44 surfaces 7.7, at 73 / 38 5.7 (CG, W4),
+    banded 1.80 at 77 (CCG); RDCON's Delta' at 69 / 44 37.9 (CCG, 204323_2306 d0), and within W4's 28.7-33.6 GiB check
+    steps at 65 / 38."""
     assert peak_gib('stride', 77, 44) == pytest.approx(7.7, abs=0.2)
+    assert 1.80 <= peak_gib('stride', 77, 44, banded=True) <= 1.9
     assert peak_gib('stride', 73, 38) == pytest.approx(5.7, abs=0.2)
     assert peak_gib('rdcon', 69, 44, nx=256) == pytest.approx(38.0, abs=0.1)
     assert 28.7 <= peak_gib('rdcon', 65, 38, nx=256) <= 33.6
 
 
-@pytest.mark.parametrize('mem, ran', [(2, False), (4, True)])
-def test_stride_not_started_when_predicted_too_big(tmp_path, eq_file, monkeypatch, mem, ran):
+@pytest.mark.parametrize('mem, banded, ran', [(2, 'f', False), (4, 'f', True), (2, 't', True)])
+def test_stride_not_started_when_predicted_too_big(tmp_path, eq_file, monkeypatch, mem, banded, ran):
     """Before STRIDE, its peak is predicted from RDCON's surface pass (fixture: mpert 27 + delta_mhigh 8, 5 surfaces:
-    2.02 GiB); in a session too small for it, STRIDE is not started and is recorded killed and skipped."""
+    2.02 GiB, banded 0.62); in a session too small for it, STRIDE is not started and is recorded killed and skipped."""
     from tearing_physics_suite.utils import CODE_KILLED, CODE_SKIPPED
     gpec_dir = _fake_gpec(tmp_path)
     exe = tmp_path / 'GPEC' / 'stride' / 'stride'
@@ -104,7 +106,7 @@ def test_stride_not_started_when_predicted_too_big(tmp_path, eq_file, monkeypatc
     CODE_KILLED.clear()
     CODE_SKIPPED.clear()
     GPEC_resistive_calculation(eq_file, 1, run_rdcon=True, run_stride=True, working_dir=str(tmp_path / 'work'),
-                               gpec_dir=gpec_dir, save_terminal_output=True)
+                               gpec_dir=gpec_dir, save_terminal_output=True, dprime_banded=banded)
     assert (tmp_path / 'stride_ran').exists() == ran
     assert CODE_SKIPPED == CODE_KILLED == ({} if ran else {'stride': [1]})
     CODE_KILLED.clear()

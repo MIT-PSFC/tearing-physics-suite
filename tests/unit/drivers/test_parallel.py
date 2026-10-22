@@ -611,3 +611,15 @@ def test_memory_classes(study, monkeypatch):
     with pytest.raises(RuntimeError, match='predicted peak 99 GiB does not fit the session'):
         st._check_memory(98.7)
     st._check_memory(29.2)
+
+
+def test_fill_need_follows_the_studys_inputs(study):
+    """A fill runs with the study's tps_kwargs as they are now: with dprime_banded on, its STRIDE is predicted banded,
+    also for a draw recorded before the key."""
+    uid = '100_1500_base'
+    _set_code_check(study, mem_classes=[9, 16, 35, 64])
+    _sized_draw(study, uid, 0, 65, 38, code_killed={'stride': [4]})
+    it, cfg = dict(shot=100, unit_id=uid, draws=[0], fill_n=[4]), st.load_config(study)
+    assert st._item_need_gib(study, cfg, it) == pytest.approx(5.77, abs=0.01)
+    cfg['tps_kwargs']['dprime_banded'] = 't'
+    assert st._item_need_gib(study, cfg, it) == pytest.approx(1.69, abs=0.01)

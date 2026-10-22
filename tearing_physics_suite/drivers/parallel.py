@@ -323,9 +323,9 @@ def _pick(check, r):
 _SIZES = {}  # draw .nc -> {n: (RDCON's mpert, msing)}: the feeder's cache
 
 
-def _need_gib(nc_path, rec, codes, n=None):
+def _need_gib(nc_path, inputs, codes, n=None):
     """Predicted peak (GiB, gpec_common.peak_gib) of running codes ('stride'; 'rdcon': its Delta') on a draw at n
-    (None: all its n), from the draw's RDCON surface pass (mpert, msing) and inputs (nx, delta_mhigh)."""
+    (None: all its n), from the draw's RDCON surface pass (mpert, msing) and inputs (nx, delta_mhigh, dprime_banded)."""
     import xarray as xr
 
     from tearing_physics_suite.wrappers.gpec_common import peak_gib
@@ -336,15 +336,15 @@ def _need_gib(nc_path, rec, codes, n=None):
             rd = ds[['mpert', 'psi_n_rational']].sel(code='rdcon').load()
         _SIZES[nc_path] = {int(k): (int(rd.mpert.sel(nn=k)), int(rd.psi_n_rational.sel(nn=k).count()))
                            for k in rd.nn.values}
-    dm, nx = rec['inputs']['delta_mhigh'], rec['inputs']['nx']
+    dm, nx, banded = inputs['delta_mhigh'], inputs['nx'], inputs.get('dprime_banded') == 't'  # not in older records
     sizes = [s for k, s in _SIZES[nc_path].items() if n is None or k in n]
-    return max([peak_gib('stride', mp + dm, ms) for mp, ms in sizes if 'stride' in codes]
+    return max([peak_gib('stride', mp + dm, ms, banded=banded) for mp, ms in sizes if 'stride' in codes]
                + [peak_gib('rdcon', mp, ms, nx) for mp, ms in sizes if 'rdcon' in codes], default=0.0)
 
 
 def _item_need_gib(study, cfg, it):
     """Predicted peak (GiB) of a code-check item: a fill's STRIDE at its fill_n, a check's RDCON Delta' (when a check
-    code) at its n."""
+    code) at its n, with the draw's inputs as the study's tps_kwargs set them now (the item runs with those)."""
     check = code_check_config(cfg)
     path = os.path.join(unit_dir(study, cfg, it['shot'], it['unit_id']), 'draws', str(it['draws'][0]))
     if 'fill_n' in it:
@@ -352,7 +352,8 @@ def _item_need_gib(study, cfg, it):
     else:
         codes = ['rdcon'] if 'rdcon' in check['codes'] else []
         n = (check['flagged_n_only'] and _check_n(it)) or check['nvec']
-    return _need_gib(path + '.nc', fq.read_json(path + '.json') or {}, codes, n)
+    inputs = {**(fq.read_json(path + '.json') or {}).get('inputs', {}), **cfg['tps_kwargs']}
+    return _need_gib(path + '.nc', inputs, codes, n)
 
 
 def _mem_class(need_gib, classes):

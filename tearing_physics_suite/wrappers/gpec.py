@@ -138,7 +138,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
         raise RuntimeError(f'RDCON failed for n={nn} (require_rdcon)')
     if run_stride and rdcon_ran and session_mem_gib():     # STRIDE's mpert: RDCON's + delta_mhigh; surfaces RDCON's
         need = peak_gib('stride', int(rdcon_xr.attrs['mpert']) + rdcon_stride_input_dict['delta_mhigh'],
-                        rdcon_xr.sizes.get('r', 0))
+                        rdcon_xr.sizes.get('r', 0), banded=rdcon_stride_input_dict['dprime_banded'] == 't')
         if not fits_memory(need):             # not started: it would not fit the session's memory
             for lost in (CODE_KILLED, CODE_SKIPPED):
                 lost.setdefault('stride', []).append(nn)

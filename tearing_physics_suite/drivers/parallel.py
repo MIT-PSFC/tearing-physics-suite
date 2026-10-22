@@ -57,10 +57,11 @@ DEFAULTS = dict(
     spot_check=None,            # true or SpotCheck fields: re-run a seeded random fraction of the draws through the key
                                 # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
     code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...], "flag":
-                                # {"im_re_max", "psi_n": [lo, hi], "dp_abs_max" (optional)}}: run these codes at these
-                                # n (default: the study's) on the 'ok' draws of a seeded random fraction of shots or
-                                # draws, filled in (--code-check); draws with a killed code first (see _check_case),
-                                # then with flag the STRIDE-flagged ones (see stride_flagged_n)
+                                # {"im_re_max", "psi_n": [lo, hi], optional "dp_abs_max", "dp_range": [lo, hi],
+                                # "im_re_m_offset"}, "flagged_n_only"}: run these codes at these n (default: the
+                                # study's) on the 'ok' draws of a seeded random fraction of shots or draws, filled in
+                                # (--code-check); draws with a killed code first (see _check_case), then with flag the
+                                # STRIDE-flagged ones (see stride_flagged_n; with flagged_n_only, at their flagged n)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -175,40 +176,54 @@ def code_check_config(cfg):
     c = cfg.get('code_check')
     if not c:
         return None
-    defaults = dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None, flag=None)
+    defaults = dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None, flag=None, flagged_n_only=False)
     c = dict(defaults, **c)
     study_n = cfg['tps_kwargs'].get('nvec') or [1]
-    flag_ok = c['flag'] is None or ({'im_re_max', 'psi_n'} <= set(c['flag']) <= {'im_re_max', 'psi_n', 'dp_abs_max'}
+    flag_ok = c['flag'] is None or ({'im_re_max', 'psi_n'} <= set(c['flag']) <= set(FLAG_KEYS)
                                     and cfg['tps_kwargs'].get('run_stride', True))     # the flag reads STRIDE's Delta'
     if (set(c) - set(defaults) or c['by'] not in ('shot', 'draw') or not c['codes'] or not flag_ok
             or set(c['codes']) - (set(CODE_ORDER) - {'stride'}) or not set(c['nvec'] or study_n) <= set(study_n)):
         raise ValueError(f"code_check: keys {sorted(defaults)}, by 'shot' or 'draw', codes from "
                          f"{[k for k in CODE_ORDER if k != 'stride']}, nvec from the study's {study_n}, flag "
-                         f"{{im_re_max, psi_n: [lo, hi], dp_abs_max (optional)}} on a STRIDE study: {c}")
+                         f"{{im_re_max, psi_n: [lo, hi], optional {FLAG_KEYS[2:]}}} on a STRIDE study: {c}")
     return c
 
 
+FLAG_KEYS = ('im_re_max', 'psi_n', 'dp_abs_max', 'dp_range', 'im_re_m_offset')
+
+
 def stride_flagged_n(ds, flag):
-    """The n at which a draw's STRIDE single-helicity Delta' is suspect: |Im| > im_re_max |Re|, no Re, or (with
-    dp_abs_max) |Re| > dp_abs_max, on a rational surface with psi_n[0] < psi_N < psi_n[1] (RDCON's surface map; a
-    draw without STRIDE has no Delta')."""
+    """The n at which a draw's STRIDE single-helicity Delta' is suspect, on a rational surface with psi_n[0] < psi_N <
+    psi_n[1] (RDCON's surface map; a draw without STRIDE has no Delta'): no Re; |Im| > im_re_max |Re| (with
+    im_re_m_offset only where m <= n + im_re_m_offset); and, when given, |Re| > dp_abs_max or Re outside dp_range."""
     sh = ds[['Delta_prime_surf', 'Im_Delta_prime_surf', 'psi_n_rational']].sel(Delta_prime_type='single helicity')
     sh = sh.reindex(code=['rdcon', 'stride'])
     re, im = sh.Delta_prime_surf.sel(code='stride'), sh.Im_Delta_prime_surf.sel(code='stride')
     psi = sh.psi_n_rational.sel(code='rdcon')
-    suspect = re.isnull() | (abs(im) > flag['im_re_max'] * abs(re))
+    im_bad = abs(im) > flag['im_re_max'] * abs(re)
+    if flag.get('im_re_m_offset') is not None:
+        im_bad = im_bad & (ds['m_rational'] <= ds['nn'] + flag['im_re_m_offset'])
+    suspect = re.isnull() | im_bad
     if flag.get('dp_abs_max') is not None:
         suspect = suspect | (abs(re) > flag['dp_abs_max'])
+    if flag.get('dp_range') is not None:
+        suspect = suspect | (re < flag['dp_range'][0]) | (re > flag['dp_range'][1])
     bad = suspect & (psi > flag['psi_n'][0]) & (psi < flag['psi_n'][1])
     return [int(n) for n in ds.nn.values[bad.any('r').values]]
 
 
-def code_check_kwargs(cfg, check, killed=()):
+def code_check_kwargs(cfg, check, killed=(), only_n=None):
     """The study's tps_kwargs for a code check: only the check's codes, and RDCON (whose surfaces every code uses),
-    at the check's n (every code there, Julia included). A killed STRIDE (the draw's code_killed) also runs, at every
+    at the check's n (every code there, Julia included), or only at only_n among them (a flagged draw's flagged n,
+    with flagged_n_only; Julia then at those of its n). A killed STRIDE (the draw's code_killed) also runs, at every
     study n, to fill the draw (see _check_case)."""
     solvers = [c.removeprefix('jGPEC_') for c in check['codes'] if c.startswith('jGPEC_')]
     n = dict(nvec=check['nvec'], jgpec_nvec=check['nvec']) if check.get('nvec') else {}
+    if only_n:
+        check_n = check.get('nvec') or cfg['tps_kwargs'].get('nvec') or [1]
+        jgpec_n = check.get('nvec') or cfg['tps_kwargs'].get('jgpec_nvec') or check_n
+        n = dict(nvec=[k for k in check_n if k in only_n], jgpec_nvec=[k for k in jgpec_n if k in only_n])
+        solvers = solvers if n['jgpec_nvec'] else []
     if 'stride' in killed:
         n.pop('nvec', None)
     return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'],
@@ -303,6 +318,7 @@ def feed_codes(study, cfg=None, extra=0):
         u, reason = _pick(check, r)
         new[reason.split('+')[0]].append((u, uid, dict(
             id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive', 'code_killed') if k in r},
+            **({'flagged_n': r['stride_flagged_n']} if r.get('stride_flagged_n') else {}),
             draws=[r['draw']], est=1, reason=reason)))
     for tier in ('killed', 'flagged', 'random', 'extra'):
         items = sorted(new[tier])[:extra] if tier == 'extra' else new[tier]
@@ -418,7 +434,8 @@ def run_item(study, item_id, code_check=False):
     if not todo:
         return out
     check = code_check_config(cfg)
-    kwargs = code_check_kwargs(cfg, check, it.get('code_killed', ())) if code_check else dict(cfg['tps_kwargs'])
+    only_n = it.get('flagged_n') if check and check['flagged_n_only'] and it.get('reason') == 'flagged' else None
+    kwargs = code_check_kwargs(cfg, check, it.get('code_killed', ()), only_n) if code_check else dict(cfg['tps_kwargs'])
     spot = None if code_check else spot_config(cfg)
     flag = (check or {}).get('flag')
     if cfg.get('tau_e'):

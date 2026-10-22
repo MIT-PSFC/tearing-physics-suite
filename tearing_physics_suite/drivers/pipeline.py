@@ -203,23 +203,36 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
 
     return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
+
+SAME_DRAW_RTOL = 1e-6  # fill_codes: round-off between node types passes (W4); another draw's inputs differ far more
+
+
 def fill_codes(combined_xr, other_xr):
     """combined_xr with other_xr's codes filled in along 'code' at other_xr's n (replacing combined_xr's entries for
     them there, e.g. a STRIDE-only draw's NaN RDCON Delta'; combined_xr's other n stay as they are), and the cross-code
     comparisons redone. Both must come from the same draw: other_xr's n among combined_xr's, and every variable without
-    'code' (surfaces, surface terms, inputs) equal where both have it, RDCON's run times aside; else ValueError.
-    Variables without 'code' are combined_xr's."""
-    def same(v):
+    'code' (surfaces, surface terms, inputs) equal where both have it, to SAME_DRAW_RTOL of its largest value (same
+    NaNs; non-floats exactly), RDCON's run times aside; else ValueError. Variables without 'code' are combined_xr's."""
+    def rel_diff(v):
         a, b = xr.align(combined_xr[v], other_xr[v], join='inner')
-        return a.equals(b)
+        if a.dtype.kind not in 'fc' or b.dtype.kind not in 'fc':
+            return 0.0 if a.equals(b) else np.inf
+        a, b = a.values, b.values
+        if not np.array_equal(np.isnan(a), np.isnan(b)):
+            return np.inf
+        d, scale = np.nanmax(abs(a - b), initial=0.0), np.nanmax(abs(a), initial=0.0)
+        return d / scale if scale else (0.0 if d == 0 else np.inf)
 
     def in_code_order(ds):
         return ds.sel(code=list(ordered_codes(dict.fromkeys(ds.code.values.tolist(), True))))
-    differ = [] if set(other_xr.nn.values) <= set(combined_xr.nn.values) else ['nn']
-    differ += [v for v in combined_xr.data_vars if v in other_xr and 'code' not in combined_xr[v].dims
-               and '_across_' not in v and v not in ('cpu_time', 'wall_time') and not same(v)]
-    if differ:
-        raise ValueError(f'fill_codes: not the same draw (differing: {differ[:5]})')
+    if not set(other_xr.nn.values) <= set(combined_xr.nn.values):
+        raise ValueError(f'fill_codes: not the same draw (n {other_xr.nn.values} not among the draw\'s)')
+    diffs = {v: rel_diff(v) for v in combined_xr.data_vars if v in other_xr and 'code' not in combined_xr[v].dims
+             and '_across_' not in v and v not in ('cpu_time', 'wall_time')}
+    worst = sorted(((d, v) for v, d in diffs.items() if d > SAME_DRAW_RTOL), reverse=True)
+    if worst:
+        raise ValueError('fill_codes: not the same draw (largest relative differences: '
+                         + ', '.join(f'{v} {d:.1e}' for d, v in worst[:5]) + ')')
     n = [k for k in combined_xr.nn.values if k in other_xr.nn.values]
     kept = combined_xr.sel(nn=n).drop_sel(code=[c for c in other_xr.code.values if c in combined_xr.code.values])
     filled = in_code_order(xr.concat([kept, other_xr], dim='code', data_vars='minimal', coords='minimal',

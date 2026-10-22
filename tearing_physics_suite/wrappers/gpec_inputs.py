@@ -260,7 +260,7 @@ RDCON_KEYS = (
 STRIDE_KEYS = (
     'use_classic_splines', 'use_notaknot_splines', 'nThreads', 'fourfit_metric_parallel', 'vac_parallel',
     'nIntervalsTot', 'grid_packing', 'axis_mid_pt_skew', 'asymp_at_sing', 'kill_big_soln_for_ideal_dW',
-    'calc_delta_prime', 'calc_dp_with_vac', 'big_soln_err_tol', 'integrate_riccati', 'riccati_bounce',
+    'calc_delta_prime', 'calc_dp_with_vac', 'big_soln_err_tol', 'dprime_banded', 'integrate_riccati', 'riccati_bounce',
     'riccati_match_hamiltonian_evals', 'verbose_riccati_output', 'ric_dt', 'ric_tol',
     'verbose_performance_output', 'sing_start_str',
 )
@@ -355,6 +355,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
             calc_delta_prime='t',                # When false, sing_order=2 is better for speed, (with less accuracy).
             calc_dp_with_vac='t',                # When vac_flag='t', this will use vacuum edge conditions to calculate delta prime.
             big_soln_err_tol=1e-7,               # Threshold error for correct solution to the delta prime bvp.
+            dprime_banded='f',                   # Banded LU for the delta prime bvp: same Delta', less memory and time
             integrate_riccati='f',               # Use Riccati integration for dW. Cannot calculate delta_prime.
             riccati_bounce='t',                  # Toggle integration mode to control growth of matrix
             riccati_match_hamiltonian_evals='f', #
@@ -515,6 +516,7 @@ def write_rdcon_stride_inputs(working_dir,eq_filename,write_equil_filename='/equ
         'calc_delta_prime': calc_delta_prime,
         'calc_dp_with_vac': calc_dp_with_vac,
         'big_soln_err_tol': big_soln_err_tol,
+        'dprime_banded': dprime_banded,
         'integrate_riccati': integrate_riccati,
         'riccati_bounce': riccati_bounce,
         'riccati_match_hamiltonian_evals': riccati_match_hamiltonian_evals,
@@ -657,7 +659,7 @@ def write_stride_in(path, *, bal_flag, mat_flag, vac_flag, gal_flag, sas_flag, d
                     mthsurf0, bin_euler, euler_stride, out_bal1, bin_bal1, out_bal2, bin_bal2, use_classic_splines,
                     use_notaknot_splines, nThreads, fourfit_metric_parallel, vac_parallel, nIntervalsTot,
                     grid_packing, axis_mid_pt_skew, asymp_at_sing, kill_big_soln_for_ideal_dW, calc_delta_prime,
-                    calc_dp_with_vac, big_soln_err_tol, integrate_riccati, riccati_bounce,
+                    calc_dp_with_vac, big_soln_err_tol, dprime_banded, integrate_riccati, riccati_bounce,
                     riccati_match_hamiltonian_evals, verbose_riccati_output, ric_dt, ric_tol,
                     verbose_performance_output, sing_start_str, **_):
     """Write stride.in. Keyword arguments are the STRIDE and shared inputs of write_rdcon_stride_inputs
@@ -735,6 +737,7 @@ def write_stride_in(path, *, bal_flag, mat_flag, vac_flag, gal_flag, sas_flag, d
     f.write('    calc_delta_prime='+calc_delta_prime +'\n')
     f.write('    calc_dp_with_vac='+calc_dp_with_vac +'\n')
     f.write('    big_soln_err_tol='+str(big_soln_err_tol) +'\n')
+    f.write('    dprime_banded='+dprime_banded +'\n')
     f.write('    integrate_riccati='+integrate_riccati +'\n')
     f.write('    riccati_bounce='+riccati_bounce +'\n')
     f.write('    riccati_match_hamiltonian_evals='+riccati_match_hamiltonian_evals +'\n')

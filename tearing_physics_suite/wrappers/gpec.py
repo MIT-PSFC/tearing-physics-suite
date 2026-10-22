@@ -2,10 +2,19 @@ import os
 import pickle as pkl
 import shutil
 
-from tearing_physics_suite.utils import code_timer, eq_stem, gpec_home, tps_home
+from tearing_physics_suite.utils import (
+    CODE_KILLED,
+    CODE_SKIPPED,
+    code_timer,
+    eq_stem,
+    fits_memory,
+    gpec_home,
+    session_mem_gib,
+    tps_home,
+)
 from tearing_physics_suite.wrappers import rdcon as rdcon_wrapper
 from tearing_physics_suite.wrappers import stride as stride_wrapper
-from tearing_physics_suite.wrappers.gpec_common import copy_terminal_output, executable, save_output
+from tearing_physics_suite.wrappers.gpec_common import copy_terminal_output, executable, peak_gib, save_output
 from tearing_physics_suite.wrappers.gpec_inputs import write_rdcon_stride_inputs
 
 
@@ -127,6 +136,14 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
             rdcon_xr, rdcon_ran = rdcon_wrapper.run_rdcon(gpec_dir, working_dir, nn, **run_opts)
     if require_rdcon and run_rdcon and not rdcon_ran:
         raise RuntimeError(f'RDCON failed for n={nn} (require_rdcon)')
+    if run_stride and rdcon_ran and session_mem_gib():     # STRIDE's mpert: RDCON's + delta_mhigh; surfaces RDCON's
+        need = peak_gib('stride', int(rdcon_xr.attrs['mpert']) + rdcon_stride_input_dict['delta_mhigh'],
+                        rdcon_xr.sizes.get('r', 0), banded=rdcon_stride_input_dict['dprime_banded'] == 't')
+        if not fits_memory(need):             # not started: it would not fit the session's memory
+            for lost in (CODE_KILLED, CODE_SKIPPED):
+                lost.setdefault('stride', []).append(nn)
+            run_stride = False
+            codes.remove('stride')
     if run_stride:
         with code_timer(f'stride_n{nn}'):
             stride_xr, stride_ran = stride_wrapper.run_stride(gpec_dir, working_dir, nn, **run_opts)

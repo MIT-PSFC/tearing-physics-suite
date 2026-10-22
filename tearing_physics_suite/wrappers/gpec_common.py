@@ -13,14 +13,17 @@ def peak_gib(code, mpert, msing, nx=None, banded=False):
     """Predicted peak memory (GiB) of a STRIDE run or an RDCON Delta' run ('rdcon') at one n, from that code's mpert
     and the msing rational surfaces (complex arrays, 16 B). STRIDE (CG, W4 peaks): 2 GiB plus the dense BVP matrix and
     its copy in ode_calc_delta_prime, nMat^2 each, nMat = (2 + 4 msing) mpert; banded (dprime_banded): 0.3 GiB plus
-    2.6e-4 mpert^2 (CCG: 109 peaks, mpert 34-77, within -0.2-0.26 GiB of it). RDCON (CCG, gal.f; within 0.1-1.05 GiB
-    of 124 measured peaks): 1.1 GiB plus gal_alloc's arrays for solver 'LU' (also the bound for 'cholesky', which can
-    fall back to it): the element matrices, 16 mpert^2 per cell over nx (msing + 1) cells, the band, 12 mpert + 1 rows,
-    and rhs and sol, 4 msing columns, of ndim = 2 mpert (nx (msing + 1) + 1) + 2 msing unknowns."""
+    2.6e-4 mpert^2 (CCG: 109 peaks, mpert 34-77, within -0.2-0.26 GiB of it). RDCON (CCG, gal.f as of GPEC 433329b4,
+    which frees the element matrices on the LU path, with MALLOC_MMAP_THRESHOLD_; 0.09-0.98 GiB above 64 measured peaks,
+    'LU' and 'cholesky'): 1.1 GiB plus rhs and sol, 4 msing columns of ndim = 2 mpert (nx (msing + 1) + 1) + 2 msing
+    unknowns, plus the larger of the LU band, 12 mpert + 1 rows, and the element matrices, 16 mpert^2 per cell over
+    nx (msing + 1) cells, with the Cholesky band, 4 mpert + 1 rows ('cholesky' holds both until it is done or falls
+    back to LU)."""
     if code == 'stride':
         return 0.3 + 2.6e-4 * mpert ** 2 if banded else 2 + 32 * ((2 + 4 * msing) * mpert) ** 2 / 2 ** 30
     ndim = 2 * mpert * (nx * (msing + 1) + 1) + 2 * msing
-    return 1.1 + 16 * (16 * mpert ** 2 * nx * (msing + 1) + (12 * mpert + 1 + 4 * msing) * ndim) / 2 ** 30
+    elements = 16 * mpert ** 2 * nx * (msing + 1)
+    return 1.1 + 16 * (max(elements + (4 * mpert + 1) * ndim, (12 * mpert + 1) * ndim) + 4 * msing * ndim) / 2 ** 30
 
 
 def executable(gpec_dir, code):

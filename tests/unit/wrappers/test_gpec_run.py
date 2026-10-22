@@ -83,13 +83,13 @@ def test_killed_run_is_recorded(tmp_path, monkeypatch, save_terminal_output):
 
 def test_peak_gib_matches_measured_peaks():
     """The predictor against measured peaks (GiB): STRIDE n=4 at mpert 77 / 44 surfaces 7.7, at 73 / 38 5.7 (CG, W4),
-    banded 1.80 at 77 (CCG); RDCON's Delta' at 69 / 44 37.9 (CCG, 204323_2306 d0), and within W4's 28.7-33.6 GiB check
-    steps at 65 / 38."""
+    banded 1.80 at 77 (CCG); RDCON's Delta' (GPEC 433329b4, CCG) at 69 / 44 24.82 with 'cholesky' falling back to LU
+    (204323_2306 d0), at 65 / 38 18.91 (204323_1010 d3)."""
     assert peak_gib('stride', 77, 44) == pytest.approx(7.7, abs=0.2)
     assert 1.80 <= peak_gib('stride', 77, 44, banded=True) <= 1.9
     assert peak_gib('stride', 73, 38) == pytest.approx(5.7, abs=0.2)
-    assert peak_gib('rdcon', 69, 44, nx=256) == pytest.approx(38.0, abs=0.1)
-    assert 28.7 <= peak_gib('rdcon', 65, 38, nx=256) <= 33.6
+    assert 24.82 <= peak_gib('rdcon', 69, 44, nx=256) <= 24.82 + 0.2
+    assert 18.91 <= peak_gib('rdcon', 65, 38, nx=256) <= 18.91 + 0.3
 
 
 @pytest.mark.parametrize('mem, banded, ran', [(2, 'f', False), (4, 'f', True), (2, 't', True)])

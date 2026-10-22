@@ -10,6 +10,7 @@ from tearing_physics_suite.utils import (
     code_timer,
     create_dense_log_paramvals,
     eq_stem,
+    gpec_home,
     node_slot,
     run_code,
     trim_nans,
@@ -108,3 +109,11 @@ def test_code_timer_adds_up_and_counts_failures():
         raise TimeoutError
     assert 0.1 <= CODE_WALL_S['rdcon_n1'] < 1 and 0.05 <= CODE_WALL_S['stride_n1'] < 1
     CODE_WALL_S.clear()
+
+
+def test_gpec_home(monkeypatch):
+    monkeypatch.setenv('TPSHOME', '/tps')
+    monkeypatch.delenv('TPS_GPEC_DIR', raising=False)
+    assert gpec_home() == '/tps/submodules/GPEC'
+    monkeypatch.setenv('TPS_GPEC_DIR', '/runtime/gpec')
+    assert gpec_home() == '/runtime/gpec'

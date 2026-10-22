@@ -5,7 +5,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from tearing_physics_suite.utils import tps_home, tps_threads
+from tearing_physics_suite.utils import gpec_home, tps_home, tps_threads
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation, _default_eq_type
 from tearing_physics_suite.wrappers.jgpec import check_jgpec_request, run_jgpec_solvers
 from tearing_physics_suite.wrappers.pest3 import PEST3_resistive_calculation, pest3_special_truncation_loop
@@ -92,7 +92,7 @@ def run_resistive_calculation(eq_filename, nn, run_rdcon=True, run_stride=True, 
     if pest3_dir is None:
         pest3_dir = os.path.join(tps_home(), 'submodules/PEST3/cmake_build/pest3')
     if gpec_dir is None:
-        gpec_dir = os.path.join(tps_home(), 'submodules/GPEC')
+        gpec_dir = gpec_home()
     if working_dir is None:
         working_dir = os.path.join(tps_home(), 'working_dir')
 

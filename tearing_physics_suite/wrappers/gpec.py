@@ -2,7 +2,7 @@ import os
 import pickle as pkl
 import shutil
 
-from tearing_physics_suite.utils import code_timer, eq_stem, tps_home
+from tearing_physics_suite.utils import code_timer, eq_stem, gpec_home, tps_home
 from tearing_physics_suite.wrappers import rdcon as rdcon_wrapper
 from tearing_physics_suite.wrappers import stride as stride_wrapper
 from tearing_physics_suite.wrappers.gpec_common import copy_terminal_output, executable, save_output
@@ -64,7 +64,7 @@ def GPEC_resistive_calculation(eq_filename, nn, run_rdcon=False, run_stride=Fals
         Input parameters used for the calculations.
     """
     if gpec_dir is None:
-        gpec_dir = os.path.join(tps_home(), 'submodules/GPEC')
+        gpec_dir = gpec_home()
     if working_dir is None:
         working_dir = os.path.join(tps_home(), 'working_dir')
 

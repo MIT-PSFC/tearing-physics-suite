@@ -147,6 +147,7 @@ def work_root():
 
 
 CODE_WALL_S = {}  # '<code>_n<n>' (and 'jGPEC_start'): wall seconds of the code runs in this process (parallel: per draw)
+CODE_KILLED = {}  # code: [n] of its runs killed by a signal (e.g. out of memory) in this process (parallel: per draw)
 
 
 @contextlib.contextmanager

@@ -4,7 +4,7 @@ import shutil
 
 import xarray as xr
 
-from tearing_physics_suite.utils import run_code
+from tearing_physics_suite.utils import CODE_KILLED, run_code
 
 STRIDE_STACK = 1 << 30  # bytes: main-thread stack limit of a STRIDE run (OMP_STACKSIZE 1G for its threads)
 
@@ -28,7 +28,8 @@ def stage_executable(gpec_dir, code, working_dir):
 def run_gpec_code(code, working_dir, nn, fresh_start=True, save_terminal_output=True, verbose=False):
     """Run working_dir/<code> (inputs already written) and read <code>_output_n{nn}.nc.
 
-    Returns (xr.Dataset or None, ran). Must be called with the cwd set to working_dir.
+    Returns (xr.Dataset or None, ran). Must be called with the cwd set to working_dir. A run killed by a signal (e.g.
+    an out-of-memory kill) is also recorded in utils.CODE_KILLED.
     """
     out_nc = os.path.join(working_dir, f'{code}_output_n{nn}.nc')
     if fresh_start and os.path.exists(out_nc):
@@ -44,6 +45,8 @@ def run_gpec_code(code, working_dir, nn, fresh_start=True, save_terminal_output=
         if verbose: print(f"{code} terminal output saved to {code}_terminal_output_n{nn}.txt")
     else:
         status = run_code(f'{working_dir}/{code}', shell=False, **run_env)
+    if status < 0 or (save_terminal_output and status > 128):  # the shell reports 128 + signal
+        CODE_KILLED.setdefault(code, []).append(nn)
     if status != 0 or not os.path.exists(out_nc):
         return None, False
     ds = xr.open_dataset(out_nc)

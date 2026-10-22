@@ -66,6 +66,21 @@ def test_failed_run_returns_none(tmp_path, eq_file):
     assert rd is None and not rd_ran
 
 
+@pytest.mark.parametrize('save_terminal_output', [True, False])
+def test_killed_run_is_recorded(tmp_path, monkeypatch, save_terminal_output):
+    """A code killed by a signal (e.g. out of memory) is a failed run in CODE_KILLED; a plain failure is not."""
+    from tearing_physics_suite.utils import CODE_KILLED
+    CODE_KILLED.clear()
+    monkeypatch.chdir(tmp_path)
+    exe = tmp_path / 'stride'
+    for body in ('exit 3', 'kill -9 $$'):
+        exe.write_text(f'#!/bin/sh\n{body}\n')
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+        assert run_gpec_code('stride', str(tmp_path), 4, save_terminal_output=save_terminal_output) == (None, False)
+    assert CODE_KILLED == {'stride': [4]}
+    CODE_KILLED.clear()
+
+
 def test_make_results_dir_false_saves_nothing(tmp_path, eq_file):
     """make_results_dir reaches GPEC_resistive_calculation: no output_location, no copies in working_dir."""
     work = tmp_path / 'work'

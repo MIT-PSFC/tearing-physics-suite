@@ -137,6 +137,9 @@ def test_fill_codes_at_some_n(monkeypatch):
     np.testing.assert_array_equal(dp.sel(code='stride'), [[1., 2.], [3., 4.]])
     np.testing.assert_array_equal(dp.sel(code='jGPEC_galerkin'), [[nan, nan], [11., 12.]])
     xr.testing.assert_identical(filled.Wc, draw.Wc)
-    for bad in (other(wc=(7., 8.5)), other(n=3)):
+    for bad in (other(wc=(7., 8.5)), other(wc=(7., nan)), other(n=3)):
         with pytest.raises(ValueError, match='not the same draw'):
             pl.fill_codes(draw, bad)
+    with pytest.raises(ValueError, match=r'Wc 6\.\de-02'):                       # the size is in the message
+        pl.fill_codes(draw, other(wc=(7., 8.5)))
+    xr.testing.assert_identical(pl.fill_codes(draw, other(wc=(7., 8. * (1 + 1e-12)))).Wc, draw.Wc)   # round-off

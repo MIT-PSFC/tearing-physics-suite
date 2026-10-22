@@ -61,7 +61,8 @@ DEFAULTS = dict(
                                 # "im_re_m_offset"}, "flagged_n_only"}: run these codes at these n (default: the
                                 # study's) on the 'ok' draws of a seeded random fraction of shots or draws, filled in
                                 # (--code-check); draws with a killed code first (see _check_case), then with flag the
-                                # STRIDE-flagged ones (see stride_flagged_n; with flagged_n_only, at their flagged n)
+                                # STRIDE-flagged ones (see stride_flagged_n; with flagged_n_only, a draw checked only
+                                # for a flag or a killed code runs at its flagged and killed n, see _check_n)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -212,11 +213,21 @@ def stride_flagged_n(ds, flag):
     return [int(n) for n in ds.nn.values[bad.any('r').values]]
 
 
+def _check_n(it):
+    """The n a code-check item needs with flagged_n_only: its flagged and killed n, when it is checked only for those
+    (reason flagged and/or killed); None (every n) for the seeded random sample and the extras."""
+    reasons = set((it.get('reason') or 'random').split('+'))
+    if 'random' in reasons or not reasons & {'flagged', 'killed'}:
+        return None
+    killed_n = {k for ns in (it.get('code_killed') or {}).values() for k in ns}
+    return sorted(set(it.get('flagged_n') or ()) | killed_n) or None
+
+
 def code_check_kwargs(cfg, check, killed=(), only_n=None):
     """The study's tps_kwargs for a code check: only the check's codes, and RDCON (whose surfaces every code uses),
-    at the check's n (every code there, Julia included), or only at only_n among them (a flagged draw's flagged n,
-    with flagged_n_only; Julia then at those of its n). A killed STRIDE (the draw's code_killed) also runs, at every
-    study n, to fill the draw (see _check_case)."""
+    at the check's n (every code there, Julia included), or only at only_n among them (with flagged_n_only: a draw
+    checked for a flag or a killed code, at its flagged and killed n; Julia then at those of its n). A killed STRIDE
+    (the draw's code_killed) also runs, at only_n or else every study n, to fill the draw (see _check_case)."""
     solvers = [c.removeprefix('jGPEC_') for c in check['codes'] if c.startswith('jGPEC_')]
     n = dict(nvec=check['nvec'], jgpec_nvec=check['nvec']) if check.get('nvec') else {}
     if only_n:
@@ -224,7 +235,7 @@ def code_check_kwargs(cfg, check, killed=(), only_n=None):
         jgpec_n = check.get('nvec') or cfg['tps_kwargs'].get('jgpec_nvec') or check_n
         n = dict(nvec=[k for k in check_n if k in only_n], jgpec_nvec=[k for k in jgpec_n if k in only_n])
         solvers = solvers if n['jgpec_nvec'] else []
-    if 'stride' in killed:
+    if 'stride' in killed and not only_n:
         n.pop('nvec', None)
     return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'],
                 run_stride='stride' in killed, run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers),
@@ -434,7 +445,7 @@ def run_item(study, item_id, code_check=False):
     if not todo:
         return out
     check = code_check_config(cfg)
-    only_n = it.get('flagged_n') if check and check['flagged_n_only'] and it.get('reason') == 'flagged' else None
+    only_n = _check_n(it) if check and check['flagged_n_only'] else None
     kwargs = code_check_kwargs(cfg, check, it.get('code_killed', ()), only_n) if code_check else dict(cfg['tps_kwargs'])
     spot = None if code_check else spot_config(cfg)
     flag = (check or {}).get('flag')
@@ -514,7 +525,8 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
 def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, flag=None):
     """run_case for a code check: the check's codes on the draw's inputs, filled into its dataset (<count>.nc), the
     result written to nc_path (<count>.codes.nc). The draw's killed codes (code_killed) are re-run here and first fill
-    the draw itself (<count>.nc; in its record code_filled, and stride_flagged_n redone with flag), or the check fails."""
+    the draw itself at the re-run n (<count>.nc; in its record code_filled, and stride_flagged_n redone with flag), or
+    the check fails."""
     import xarray as xr
 
     from tearing_physics_suite.drivers import multi_run

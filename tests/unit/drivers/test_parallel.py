@@ -361,6 +361,21 @@ def test_code_check_config():
     n24 = st.code_check_kwargs(cfg4, both, only_n=[2, 4])                   # Julia at its n among the flagged
     assert {k: n24[k] for k in ('nvec', 'jgpec_nvec', 'run_jgpec')} == dict(nvec=[2, 4], jgpec_nvec=[2], run_jgpec=True)
     assert st.code_check_kwargs(cfg4, both)['nvec'] == [1, 2, 3, 4]         # not flagged-only: the study's n
+    k4 = st.code_check_kwargs(cfg4, both, {'stride': [4]}, only_n=[4])      # STRIDE killed at n=4: re-run there only
+    assert {k: k4[k] for k in ('nvec', 'run_stride', 'run_jgpec')} == dict(nvec=[4], run_stride=True, run_jgpec=False)
+    assert st.code_check_kwargs(cfg4, both, {'stride': [4]})['nvec'] == [1, 2, 3, 4]   # not flagged-only: every n
+
+
+def test_check_n():
+    """flagged_n_only: a draw checked for a flag or a killed code needs its flagged and killed n; the random sample
+    and the extras every n."""
+    assert st._check_n(dict(reason='flagged', flagged_n=[3, 4])) == [3, 4]
+    assert st._check_n(dict(reason='killed+flagged', flagged_n=[4], code_killed={'stride': [4]})) == [4]
+    assert st._check_n(dict(reason='killed', code_killed={'stride': [2, 4]})) == [2, 4]
+    assert st._check_n(dict(reason='killed+flagged', flagged_n=[3], code_killed={'stride': [4]})) == [3, 4]
+    for it in (dict(reason='flagged+random', flagged_n=[4]), dict(reason='killed+random', code_killed={'stride': [4]}),
+               dict(reason='random'), dict(reason='extra'), dict()):
+        assert st._check_n(it) is None
 
 
 def test_code_check_fills_ok_draws(study, monkeypatch):
@@ -533,3 +548,21 @@ def test_killed_code_filled_by_its_code_check(study, monkeypatch):
     assert dp[:2].tolist() == [2.0, 0.0] and np.isnan(dp[2])
     assert {k: st.draw_status(study)[0][100][k] for k in ('code_killed', 'code_filled')} == dict(code_killed=2,
                                                                                                   code_filled=1)
+
+
+def test_killed_fill_keeps_the_other_n(tmp_path, monkeypatch):
+    """A STRIDE re-run at its killed n only fills that n: the draw (and its check file) keep STRIDE's other n."""
+    from tearing_physics_suite.drivers import pipeline
+    monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
+
+    def dataset(nn, stride):
+        return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), [[[1.0], [s]] for s in stride]), 'qlim': ((), 3.0)},
+                          coords={'nn': nn, 'code': ['rdcon', 'stride'], 'r': [0]})
+    dataset([1, 2], [2.0, np.nan]).to_netcdf(tmp_path / '0.nc', engine='scipy')     # STRIDE n=2 killed
+    fq.write_json(str(tmp_path / '0.json'), dict(status='ok', code_killed={'stride': [2]}))
+    monkeypatch.setattr(multi_run, 'run_case', lambda *a: (dataset([2], [4.0]), {}))   # the check, at n=2 only
+    CODE_KILLED.clear()
+    st._check_case(None, None, {}, str(tmp_path), str(tmp_path / '0.codes.nc'))
+    for f in ('0.nc', '0.codes.nc'):
+        stride = xr.open_dataset(tmp_path / f, engine='scipy').Delta_prime.sel(code='stride', r=0)
+        assert stride.values.tolist() == [2.0, 4.0], f

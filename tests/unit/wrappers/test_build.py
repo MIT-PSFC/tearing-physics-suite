@@ -110,13 +110,18 @@ def test_gpec_clean_logic(tmp_path, monkeypatch, fake_run, rebuild, remake, clea
     assert ['make', 'v'] not in make_cmds  # only with debug=True
 
 
-def test_pest3_rebuild_keeps_source(tmp_path, monkeypatch, fake_run):
-    """rebuild removes cmake_build/ in the tree, not the source; stop at cmake."""
+def _pest3_source(tmp_path):
     pest3 = tmp_path / 'submodules' / 'PEST3'
     (pest3 / '.git').mkdir(parents=True)
     (pest3 / 'scimake').mkdir()
     (pest3 / 'scimake' / 'SciInit.cmake').write_text('x')
     (pest3 / 'CMakeLists.txt').write_text('x')
+    return pest3
+
+
+def test_pest3_rebuild_keeps_source(tmp_path, monkeypatch, fake_run):
+    """rebuild removes cmake_build/ in the tree, not the source; stop at cmake."""
+    pest3 = _pest3_source(tmp_path)
     old = pest3 / 'cmake_build' / 'pest3' / 'pest3x'
     old.parent.mkdir(parents=True)
     old.write_text('x')
@@ -128,6 +133,21 @@ def test_pest3_rebuild_keeps_source(tmp_path, monkeypatch, fake_run):
     assert (pest3 / 'CMakeLists.txt').exists()
     assert not old.exists()
     assert not any(c[:2] in (['git', 'clone'], ['git', 'submodule']) for c in _cmds(fake_run))
+
+
+def test_pest3_uses_gpec_built_in_work_dir(tmp_path, monkeypatch, fake_run):
+    """With a work_dir, GPEC's VACUUM is taken from <work_dir>/GPEC, where build_GPEC compiles it."""
+    _pest3_source(tmp_path)
+    gpec = tmp_path / 'work' / 'GPEC'
+    for f in ('deps/lib/libvac.a', 'vacuum/vacuum_mod.mod'):
+        (gpec / f).parent.mkdir(parents=True, exist_ok=True)
+        (gpec / f).write_text('x')
+    monkeypatch.setattr(bg, 'tps_home', lambda: str(tmp_path))
+    _mock_compilers(monkeypatch)
+    fake_run['fail'] = ['cmake']
+
+    assert not bg.build_PEST3({}, rebuild=True, run_tests=False, work_dir=tmp_path / 'work')
+    assert any(f'-DGPEC_DIR={gpec}' in c for c in _cmds(fake_run) if c[0] == 'cmake')
 
 
 def test_env_file_records_versions(tmp_path, monkeypatch):

@@ -365,7 +365,8 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     gpec_vacuum : bool
         Link GPEC's VACUUM (pest3x -V, the TPS default vacuum). Needs a built GPEC.
     gpec_dir : str or Path, optional
-        Built GPEC tree for gpec_vacuum (default: submodules/GPEC).
+        Built GPEC tree for gpec_vacuum (default: where build_GPEC compiles it, ``<work_dir>/GPEC``, else
+        submodules/GPEC).
 
     Returns:
     --------
@@ -391,7 +392,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     # Skip compilation if already built and rebuild not requested
     # ------------------------------------------------------------------
     if gpec_dir is None:
-        gpec_dir = Path(home_dir) / "submodules" / "GPEC"
+        gpec_dir = Path(work_dir) / "GPEC" if work_dir else Path(home_dir) / "submodules" / "GPEC"
     gpec_dir = Path(gpec_dir)
     if gpec_vacuum and not ((gpec_dir / "deps" / "lib" / "libvac.a").exists()
                             and (gpec_dir / "vacuum" / "vacuum_mod.mod").exists()):

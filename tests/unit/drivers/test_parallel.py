@@ -12,7 +12,7 @@ from tearing_physics_suite.analysis.shot_data import open_shot
 from tearing_physics_suite.drivers import fsqueue as fq
 from tearing_physics_suite.drivers import multi_run, profile_read
 from tearing_physics_suite.drivers import parallel as st
-from tearing_physics_suite.utils import CODE_KILLED
+from tearing_physics_suite.utils import CODE_KILLED, CODE_SKIPPED
 
 
 def _record(study, shot, t_ms, variant='base', status='done', selected=(0, 1, 2, 3, 4)):
@@ -68,8 +68,8 @@ def _run_dataset(c, n_r=3):
 
 
 def _fake_pipeline(monkeypatch, behaviour):
-    """read_bouquet_archive / run_case stand-ins; behaviour[count] is None (ok), an exception, 'none', or 'killed'
-    (STRIDE killed: NaN, in CODE_KILLED)."""
+    """read_bouquet_archive / run_case stand-ins; behaviour[count] is None (ok), an exception, 'none', 'killed' (STRIDE
+    killed: NaN, in CODE_KILLED) or 'skipped' (STRIDE not started: also in CODE_SKIPPED)."""
     def read(path, draw_counts=None, eqdsk_out_dir=None, **kw):
         os.makedirs(eqdsk_out_dir, exist_ok=True)
         return [f'{eqdsk_out_dir}/eq{c}' for c in draw_counts], [dict(bq_count=c) for c in draw_counts]
@@ -85,8 +85,9 @@ def _fake_pipeline(monkeypatch, behaviour):
         ds = _run_dataset(prof['bq_count'])
         if prof['bq_count'] == 1:                         # a draw where STRIDE did not run
             ds = ds.sel(code=['rdcon'])
-        if b == 'killed':
-            CODE_KILLED['stride'] = [1]
+        if b in ('killed', 'skipped'):
+            for lost in (CODE_KILLED, CODE_SKIPPED) if b == 'skipped' else (CODE_KILLED,):
+                lost['stride'] = [1]
             ds['Delta_prime'].loc[dict(code='stride')] = np.nan
         ds = multi_run._augment_combined_xr(ds, label, prof, labels)
         ds.to_netcdf(nc_path, engine='scipy')
@@ -329,7 +330,7 @@ def _set_code_check(study, **check):
 def test_code_check_config():
     cfg = dict(tps_kwargs=dict(nvec=[1, 2], jgpec_nvec=[1]))
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon']))) == dict(
-        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None, flag=None, flagged_n_only=False)
+        by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None, flag=None, flagged_n_only=False, mem_classes=None)
     flag = dict(im_re_max=0.01, psi_n=[0.01, 0.9])
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=flag)))['flag'] == flag
     big = dict(flag, dp_abs_max=1e3)
@@ -337,9 +338,12 @@ def test_code_check_config():
     full = dict(flag, dp_range=[-300, 150], im_re_m_offset=3)
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=full, flagged_n_only=True)))[
         'flagged_n_only'] is True
+    classes = dict(codes=['rdcon'], mem_classes=[9, 16])
+    assert st.code_check_config(dict(cfg, code_check=classes))['mem_classes'] == [9, 16]
     for bad in (dict(by='slice', codes=['rdcon']), dict(codes=['stride']), dict(codes=[]),
                 dict(codes=['rdcon'], nvec=[3]), dict(codes=['rdcon'], budget='extra'),
-                dict(codes=['rdcon'], flag=dict(flag, no_dp=True))):
+                dict(codes=['rdcon'], flag=dict(flag, no_dp=True)), dict(codes=['rdcon'], mem_classes=[16, 9]),
+                dict(codes=['rdcon'], mem_classes=[])):
         with pytest.raises(ValueError):
             st.code_check_config(dict(cfg, code_check=bad))
     with pytest.raises(ValueError):                                             # the flag reads STRIDE's Delta'
@@ -350,9 +354,6 @@ def test_code_check_config():
     only_galerkin_n2 = st.code_check_kwargs(cfg, dict(codes=['jGPEC_galerkin'], nvec=[2]))   # RDCON: surfaces only
     assert {k: only_galerkin_n2[k] for k in ('nvec', 'jgpec_nvec', 'rdcon_delta_prime', 'jgpec_solvers')} == dict(
         nvec=[2], jgpec_nvec=[2], rdcon_delta_prime=False, jgpec_solvers=['galerkin'])
-    refill = st.code_check_kwargs(cfg, dict(codes=['jGPEC_galerkin'], nvec=[2]), {'stride': [1]})   # every study n
-    assert {k: refill[k] for k in ('nvec', 'jgpec_nvec', 'run_stride')} == dict(nvec=[1, 2], jgpec_nvec=[2],
-                                                                                 run_stride=True)
     both = dict(codes=['rdcon', 'jGPEC_galerkin', 'jGPEC_riccati'], nvec=None)
     cfg4 = dict(tps_kwargs=dict(nvec=[1, 2, 3, 4], jgpec_nvec=[1, 2]))
     n4 = st.code_check_kwargs(cfg4, both, only_n=[4])                       # flagged at n=4: RDCON there, no Julia
@@ -361,20 +362,14 @@ def test_code_check_config():
     n24 = st.code_check_kwargs(cfg4, both, only_n=[2, 4])                   # Julia at its n among the flagged
     assert {k: n24[k] for k in ('nvec', 'jgpec_nvec', 'run_jgpec')} == dict(nvec=[2, 4], jgpec_nvec=[2], run_jgpec=True)
     assert st.code_check_kwargs(cfg4, both)['nvec'] == [1, 2, 3, 4]         # not flagged-only: the study's n
-    k4 = st.code_check_kwargs(cfg4, both, {'stride': [4]}, only_n=[4])      # STRIDE killed at n=4: re-run there only
-    assert {k: k4[k] for k in ('nvec', 'run_stride', 'run_jgpec')} == dict(nvec=[4], run_stride=True, run_jgpec=False)
-    assert st.code_check_kwargs(cfg4, both, {'stride': [4]})['nvec'] == [1, 2, 3, 4]   # not flagged-only: every n
 
 
 def test_check_n():
-    """flagged_n_only: a draw checked for a flag or a killed code needs its flagged and killed n; the random sample
-    and the extras every n."""
+    """flagged_n_only: a draw checked for its flags alone needs its flagged n; the random sample and the extras every
+    n."""
     assert st._check_n(dict(reason='flagged', flagged_n=[3, 4])) == [3, 4]
-    assert st._check_n(dict(reason='killed+flagged', flagged_n=[4], code_killed={'stride': [4]})) == [4]
-    assert st._check_n(dict(reason='killed', code_killed={'stride': [2, 4]})) == [2, 4]
-    assert st._check_n(dict(reason='killed+flagged', flagged_n=[3], code_killed={'stride': [4]})) == [3, 4]
-    for it in (dict(reason='flagged+random', flagged_n=[4]), dict(reason='killed+random', code_killed={'stride': [4]}),
-               dict(reason='random'), dict(reason='extra'), dict()):
+    assert st._check_n(dict(reason='killed+flagged', flagged_n=[4])) == [4]                 # an item fed before fills
+    for it in (dict(reason='flagged+random', flagged_n=[4]), dict(reason='random'), dict(reason='extra'), dict()):
         assert st._check_n(it) is None
 
 
@@ -494,9 +489,9 @@ def test_code_check_feed_order(study):
     _ok_draw(study, uid, 7, stride_flagged_n=[1])
     assert st.feed_codes(study, extra=2) == 1 and reasons()[f'{uid}.d7'] == 'flagged+random'
     _ok_draw(study, uid, 8, stride_flagged_n=[1])
-    _ok_draw(study, uid, 9, code_killed={'stride': [4]})
-    assert st.feed_codes(study) == 1 and reasons()[f'{uid}.d9'] == 'killed+random'     # a killed code first
-    assert q.units()[f'{uid}.d9']['code_killed'] == {'stride': [4]} and st.feed_codes(study) == 0
+    nc9 = _ok_draw(study, uid, 9, code_killed={'stride': [4]}, stride_flagged_n=[4])   # a lost STRIDE n: fill first
+    assert st.feed_codes(study) == 1 and reasons()[f'{uid}.f9'] == 'killed' and q.units()[f'{uid}.f9']['fill_n'] == [4]
+    assert st.feed_codes(study) == 0 and nc9 in st.code_check_pending(study, 100)
 
 
 def test_stride_flag_recorded_and_compiled(study, monkeypatch):
@@ -520,13 +515,14 @@ def test_stride_flag_recorded_and_compiled(study, monkeypatch):
     np.testing.assert_array_equal(xr.open_zarr(st.shot_store(study, 100)).stride_flag.values, [[1], [0], [1]])
 
 
-def test_killed_code_filled_by_its_code_check(study, monkeypatch):
-    """A draw whose STRIDE was killed records code_killed; its code check re-runs STRIDE into the draw itself (record
-    code_filled, flag redone), and the main compile holds the draw until then. Killed again, the check fails."""
+def test_lost_stride_n_filled_first(study, monkeypatch):
+    """A draw that lost a STRIDE n (killed, or skipped as too big) gets a fill before its check: STRIDE at that n alone,
+    into the draw itself (code_filled, flag redone); the main compile holds the draw until then. Lost again, the fill
+    fails and the draw goes in as it is, then gets its check."""
     from tearing_physics_suite.drivers import pipeline
     uid = _record(study, 100, 1500, selected=(0, 2, 3))
     st.feed(study)
-    _fake_pipeline(monkeypatch, {0: ['killed', None], 3: ['killed', 'killed']})
+    _fake_pipeline(monkeypatch, {0: ['skipped', None], 3: ['killed', 'killed']})
     monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
     monkeypatch.setattr(st, 'stride_flagged_n', lambda ds, flag: [
         int(n) for n in ds.nn.values if np.isnan(ds.Delta_prime.sel(code='stride', nn=n)).all()])
@@ -534,35 +530,84 @@ def test_killed_code_filled_by_its_code_check(study, monkeypatch):
     st.run_item(study, f'{uid}.c0')
     st.run_item(study, f'{uid}.c1')
     assert [_status(study, uid, c).get('code_killed') for c in (0, 2, 3)] == [{'stride': [1]}, None, {'stride': [1]}]
-    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_2']                 # 0 and 3 wait for their checks
-    assert st.feed_codes(study) == 2
-    st.run_item(study, f'{uid}.d0', code_check=True)
-    st.run_item(study, f'{uid}.d3', code_check=True)
+    assert _status(study, uid, 0)['code_skipped'] == {'stride': [1]} and 'code_skipped' not in _status(study, uid, 3)
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_2']                 # 0 and 3 wait for their fills
+    q = fq.Queue(st.qroot(study, code_check=True))
+    assert st.feed_codes(study) == 2 and sorted(q.units(refresh=True)) == [f'{uid}.f0', f'{uid}.f3']   # no checks yet
+    st.run_item(study, f'{uid}.f0', code_check=True)
+    st.run_item(study, f'{uid}.f3', code_check=True)
     assert {k: _status(study, uid, 0)[k] for k in ('code_filled', 'stride_flagged_n')} == dict(
         code_filled=['stride'], stride_flagged_n=[])
-    check3 = json.load(open(os.path.join(study, '100', 'tps', uid, 'draws', '3.codes.json')))
-    assert check3['error']['signature'] == "RuntimeError: killed code(s) not re-run: {'stride': [1]}"
+    fill3 = json.load(open(os.path.join(study, '100', 'tps', uid, 'draws', '3.fill.json')))
+    assert fill3['error']['signature'] == "RuntimeError: lost code(s) not re-run: {'stride': [1]}"
     assert 'code_filled' not in _status(study, uid, 3)
-    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_2', f'{uid}_0', f'{uid}_3']   # 3: its check is final
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_2', f'{uid}_0', f'{uid}_3']   # 3: its fill is final
     dp = xr.open_zarr(st.shot_store(study, 100)).Delta_prime.sel(code='stride').isel(nn=0, r=0).values
     assert dp[:2].tolist() == [2.0, 0.0] and np.isnan(dp[2])
-    assert {k: st.draw_status(study)[0][100][k] for k in ('code_killed', 'code_filled')} == dict(code_killed=2,
-                                                                                                  code_filled=1)
+    counts = st.draw_status(study)[0][100]
+    assert {k: counts[k] for k in ('code_killed', 'code_skipped', 'code_filled')} == dict(
+        code_killed=2, code_skipped=1, code_filled=1)
+    assert {k: v for k, v in st.draw_status(study, code_check=True)[0][100].items() if k.startswith('fill')} == {
+        'fill ok': 1, 'fill error': 1}
+    for f in ('f0', 'f3'):
+        q.finish(f'{uid}.{f}')
+    assert st.feed_codes(study) == 1 and q.units(refresh=True)[f'{uid}.d3']['reason'] == 'flagged'  # then its check
 
 
-def test_killed_fill_keeps_the_other_n(tmp_path, monkeypatch):
-    """A STRIDE re-run at its killed n only fills that n: the draw (and its check file) keep STRIDE's other n."""
+def test_fill_keeps_the_draws_other_n(tmp_path, monkeypatch):
+    """A fill re-runs STRIDE at its lost n only and fills that n: the draw keeps STRIDE's other n."""
     from tearing_physics_suite.drivers import pipeline
     monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
 
     def dataset(nn, stride):
         return xr.Dataset({'Delta_prime': (('nn', 'code', 'r'), [[[1.0], [s]] for s in stride]), 'qlim': ((), 3.0)},
                           coords={'nn': nn, 'code': ['rdcon', 'stride'], 'r': [0]})
-    dataset([1, 2], [2.0, np.nan]).to_netcdf(tmp_path / '0.nc', engine='scipy')     # STRIDE n=2 killed
+    dataset([1, 2], [2.0, np.nan]).to_netcdf(tmp_path / '0.nc', engine='scipy')     # STRIDE n=2 lost
     fq.write_json(str(tmp_path / '0.json'), dict(status='ok', code_killed={'stride': [2]}))
-    monkeypatch.setattr(multi_run, 'run_case', lambda *a: (dataset([2], [4.0]), {}))   # the check, at n=2 only
+    monkeypatch.setattr(multi_run, 'run_case', lambda *a: (dataset([2], [4.0]), {}))   # the fill, at n=2 only
     CODE_KILLED.clear()
-    st._check_case(None, None, {}, str(tmp_path), str(tmp_path / '0.codes.nc'))
-    for f in ('0.nc', '0.codes.nc'):
-        stride = xr.open_dataset(tmp_path / f, engine='scipy').Delta_prime.sel(code='stride', r=0)
-        assert stride.values.tolist() == [2.0, 4.0], f
+    st._fill_case(None, None, {}, str(tmp_path), str(tmp_path / '0.fill.nc'))
+    stride = xr.open_dataset(tmp_path / '0.nc', engine='scipy').Delta_prime.sel(code='stride', r=0)
+    assert stride.values.tolist() == [2.0, 4.0] and not (tmp_path / '0.fill.nc').exists()
+
+
+def _sized_draw(study, uid, c, mpert, msing, **rec):
+    """An 'ok' draw at n = 4 whose RDCON surface pass found mpert and msing surfaces."""
+    d = os.path.join(study, '100', 'tps', uid, 'draws')
+    os.makedirs(d, exist_ok=True)
+    psi = np.full((1, 2, msing), 0.5)
+    xr.Dataset({'mpert': (('nn', 'code'), [[mpert, mpert + 8]]), 'psi_n_rational': (('nn', 'code', 'r'), psi)},
+               coords={'nn': [4], 'code': ['rdcon', 'stride']}).to_netcdf(os.path.join(d, f'{c}.nc'), engine='scipy')
+    fq.write_json(os.path.join(d, f'{c}.json'), dict(case_key=f'{uid}_{c}', shot=100, t_ms=1500, variant='base',
+                                                     unit_id=uid, draw=c, archive='a.h5', status='ok',
+                                                     inputs=dict(nx=256, delta_mhigh=8), **rec))
+
+
+def test_memory_classes(study, monkeypatch):
+    """Each item carries its predicted peak (a fill: STRIDE at its lost n; a check: RDCON's Delta' at its n) and is
+    fed by priority within its memory class; a session takes only the items that fit it, and refuses a run that
+    does not."""
+    uid = '100_1500_base'
+    _set_code_check(study, fraction=0.0, flagged_n_only=True, mem_classes=[9, 16, 35, 64])
+    _sized_draw(study, uid, 0, 65, 38, code_killed={'stride': [4]}, stride_flagged_n=[4])   # fill: STRIDE 5.8 GiB
+    _sized_draw(study, uid, 1, 49, 28, stride_flagged_n=[4])                                 # RDCON 13.8 GiB
+    _sized_draw(study, uid, 2, 65, 38, stride_flagged_n=[4])                                 # RDCON 30.1 GiB
+    _sized_draw(study, uid, 3, 93, 64, stride_flagged_n=[4])                                 # RDCON 99.6: no class
+    q = fq.Queue(st.qroot(study, code_check=True))
+    assert st.feed_codes(study) == 4
+    need = {k: it['need_gib'] for k, it in q.units(refresh=True).items()}
+    assert need == {f'{uid}.f0': 5.8, f'{uid}.d1': 13.8, f'{uid}.d2': 30.1, f'{uid}.d3': 99.6}
+    assert [st._mem_class(need[f'{uid}.{k}'], [9, 16, 35, 64]) for k in ('f0', 'd1', 'd2', 'd3')] == [9, 16, 35, 64]
+    _set_code_check(study, fraction=1.0, flagged_n_only=True, mem_classes=[9, 16, 35, 64])
+    _sized_draw(study, uid, 4, 20, 5)                     # picked, class 9, where the fill still waits
+    _sized_draw(study, uid, 5, 65, 38)                    # picked, class 35: behind the waiting flagged d2
+    _sized_draw(study, uid, 6, 30, 10)                    # picked, class 9 too
+    assert st.feed_codes(study) == 0
+    q.finish(f'{uid}.f0')
+    assert st.feed_codes(study) == 2 and {f'{uid}.d4', f'{uid}.d6'} <= set(q.units(refresh=True))
+    assert [st._fits_session(study, 16, q.units()[f'{uid}.{k}']) for k in ('d1', 'd2', 'd3')] == [True, False, False]
+    assert st._fits_session(study, 64, q.units()[f'{uid}.d3'])               # fits no class: taken, then refused
+    monkeypatch.setenv('TPS_MEM_GIB', '64')
+    with pytest.raises(RuntimeError, match='predicted peak 100 GiB does not fit the session'):
+        st._check_memory(99.6)
+    st._check_memory(30.1)

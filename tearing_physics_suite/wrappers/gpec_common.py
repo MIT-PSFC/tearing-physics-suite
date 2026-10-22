@@ -9,6 +9,19 @@ from tearing_physics_suite.utils import CODE_KILLED, run_code
 STRIDE_STACK = 1 << 30  # bytes: main-thread stack limit of a STRIDE run (OMP_STACKSIZE 1G for its threads)
 
 
+def peak_gib(code, mpert, msing, nx=None):
+    """Predicted peak memory (GiB) of a STRIDE run or an RDCON Delta' run ('rdcon') at one n, from that code's mpert
+    and the msing rational surfaces: 2 GiB plus its largest arrays (complex, 16 B). STRIDE: the dense BVP matrix and
+    its copy in ode_calc_delta_prime, nMat^2 each, nMat = (2 + 4 msing) mpert. RDCON: gal_alloc's Galerkin arrays
+    (solver 'LU', np = 3) over nx (msing + 1) cells, per cell the 4 x 4 blocks of mpert^2, the band (12 mpert rows by
+    2 mpert unknowns), and rhs and sol (2 msing columns each)."""
+    if code == 'stride':
+        elements = 2 * ((2 + 4 * msing) * mpert) ** 2
+    else:
+        elements = nx * (msing + 1) * mpert * (40 * mpert + 8 * msing)
+    return 2 + 16 * elements / 2 ** 30
+
+
 def executable(gpec_dir, code):
     """Path of the built GPEC executable for code ('rdcon' or 'stride'); raises if missing."""
     path = os.path.join(gpec_dir, f'{code}/{code}')

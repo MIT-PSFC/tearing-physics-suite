@@ -8,7 +8,7 @@ import xarray as xr
 
 from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation
 from tearing_physics_suite.wrappers import run_codes
-from tearing_physics_suite.wrappers.gpec_common import executable, run_gpec_code
+from tearing_physics_suite.wrappers.gpec_common import executable, peak_gib, run_gpec_code
 from tearing_physics_suite.wrappers.run_codes import _rel_diff, run_resistive_calculation
 
 FIX = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'fixtures', 'g147131.02300_DIIID_KEFIT_rdcon_n1.nc')
@@ -79,6 +79,35 @@ def test_killed_run_is_recorded(tmp_path, monkeypatch, save_terminal_output):
         assert run_gpec_code('stride', str(tmp_path), 4, save_terminal_output=save_terminal_output) == (None, False)
     assert CODE_KILLED == {'stride': [4]}
     CODE_KILLED.clear()
+
+
+def test_peak_gib_matches_measured_peaks():
+    """The predictor against W4/W2c peaks (GiB): STRIDE n=4 at mpert 77 / 44 surfaces 7.7, at 73 / 38 5.7; RDCON's
+    Delta' at 65 / 38 within the 28.7-33.6 GiB of its check sessions (which also hold the TPS worker and Julia)."""
+    assert peak_gib('stride', 77, 44) == pytest.approx(7.7, abs=0.2)
+    assert peak_gib('stride', 73, 38) == pytest.approx(5.7, abs=0.2)
+    assert 28.7 <= peak_gib('rdcon', 65, 38, nx=256) <= 33.6
+
+
+@pytest.mark.parametrize('mem, ran', [(2, False), (4, True)])
+def test_stride_not_started_when_predicted_too_big(tmp_path, eq_file, monkeypatch, mem, ran):
+    """Before STRIDE, its peak is predicted from RDCON's surface pass (fixture: mpert 27 + delta_mhigh 8, 5 surfaces:
+    2.02 GiB); in a session too small for it, STRIDE is not started and is recorded killed and skipped."""
+    from tearing_physics_suite.utils import CODE_KILLED, CODE_SKIPPED
+    gpec_dir = _fake_gpec(tmp_path)
+    exe = tmp_path / 'GPEC' / 'stride' / 'stride'
+    exe.parent.mkdir()
+    exe.write_text(f'#!/bin/sh\ntouch {tmp_path}/stride_ran\n')
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv('TPS_MEM_GIB', str(mem))
+    CODE_KILLED.clear()
+    CODE_SKIPPED.clear()
+    GPEC_resistive_calculation(eq_file, 1, run_rdcon=True, run_stride=True, working_dir=str(tmp_path / 'work'),
+                               gpec_dir=gpec_dir, save_terminal_output=True)
+    assert (tmp_path / 'stride_ran').exists() == ran
+    assert CODE_SKIPPED == CODE_KILLED == ({} if ran else {'stride': [1]})
+    CODE_KILLED.clear()
+    CODE_SKIPPED.clear()
 
 
 def test_make_results_dir_false_saves_nothing(tmp_path, eq_file):

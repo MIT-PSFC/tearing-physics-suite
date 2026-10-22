@@ -141,6 +141,18 @@ def tps_threads():
     return int(os.environ.get('TPS_THREADS') or 1)
 
 
+def session_mem_gib():
+    """The session's memory in GiB (Slurm's --mem=<n>G): $TPS_MEM_GIB, else None (no limit)."""
+    return float(os.environ.get('TPS_MEM_GIB') or 0) or None
+
+
+def fits_memory(need_gib, mem_gib=None):
+    """True if a run predicted to peak at need_gib fits in mem_gib (default: the session's; None: no limit), with 10 %
+    left for the TPS worker and model error."""
+    mem_gib = mem_gib or session_mem_gib()
+    return mem_gib is None or need_gib <= 0.9 * mem_gib
+
+
 def work_root():
     """Root for per-worker scratch dirs: $TPS_WORK_ROOT, else $TMPDIR, else /tmp (node-local where possible)."""
     return os.environ.get('TPS_WORK_ROOT') or os.environ.get('TMPDIR') or '/tmp'
@@ -148,6 +160,7 @@ def work_root():
 
 CODE_WALL_S = {}  # '<code>_n<n>' (and 'jGPEC_start'): wall seconds of the code runs in this process (parallel: per draw)
 CODE_KILLED = {}  # code: [n] of its runs killed by a signal (e.g. out of memory) in this process (parallel: per draw)
+CODE_SKIPPED = {}  # code: [n] of its runs not started: predicted not to fit the session's memory (also in CODE_KILLED)
 
 
 @contextlib.contextmanager

@@ -11,9 +11,11 @@ Work items (``<unit_id>.c<k>``, a chunk of one bouquet unit's draws) are claimed
 ``draws/<count>.json`` (its status). See docs/parallel.md for the layout and the failure policy.
 
 With ``--code-check``, feed/work/compile/status act on the code checks (config ``code_check``): the other codes on
-the 'ok' draws of a seeded random fraction of shots or draws (draws with a killed code first, whose re-run fills the
-draw itself, then STRIDE-flagged draws; further draws when the workers would idle), from ``<study>/_queue/tps_codes``,
-filled into ``draws/<count>.codes.nc`` (status ``.codes.json``) and compiled into ``<shot>_codes.zarr``.
+the 'ok' draws of a seeded random fraction of shots or draws (STRIDE-flagged draws first; further draws when the
+workers would idle), from ``<study>/_queue/tps_codes``, filled into ``draws/<count>.codes.nc`` (status
+``.codes.json``) and compiled into ``<shot>_codes.zarr``. A draw that lost a STRIDE n (killed, or skipped as too big
+for its session) first gets a fill from the same queue: STRIDE alone at those n, into the draw itself (status
+``.fill.json``). A session given its memory (``--mem-gib``) takes only the items predicted to fit it.
 ``code-check-pending`` lists the draw files to keep for them.
 """
 import argparse
@@ -21,8 +23,10 @@ import collections
 import functools
 import glob
 import hashlib
+import itertools
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -35,7 +39,15 @@ import zlib
 import numpy as np
 
 from tearing_physics_suite.drivers import fsqueue as fq
-from tearing_physics_suite.utils import CODE_KILLED, CODE_WALL_S, tps_home, work_root
+from tearing_physics_suite.utils import (
+    CODE_KILLED,
+    CODE_SKIPPED,
+    CODE_WALL_S,
+    fits_memory,
+    session_mem_gib,
+    tps_home,
+    work_root,
+)
 
 DEFAULTS = dict(
     tps_kwargs={},              # nonlinear_resistive_calculation kwargs (nvec, run_stride, run_jgpec, vac_flag, ...)
@@ -58,11 +70,11 @@ DEFAULTS = dict(
                                 # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
     code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...], "flag":
                                 # {"im_re_max", "psi_n": [lo, hi], optional "dp_abs_max", "dp_range": [lo, hi],
-                                # "im_re_m_offset"}, "flagged_n_only"}: run these codes at these n (default: the
-                                # study's) on the 'ok' draws of a seeded random fraction of shots or draws, filled in
-                                # (--code-check); draws with a killed code first (see _check_case), then with flag the
-                                # STRIDE-flagged ones (see stride_flagged_n; with flagged_n_only, a draw checked only
-                                # for a flag or a killed code runs at its flagged and killed n, see _check_n)
+                                # "im_re_m_offset"}, "flagged_n_only", "mem_classes": [GiB, ...]}: run these codes at
+                                # these n (default: the study's) on the 'ok' draws of a seeded random fraction of shots
+                                # or draws, filled in (--code-check); with flag, STRIDE-flagged draws first (see
+                                # stride_flagged_n; with flagged_n_only, at their flagged n, see _check_n); fills of
+                                # lost STRIDE n before all; feeding per memory class (session sizes, see feed_codes)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -94,6 +106,13 @@ def out_root(study, cfg):
 
 def unit_dir(study, cfg, shot, unit_id):
     return os.path.join(out_root(study, cfg), str(shot), 'tps', unit_id)
+
+
+def _records(study, cfg, kind='', shot='*'):
+    """Status files of the draws (kind ''), their code checks ('.codes') or their fills ('.fill')."""
+    name = re.compile(rf'-?\d+{re.escape(kind)}\.json')
+    paths = glob.glob(os.path.join(out_root(study, cfg), str(shot), 'tps', '*', 'draws', f'*{kind}.json'))
+    return sorted(p for p in paths if name.fullmatch(os.path.basename(p)))
 
 
 def shot_store(study, shot, code_check=False):
@@ -171,22 +190,26 @@ def spot_config(cfg):
 
 
 def code_check_config(cfg):
-    """The study's code check {by, fraction, seed, codes, nvec, flag} (defaults filled in), or None; bad values
-    raise."""
+    """The study's code check {by, fraction, seed, codes, nvec, flag, flagged_n_only, mem_classes} (defaults filled
+    in), or None; bad values raise."""
     from tearing_physics_suite.physics.combine import CODE_ORDER
     c = cfg.get('code_check')
     if not c:
         return None
-    defaults = dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None, flag=None, flagged_n_only=False)
+    defaults = dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None, flag=None, flagged_n_only=False,
+                    mem_classes=None)
     c = dict(defaults, **c)
     study_n = cfg['tps_kwargs'].get('nvec') or [1]
     flag_ok = c['flag'] is None or ({'im_re_max', 'psi_n'} <= set(c['flag']) <= set(FLAG_KEYS)
                                     and cfg['tps_kwargs'].get('run_stride', True))     # the flag reads STRIDE's Delta'
-    if (set(c) - set(defaults) or c['by'] not in ('shot', 'draw') or not c['codes'] or not flag_ok
+    classes = c['mem_classes']
+    classes_ok = classes is None or (bool(classes) and classes == sorted(classes) and classes[0] > 0)
+    if (set(c) - set(defaults) or c['by'] not in ('shot', 'draw') or not c['codes'] or not flag_ok or not classes_ok
             or set(c['codes']) - (set(CODE_ORDER) - {'stride'}) or not set(c['nvec'] or study_n) <= set(study_n)):
         raise ValueError(f"code_check: keys {sorted(defaults)}, by 'shot' or 'draw', codes from "
                          f"{[k for k in CODE_ORDER if k != 'stride']}, nvec from the study's {study_n}, flag "
-                         f"{{im_re_max, psi_n: [lo, hi], optional {FLAG_KEYS[2:]}}} on a STRIDE study: {c}")
+                         f"{{im_re_max, psi_n: [lo, hi], optional {FLAG_KEYS[2:]}}} on a STRIDE study, mem_classes "
+                         f"ascending GiB: {c}")
     return c
 
 
@@ -214,20 +237,16 @@ def stride_flagged_n(ds, flag):
 
 
 def _check_n(it):
-    """The n a code-check item needs with flagged_n_only: its flagged and killed n, when it is checked only for those
-    (reason flagged and/or killed); None (every n) for the seeded random sample and the extras."""
+    """The n a code-check item needs with flagged_n_only: its flagged n when it is checked for its flags alone (not
+    for the seeded random sample); None (every n) otherwise."""
     reasons = set((it.get('reason') or 'random').split('+'))
-    if 'random' in reasons or not reasons & {'flagged', 'killed'}:
-        return None
-    killed_n = {k for ns in (it.get('code_killed') or {}).values() for k in ns}
-    return sorted(set(it.get('flagged_n') or ()) | killed_n) or None
+    return it.get('flagged_n') if 'flagged' in reasons and 'random' not in reasons else None
 
 
-def code_check_kwargs(cfg, check, killed=(), only_n=None):
+def code_check_kwargs(cfg, check, only_n=None):
     """The study's tps_kwargs for a code check: only the check's codes, and RDCON (whose surfaces every code uses),
-    at the check's n (every code there, Julia included), or only at only_n among them (with flagged_n_only: a draw
-    checked for a flag or a killed code, at its flagged and killed n; Julia then at those of its n). A killed STRIDE
-    (the draw's code_killed) also runs, at only_n or else every study n, to fill the draw (see _check_case)."""
+    at the check's n (every code there, Julia included), or only at only_n among them (with flagged_n_only: a flagged
+    draw's flagged n; Julia then at those of its n)."""
     solvers = [c.removeprefix('jGPEC_') for c in check['codes'] if c.startswith('jGPEC_')]
     n = dict(nvec=check['nvec'], jgpec_nvec=check['nvec']) if check.get('nvec') else {}
     if only_n:
@@ -235,11 +254,8 @@ def code_check_kwargs(cfg, check, killed=(), only_n=None):
         jgpec_n = check.get('nvec') or cfg['tps_kwargs'].get('jgpec_nvec') or check_n
         n = dict(nvec=[k for k in check_n if k in only_n], jgpec_nvec=[k for k in jgpec_n if k in only_n])
         solvers = solvers if n['jgpec_nvec'] else []
-    if 'stride' in killed and not only_n:
-        n.pop('nvec', None)
-    return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'],
-                run_stride='stride' in killed, run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers),
-                jgpec_solvers=solvers, **n)
+    return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'], run_stride=False,
+                run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers), jgpec_solvers=solvers, **n)
 
 
 # --- feed --------------------------------------------------------------------------------------
@@ -297,58 +313,125 @@ def _coin(seed, key):
 
 
 def _pick(check, r):
-    """(coin, reason) of an 'ok' draw's code check, from its status record: those of 'killed' (a code run killed),
-    'flagged' and 'random' (picked by the coin) that hold, joined by '+', or 'extra'."""
+    """(coin, reason) of an 'ok' draw's code check, from its status record: 'flagged', 'random' (picked by the coin),
+    'flagged+random', or 'extra'."""
     u = _coin(check['seed'], str(r['shot']) if check['by'] == 'shot' else r['case_key'])
-    return u, '+'.join(k for k, on in (('killed', r.get('code_killed')), ('flagged', r.get('stride_flagged_n')),
-                                       ('random', u < check['fraction'])) if on) or 'extra'
+    return u, '+'.join(k for k, on in (('flagged', r.get('stride_flagged_n')), ('random', u < check['fraction']))
+                       if on) or 'extra'
 
 
-def feed_codes(study, cfg=None, extra=0):
-    """Add code-check items (<unit_id>.d<count>) for 'ok' draws not yet fed, by priority (a reason's first part, see
-    _pick): the draws with a killed code ('killed'); once none of those waits for a worker, the STRIDE-flagged draws
-    ('flagged'); then the picked shots' or draws' ('random'); once none waits, ``extra`` further draws in the coin's
-    order ('extra': the work feeder passes its worker count, so the check sessions keep going). Returns how many were
-    added."""
+_SIZES = {}  # draw .nc -> {n: (RDCON's mpert, msing)}: the feeder's cache
+
+
+def _need_gib(nc_path, rec, codes, n=None):
+    """Predicted peak (GiB, gpec_common.peak_gib) of running codes ('stride'; 'rdcon': its Delta') on a draw at n
+    (None: all its n), from the draw's RDCON surface pass (mpert, msing) and inputs (nx, delta_mhigh)."""
+    import xarray as xr
+
+    from tearing_physics_suite.wrappers.gpec_common import peak_gib
+    if not codes:
+        return 0.0
+    if nc_path not in _SIZES:
+        with xr.open_dataset(nc_path, engine='scipy') as ds:
+            rd = ds[['mpert', 'psi_n_rational']].sel(code='rdcon').load()
+        _SIZES[nc_path] = {int(k): (int(rd.mpert.sel(nn=k)), int(rd.psi_n_rational.sel(nn=k).count()))
+                           for k in rd.nn.values}
+    dm, nx = rec['inputs']['delta_mhigh'], rec['inputs']['nx']
+    sizes = [s for k, s in _SIZES[nc_path].items() if n is None or k in n]
+    return max([peak_gib('stride', mp + dm, ms) for mp, ms in sizes if 'stride' in codes]
+               + [peak_gib('rdcon', mp, ms, nx) for mp, ms in sizes if 'rdcon' in codes], default=0.0)
+
+
+def _item_need_gib(study, cfg, it):
+    """Predicted peak (GiB) of a code-check item: a fill's STRIDE at its fill_n, a check's RDCON Delta' (when a check
+    code) at its n."""
+    check = code_check_config(cfg)
+    path = os.path.join(unit_dir(study, cfg, it['shot'], it['unit_id']), 'draws', str(it['draws'][0]))
+    if 'fill_n' in it:
+        codes, n = ['stride'], it['fill_n']
+    else:
+        codes = ['rdcon'] if 'rdcon' in check['codes'] else []
+        n = (check['flagged_n_only'] and _check_n(it)) or check['nvec']
+    return _need_gib(path + '.nc', fq.read_json(path + '.json') or {}, codes, n)
+
+
+def _mem_class(need_gib, classes):
+    """The smallest memory class (GiB) need_gib fits (utils.fits_memory), else the largest; None without classes."""
+    return next((c for c in classes if fits_memory(need_gib, c)), classes[-1]) if classes else None
+
+
+def feed_codes(study, cfg=None, extra=0, mem_gib=None):
+    """Add code-check items for 'ok' draws not yet fed, each with its predicted peak (need_gib, _item_need_gib), by
+    priority within each memory class (code_check.mem_classes; the smallest that fits need_gib):
+    - a draw that lost a STRIDE n (code_killed, not yet code_filled) first gets a fill (<unit_id>.f<count>, reason
+      'killed', fill_n: STRIDE alone at those n, see _fill_case); its check waits for it;
+    - once none of those waits for a worker, the STRIDE-flagged draws' checks (<unit_id>.d<count>, 'flagged');
+    - then the picked shots' or draws' ('random', 'flagged+random');
+    - once nothing a session of mem_gib could take waits, ``extra`` further draws (that fit it) in the coin's order
+      ('extra': the work feeder passes its worker count and memory, so the check sessions keep going).
+    Returns how many were added."""
     cfg = cfg or load_config(study)
     check = code_check_config(cfg)
     if check is None:
         raise SystemExit('feed --code-check: the study has no code_check')
     q = fq.Queue(qroot(study, code_check=True))
     units, done = q.units(refresh=True), q.done_ids()
-    waiting = {(it.get('reason') or 'random').split('+')[0] for uid, it in units.items()
-               if uid not in done and q.age('claims', uid) >= q.STALE_S}
-    new = collections.defaultdict(list)
-    for p in sorted(glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json'))):
-        if p.endswith('.codes.json'):
-            continue
+    open_ = [it for uid, it in units.items() if uid not in done and q.age('claims', uid) >= q.STALE_S]
+
+    def tier(it):
+        return (it.get('reason') or 'random').split('+')[0]
+
+    def need(it):                                    # predicted only when sessions differ in memory
+        if 'need_gib' not in it:
+            it['need_gib'] = round(_item_need_gib(study, cfg, it), 1)
+        return it['need_gib']
+    classes = check['mem_classes']
+    waiting = {(tier(it), _mem_class(it.get('need_gib', 0.0), classes)) for it in open_}
+    new, extras = collections.defaultdict(list), []
+    for p in _records(study, cfg):
         r = fq.read_json(p) or {}
-        uid = f"{r.get('unit_id')}.d{r.get('draw')}"
-        if r.get('status') != 'ok' or uid in units or not os.path.exists(p[:-len('.json')] + '.nc'):   # cleaned
+        base = p[:-len('.json')]
+        if r.get('status') != 'ok' or not os.path.exists(base + '.nc'):                        # cleaned
+            continue
+        item = dict(**{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')}, draws=[r['draw']], est=1)
+        if 'code_killed' in r and 'code_filled' not in r and not _draw_state(base + '.fill.json')[0]:
+            uid = f"{r['unit_id']}.f{r['draw']}"
+            if uid not in units:
+                item.update(id=uid, reason='killed', fill_n=sorted({k for ns in r['code_killed'].values() for k in ns}))
+                new['killed'].append((0.0, uid, item))
+            continue
+        uid = f"{r['unit_id']}.d{r['draw']}"
+        if uid in units:
             continue
         u, reason = _pick(check, r)
-        new[reason.split('+')[0]].append((u, uid, dict(
-            id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive', 'code_killed') if k in r},
-            **({'flagged_n': r['stride_flagged_n']} if r.get('stride_flagged_n') else {}),
-            draws=[r['draw']], est=1, reason=reason)))
-    for tier in ('killed', 'flagged', 'random', 'extra'):
-        items = sorted(new[tier])[:extra] if tier == 'extra' else new[tier]
-        if items or tier in waiting:
-            break
-    n_new = q.add_units([it for _, _, it in items])
+        item.update(id=uid, reason=reason)
+        if r.get('stride_flagged_n'):
+            item['flagged_n'] = r['stride_flagged_n']
+        (extras if reason == 'extra' else new[reason.split('+')[0]]).append((u, uid, item))
+    items = []
+    for cls in classes or [None]:
+        for t in ('killed', 'flagged', 'random'):
+            add = [it for _, _, it in new[t] if not classes or _mem_class(need(it), classes) == cls]
+            if add or (t, cls) in waiting:
+                items += add
+                break
+    if extra and not any(fits_memory(it.get('need_gib', 0.0), mem_gib) for it in open_ + items):
+        items += itertools.islice((it for _, _, it in sorted(extras) if not mem_gib or fits_memory(need(it), mem_gib)),
+                                  extra)
+    n_new = q.add_units(items)
     print(f'feed: {n_new} code-check item(s) added', flush=True)
     return n_new
 
 
 class Feeder:
     """on_idle hook: feed, unless any worker fed in the last ``every`` seconds (code checks: up to ``workers`` extra
-    draws)."""
+    draws that fit the session's mem_gib)."""
 
-    def __init__(self, study, every, code_check=False, workers=0):
-        self.study, self.every, self.code_check, self.workers = study, every, code_check, workers
+    def __init__(self, study, every, code_check=False, workers=0, mem_gib=None):
+        self.study, self.every, self.code_check, self.workers, self.mem_gib = study, every, code_check, workers, mem_gib
 
     def __call__(self):
-        fn = functools.partial(feed_codes, extra=self.workers) if self.code_check else feed
+        fn = functools.partial(feed_codes, extra=self.workers, mem_gib=self.mem_gib) if self.code_check else feed
         try:
             return bool(fq.Queue(qroot(self.study, self.code_check)).periodic('feeder', self.every,
                                                                               lambda: fn(self.study) > 0))
@@ -424,7 +507,7 @@ def tau_e_lookup(spec):
 
 
 def run_item(study, item_id, code_check=False):
-    """Run the draws of one work item (a code-check item: their code checks) that are not final yet.
+    """Run the draws of one work item (a code-check item: their code checks, or fills) that are not final yet.
     Returns a summary dict."""
     from tearing_physics_suite.drivers.multi_run import run_case
     from tearing_physics_suite.drivers.profile_read import read_bouquet_archive
@@ -434,7 +517,7 @@ def run_item(study, item_id, code_check=False):
         os.environ['TPS_CODE_TIMEOUT'] = str(cfg['code_timeout'])
     ddir = os.path.join(unit_dir(study, cfg, it['shot'], it['unit_id']), 'draws')
     os.makedirs(ddir, exist_ok=True)
-    sfx = '.codes' if code_check else ''
+    sfx = ('.fill' if 'fill_n' in it else '.codes') if code_check else ''
     states = {c: _draw_state(os.path.join(ddir, f'{c}{sfx}.json')) for c in it['draws']}
     for c, (final, _) in states.items():                 # a draw left 'running' crashed its process twice
         r = fq.read_json(os.path.join(ddir, f'{c}{sfx}.json')) or {}
@@ -445,10 +528,17 @@ def run_item(study, item_id, code_check=False):
     if not todo:
         return out
     check = code_check_config(cfg)
-    only_n = _check_n(it) if check and check['flagged_n_only'] else None
-    kwargs = code_check_kwargs(cfg, check, it.get('code_killed', ()), only_n) if code_check else dict(cfg['tps_kwargs'])
-    spot = None if code_check else spot_config(cfg)
     flag = (check or {}).get('flag')
+    need = _item_need_gib(study, cfg, it) if code_check and session_mem_gib() else 0.0
+    if not code_check:
+        kwargs, case = dict(cfg['tps_kwargs']), run_case
+    elif 'fill_n' in it:
+        kwargs = dict(cfg['tps_kwargs'], nvec=it['fill_n'])
+        case = functools.partial(_fill_case, need_gib=need, flag=flag)
+    else:
+        kwargs = code_check_kwargs(cfg, check, _check_n(it) if check['flagged_n_only'] else None)
+        case = functools.partial(_check_case, need_gib=need)
+    spot = None if code_check else spot_config(cfg)
     if cfg.get('tau_e'):
         kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
     wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
@@ -460,9 +550,7 @@ def run_item(study, item_id, code_check=False):
                                           impurity_mass_amu=cfg['impurity_mass_amu'])
         for eq, prof in zip(eqs, profs):
             out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
-                                          os.path.join(wd, 'work'),
-                                          functools.partial(_check_case, flag=flag) if code_check else run_case,
-                                          spot, sfx, None if code_check else flag))
+                                          os.path.join(wd, 'work'), case, spot, sfx, None if code_check else flag))
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     if any(d['status'] in ('timeout',) for d in out['draws']):
@@ -485,6 +573,7 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
     os.makedirs(wd, exist_ok=True)
     CODE_WALL_S.clear()
     CODE_KILLED.clear()
+    CODE_SKIPPED.clear()
     try:
         if cfg.get('tau_e') and kwargs.get('energy_confinement_time') is None:
             raise LookupError(f"no {cfg['tau_e']['variable']} for shot {it['shot']} at {it['t_ms']} ms")
@@ -516,41 +605,63 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
     rec.setdefault('code_wall_s', _code_wall_s())                  # a failed draw: the codes it ran
     if CODE_KILLED:
         rec['code_killed'] = dict(CODE_KILLED)
+    if CODE_SKIPPED:
+        rec['code_skipped'] = dict(CODE_SKIPPED)
     rec['wall_s'] = round(time.time() - rec['started'], 1)
     rec['other_wall_s'] = round(rec['wall_s'] - sum(rec['code_wall_s'].values()) - rec.get('spot_wall_s', 0.0), 1)
     fq.write_json(stat, rec)
     return dict(draw=c, unit_id=it['unit_id'], status=rec['status'], signature=(rec['error'] or {}).get('signature'))
 
 
-def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, flag=None):
+def _check_memory(need_gib):
+    """Refuse to run a code-check item predicted to peak above the session's memory."""
+    if not fits_memory(need_gib):
+        raise RuntimeError(f'predicted peak {need_gib:.0f} GiB does not fit the session ({session_mem_gib():g} GiB)')
+
+
+def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, need_gib=0.0):
     """run_case for a code check: the check's codes on the draw's inputs, filled into its dataset (<count>.nc), the
-    result written to nc_path (<count>.codes.nc). The draw's killed codes (code_killed) are re-run here and first fill
-    the draw itself at the re-run n (<count>.nc; in its record code_filled, and stride_flagged_n redone with flag), or
-    the check fails."""
+    result written to nc_path (<count>.codes.nc)."""
     import xarray as xr
 
     from tearing_physics_suite.drivers import multi_run
     from tearing_physics_suite.drivers.pipeline import fill_codes
+    _check_memory(need_gib)
     other, inputs = multi_run.run_case(eq, prof, kwargs, wd, os.path.join(wd, 'codes.nc'), pkl_path, label, labels)
     if other is None:
         return None, inputs
-    base = nc_path.removesuffix('.codes.nc')
+    with xr.open_dataset(nc_path.removesuffix('.codes.nc') + '.nc', engine='scipy') as ds:
+        ds = fill_codes(ds.load().drop_encoding(), other)        # the file's int dtypes would not hold NaN padding
+    _write_nc(ds, nc_path)
+    return ds, inputs
+
+
+def _fill_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, need_gib=0.0, flag=None):
+    """run_case for a fill: the study's codes at the n a draw lost (kwargs' nvec), its lost codes (code_killed) then
+    filled into the draw itself at those n (<count>.nc; in its record code_filled, and stride_flagged_n redone with
+    flag); a code lost again fails it. Nothing is written at nc_path (<count>.fill.nc)."""
+    import xarray as xr
+
+    from tearing_physics_suite.drivers import multi_run
+    from tearing_physics_suite.drivers.pipeline import fill_codes
+    _check_memory(need_gib)
+    other, inputs = multi_run.run_case(eq, prof, kwargs, wd, os.path.join(wd, 'fill.nc'), pkl_path, label, labels)
+    if other is None:
+        return None, inputs
+    base = nc_path.removesuffix('.fill.nc')
     rec = fq.read_json(base + '.json')
-    killed = sorted(rec.get('code_killed', ()))
-    if CODE_KILLED or not set(killed) <= set(other.code.values):         # killed again here, or no result
-        raise RuntimeError(f'killed code(s) not re-run: {dict(CODE_KILLED) or killed}')
+    killed = sorted(rec['code_killed'])
+    if CODE_KILLED or not set(killed) <= set(other.code.values):         # lost again here, or no result
+        raise RuntimeError(f'lost code(s) not re-run: {dict(CODE_KILLED) or killed}')
     with xr.open_dataset(base + '.nc', engine='scipy') as ds:
         ds = ds.load().drop_encoding()                          # the file's int dtypes would not hold NaN padding
-    if killed:
-        own = list(ds.variables)                                # the draw keeps its own variables
-        ds = fill_codes(ds, other.sel(code=killed))[own]
-        rec['code_filled'] = killed
-        if flag:
-            rec['stride_flagged_n'] = stride_flagged_n(ds, flag)
-        _write_nc(ds, base + '.nc')
-        fq.write_json(base + '.json', rec)
-    ds = fill_codes(ds, other)
-    _write_nc(ds, nc_path)
+    own = list(ds.variables)                                    # the draw keeps its own variables
+    ds = fill_codes(ds, other.sel(code=killed))[own]
+    rec['code_filled'] = killed
+    if flag:
+        rec['stride_flagged_n'] = stride_flagged_n(ds, flag)
+    _write_nc(ds, base + '.nc')
+    fq.write_json(base + '.json', rec)
     return ds, inputs
 
 
@@ -658,12 +769,26 @@ def _shot_finished(q, shot, current):
     return all(uid in done for uid, it in q.units().items() if it.get('shot') == shot and uid != current)
 
 
+def _fits_session(study, mem_gib, it):
+    """fsqueue accept for a code-check session of mem_gib: the item's memory class is at most mem_gib (one that fits
+    no class goes to the largest, whose sessions refuse to run it, _check_memory); without classes, its predicted peak
+    fits mem_gib."""
+    cfg = load_config(study)
+    need, classes = it.get('need_gib'), code_check_config(cfg)['mem_classes']
+    need = _item_need_gib(study, cfg, it) if need is None else need
+    return _mem_class(need, classes) <= mem_gib if classes else fits_memory(need, mem_gib)
+
+
 def cmd_work(a):
     d = fq.JobDeadline(a.margin)              # re-read: Slurm raises a --time-min job's limit after it starts
     print(f'work: {a.workers} worker(s) on {socket.gethostname()}, deadline now {time.ctime(d()) if d() else "none"}',
           flush=True)
+    if a.mem_gib:                             # the codes' memory check (utils.fits_memory), in the workers' children
+        os.environ['TPS_MEM_GIB'] = str(a.mem_gib)
+    accept = functools.partial(_fits_session, a.study, a.mem_gib) if a.code_check and a.mem_gib else None
     out = fq.launch(qroot(a.study, a.code_check), a.workers, Runner(a), deadline=d, idle_exit_s=a.idle_exit,
-                    on_idle=Feeder(a.study, a.feed_every, a.code_check, a.workers) if a.feed_every else None)
+                    accept=accept,
+                    on_idle=Feeder(a.study, a.feed_every, a.code_check, a.workers, a.mem_gib) if a.feed_every else None)
     for w, why in sorted(out.items()):
         print(f'  {w}: {why}', flush=True)
     if not a.no_compile:          # catch draws that finished while their shot was being compiled
@@ -676,10 +801,7 @@ def cmd_work(a):
 def _shot_draws(study, cfg, shot, code_check=False):
     """{case_key: (nc path, status record)} of the shot's draws (code checks) with status 'ok'."""
     out = {}
-    root = os.path.join(out_root(study, cfg), str(shot), 'tps')
-    for p in glob.glob(os.path.join(root, '*', 'draws', '*.json')):
-        if p.endswith('.codes.json') != code_check:
-            continue
+    for p in _records(study, cfg, '.codes' if code_check else '', shot):
         r = fq.read_json(p) or {}
         if r.get('status') == 'ok':
             out[r['case_key']] = (p[:-len('.json')] + '.nc', r)
@@ -687,8 +809,9 @@ def _shot_draws(study, cfg, shot, code_check=False):
 
 
 def code_check_pending(study, shot, cfg=None):
-    """The <count>.nc of the shot's 'ok' draws whose code check is still to come (queued and not finished, or not yet
-    queued and flagged or picked), which must stay until it is done."""
+    """The <count>.nc of the shot's 'ok' draws whose fill or code check is still to come (a lost STRIDE n not yet
+    filled; a check queued and not finished, or not yet queued and flagged or picked), which must stay until it is
+    done."""
     cfg = cfg or load_config(study)
     check = code_check_config(cfg)
     if check is None:
@@ -698,7 +821,8 @@ def code_check_pending(study, shot, cfg=None):
     out = []
     for nc, r in _shot_draws(study, cfg, shot).values():
         uid = f"{r['unit_id']}.d{r['draw']}"
-        if (uid in units and uid not in done) or (uid not in units and _pick(check, r)[1] != 'extra'):
+        if (_awaits_fill(nc, r) or (uid in units and uid not in done)
+                or (uid not in units and _pick(check, r)[1] != 'extra')):
             out.append(nc)
     return sorted(out)
 
@@ -724,9 +848,9 @@ def _stride_flag(rec, nn):
 
 
 def _awaits_fill(nc_path, rec):
-    """True while a draw's killed codes (code_killed) wait for its code check to fill them (code_filled)."""
+    """True while a draw's lost codes (code_killed) wait for its fill (code_filled, or the fill final)."""
     return ('code_killed' in rec and 'code_filled' not in rec
-            and not _draw_state(nc_path[:-len('.nc')] + '.codes.json')[0])
+            and not _draw_state(nc_path[:-len('.nc')] + '.fill.json')[0])
 
 
 def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32, code_check=False):
@@ -889,20 +1013,19 @@ def open_study(study, shots=None, code_check=False):
 # --- status ------------------------------------------------------------------------------------
 
 def draw_status(study, cfg=None, code_check=False):
-    """Counts of draw (code-check) statuses per shot (and of records with code_killed, code_filled), and failure
-    signatures with counts and an example."""
+    """Counts of draw (code-check and 'fill ...') statuses per shot (and of records with code_killed, code_skipped,
+    code_filled), and failure signatures with counts and an example."""
     cfg = cfg or load_config(study)
     per_shot, sigs = {}, {}
-    for p in glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json')):
-        if p.endswith('.codes.json') != code_check:
-            continue
-        r = fq.read_json(p) or {}
-        c = per_shot.setdefault(r.get('shot'), collections.Counter())
-        c[r.get('status')] += 1
-        c.update(k for k in ('code_killed', 'code_filled') if k in r)
-        if r.get('status') not in ('ok', 'running'):
-            s = sigs.setdefault((r.get('error') or {}).get('signature', r.get('status')), [0, p])
-            s[0] += 1
+    for kind in ('.codes', '.fill') if code_check else ('',):
+        for p in _records(study, cfg, kind):
+            r = fq.read_json(p) or {}
+            c = per_shot.setdefault(r.get('shot'), collections.Counter())
+            c[f"{'fill ' if kind == '.fill' else ''}{r.get('status')}"] += 1
+            c.update(k for k in ('code_killed', 'code_skipped', 'code_filled') if k in r)
+            if r.get('status') not in ('ok', 'running'):
+                s = sigs.setdefault((r.get('error') or {}).get('signature', r.get('status')), [0, p])
+                s[0] += 1
     return per_shot, sigs
 
 
@@ -962,6 +1085,9 @@ def main(argv=None):
     p.add_argument('--feed-every', type=float, default=300, help='s; 0: no feeding from workers')
     p.add_argument('--allow-build-drift', action='store_true')
     p.add_argument('--no-compile', action='store_true', help="don't compile a shot's store when its items finish")
+    p.add_argument('--mem-gib', type=float, default=float(os.environ.get('TPS_MEM_GIB') or 0) or None,
+                   help="the session's memory (Slurm --mem G): codes predicted not to fit are not started; with "
+                        "--code-check, only the items that fit are taken (default $TPS_MEM_GIB)")
     p = add('run-item', cmd_run_item)
     p.add_argument('--item', required=True)
     p.add_argument('--result', default=None, help='result JSON for the parent worker')

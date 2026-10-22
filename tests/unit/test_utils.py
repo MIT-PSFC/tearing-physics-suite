@@ -10,9 +10,11 @@ from tearing_physics_suite.utils import (
     code_timer,
     create_dense_log_paramvals,
     eq_stem,
+    fits_memory,
     gpec_home,
     node_slot,
     run_code,
+    session_mem_gib,
     trim_nans,
 )
 
@@ -109,6 +111,15 @@ def test_code_timer_adds_up_and_counts_failures():
         raise TimeoutError
     assert 0.1 <= CODE_WALL_S['rdcon_n1'] < 1 and 0.05 <= CODE_WALL_S['stride_n1'] < 1
     CODE_WALL_S.clear()
+
+
+def test_fits_memory(monkeypatch):
+    """A run fits a session when its predicted peak is within 90 % of the session's memory ($TPS_MEM_GIB)."""
+    monkeypatch.delenv('TPS_MEM_GIB', raising=False)
+    assert session_mem_gib() is None and fits_memory(1e3)          # no limit
+    monkeypatch.setenv('TPS_MEM_GIB', '5')
+    assert session_mem_gib() == 5 and fits_memory(4.5) and not fits_memory(4.6)
+    assert fits_memory(30, 35) and not fits_memory(32, 35)
 
 
 def test_gpec_home(monkeypatch):

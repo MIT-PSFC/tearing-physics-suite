@@ -747,6 +747,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
         store_ready,
     )
     from tearing_physics_suite.drivers.zarr_store import add_to_zarr_store, stack_episodes, truncate_zarr_store
+    from tearing_physics_suite.physics.global_quantities import delta_prime_variability
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study, code_check))
     lease = f'compile_{shot}'
@@ -777,7 +778,8 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                 for key in new[i:i + batch]:
                     with xr.open_dataset(draws[key][0], engine='scipy') as ds:
                         ds = ds.load().drop_encoding()
-                    ds = store_ready(_vlen_strings(align_codes(ds, codes)))
+                    ds = delta_prime_variability(align_codes(ds, codes))   # the same comparisons in every run
+                    ds = store_ready(_vlen_strings(ds))
                     if spot:
                         ds['spot_check_flag'] = (('nn', 'code'), _spot_flag(*draws[key], ds.nn.values, codes))
                     if flag:

@@ -11,9 +11,10 @@ Work items (``<unit_id>.c<k>``, a chunk of one bouquet unit's draws) are claimed
 ``draws/<count>.json`` (its status). See docs/parallel.md for the layout and the failure policy.
 
 With ``--code-check``, feed/work/compile/status act on the code checks (config ``code_check``): the other codes on
-the 'ok' draws of a seeded random fraction of shots or draws (STRIDE-flagged draws first, further draws when the
-workers would idle), from ``<study>/_queue/tps_codes``, filled into ``draws/<count>.codes.nc`` (status
-``.codes.json``) and compiled into ``<shot>_codes.zarr``. ``code-check-pending`` lists the draw files to keep for them.
+the 'ok' draws of a seeded random fraction of shots or draws (draws with a killed code first, whose re-run fills the
+draw itself, then STRIDE-flagged draws; further draws when the workers would idle), from ``<study>/_queue/tps_codes``,
+filled into ``draws/<count>.codes.nc`` (status ``.codes.json``) and compiled into ``<shot>_codes.zarr``.
+``code-check-pending`` lists the draw files to keep for them.
 """
 import argparse
 import collections
@@ -34,7 +35,7 @@ import zlib
 import numpy as np
 
 from tearing_physics_suite.drivers import fsqueue as fq
-from tearing_physics_suite.utils import CODE_WALL_S, tps_home, work_root
+from tearing_physics_suite.utils import CODE_KILLED, CODE_WALL_S, tps_home, work_root
 
 DEFAULTS = dict(
     tps_kwargs={},              # nonlinear_resistive_calculation kwargs (nvec, run_stride, run_jgpec, vac_flag, ...)
@@ -58,7 +59,8 @@ DEFAULTS = dict(
     code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...], "flag":
                                 # {"im_re_max", "psi_n": [lo, hi]}}: run these codes at these n (default: the study's)
                                 # on the 'ok' draws of a seeded random fraction of shots or draws, filled in
-                                # (--code-check); with flag, STRIDE-flagged draws first (see stride_flagged_n)
+                                # (--code-check); draws with a killed code first (see _check_case), then with flag
+                                # the STRIDE-flagged ones (see stride_flagged_n)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once
@@ -201,13 +203,17 @@ def stride_flagged_n(ds, flag):
     return [int(n) for n in ds.nn.values[bad.any('r').values]]
 
 
-def code_check_kwargs(cfg, check):
+def code_check_kwargs(cfg, check, killed=()):
     """The study's tps_kwargs for a code check: only the check's codes, and RDCON (whose surfaces every code uses),
-    at the check's n (every code there, Julia included)."""
+    at the check's n (every code there, Julia included). A killed STRIDE (the draw's code_killed) also runs, at every
+    study n, to fill the draw (see _check_case)."""
     solvers = [c.removeprefix('jGPEC_') for c in check['codes'] if c.startswith('jGPEC_')]
     n = dict(nvec=check['nvec'], jgpec_nvec=check['nvec']) if check.get('nvec') else {}
-    return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'], run_stride=False,
-                run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers), jgpec_solvers=solvers, **n)
+    if 'stride' in killed:
+        n.pop('nvec', None)
+    return dict(cfg['tps_kwargs'], run_rdcon=True, rdcon_delta_prime='rdcon' in check['codes'],
+                run_stride='stride' in killed, run_pest3='pest3' in check['codes'], run_jgpec=bool(solvers),
+                jgpec_solvers=solvers, **n)
 
 
 # --- feed --------------------------------------------------------------------------------------
@@ -265,18 +271,19 @@ def _coin(seed, key):
 
 
 def _pick(check, r):
-    """(coin, reason) of an 'ok' draw's code check, from its status record: 'flagged', 'random' (picked by the coin),
-    'flagged+random', or 'extra'."""
+    """(coin, reason) of an 'ok' draw's code check, from its status record: those of 'killed' (a code run killed),
+    'flagged' and 'random' (picked by the coin) that hold, joined by '+', or 'extra'."""
     u = _coin(check['seed'], str(r['shot']) if check['by'] == 'shot' else r['case_key'])
-    return u, '+'.join(k for k, on in (('flagged', r.get('stride_flagged_n')), ('random', u < check['fraction']))
-                       if on) or 'extra'
+    return u, '+'.join(k for k, on in (('killed', r.get('code_killed')), ('flagged', r.get('stride_flagged_n')),
+                                       ('random', u < check['fraction'])) if on) or 'extra'
 
 
 def feed_codes(study, cfg=None, extra=0):
-    """Add code-check items (<unit_id>.d<count>) for 'ok' draws not yet fed, by priority: the STRIDE-flagged draws
-    (reason 'flagged'); once none of those waits for a worker, the picked shots' or draws' ('random', 'flagged+random'
-    when both); once neither waits, ``extra`` further draws in the coin's order ('extra': the work feeder passes its
-    worker count, so the check sessions keep going). Returns how many were added."""
+    """Add code-check items (<unit_id>.d<count>) for 'ok' draws not yet fed, by priority (a reason's first part, see
+    _pick): the draws with a killed code ('killed'); once none of those waits for a worker, the STRIDE-flagged draws
+    ('flagged'); then the picked shots' or draws' ('random'); once none waits, ``extra`` further draws in the coin's
+    order ('extra': the work feeder passes its worker count, so the check sessions keep going). Returns how many were
+    added."""
     cfg = cfg or load_config(study)
     check = code_check_config(cfg)
     if check is None:
@@ -295,9 +302,9 @@ def feed_codes(study, cfg=None, extra=0):
             continue
         u, reason = _pick(check, r)
         new[reason.split('+')[0]].append((u, uid, dict(
-            id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')}, draws=[r['draw']], est=1,
-            reason=reason)))
-    for tier in ('flagged', 'random', 'extra'):
+            id=uid, **{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive', 'code_killed') if k in r},
+            draws=[r['draw']], est=1, reason=reason)))
+    for tier in ('killed', 'flagged', 'random', 'extra'):
         items = sorted(new[tier])[:extra] if tier == 'extra' else new[tier]
         if items or tier in waiting:
             break
@@ -410,9 +417,10 @@ def run_item(study, item_id, code_check=False):
     out = dict(item=item_id, draws=[])
     if not todo:
         return out
-    kwargs = code_check_kwargs(cfg, code_check_config(cfg)) if code_check else dict(cfg['tps_kwargs'])
+    check = code_check_config(cfg)
+    kwargs = code_check_kwargs(cfg, check, it.get('code_killed', ())) if code_check else dict(cfg['tps_kwargs'])
     spot = None if code_check else spot_config(cfg)
-    flag = None if code_check else (code_check_config(cfg) or {}).get('flag')
+    flag = (check or {}).get('flag')
     if cfg.get('tau_e'):
         kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
     wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
@@ -424,8 +432,9 @@ def run_item(study, item_id, code_check=False):
                                           impurity_mass_amu=cfg['impurity_mass_amu'])
         for eq, prof in zip(eqs, profs):
             out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
-                                          os.path.join(wd, 'work'), _check_case if code_check else run_case,
-                                          spot, sfx, flag))
+                                          os.path.join(wd, 'work'),
+                                          functools.partial(_check_case, flag=flag) if code_check else run_case,
+                                          spot, sfx, None if code_check else flag))
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     if any(d['status'] in ('timeout',) for d in out['draws']):
@@ -447,6 +456,7 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
     fq.write_json(stat, dict(rec, status='running'))
     os.makedirs(wd, exist_ok=True)
     CODE_WALL_S.clear()
+    CODE_KILLED.clear()
     try:
         if cfg.get('tau_e') and kwargs.get('energy_confinement_time') is None:
             raise LookupError(f"no {cfg['tau_e']['variable']} for shot {it['shot']} at {it['t_ms']} ms")
@@ -476,15 +486,18 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
             p = os.path.join(wd, f)
             shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else os.remove(p)
     rec.setdefault('code_wall_s', _code_wall_s())                  # a failed draw: the codes it ran
+    if CODE_KILLED:
+        rec['code_killed'] = dict(CODE_KILLED)
     rec['wall_s'] = round(time.time() - rec['started'], 1)
     rec['other_wall_s'] = round(rec['wall_s'] - sum(rec['code_wall_s'].values()) - rec.get('spot_wall_s', 0.0), 1)
     fq.write_json(stat, rec)
     return dict(draw=c, unit_id=it['unit_id'], status=rec['status'], signature=(rec['error'] or {}).get('signature'))
 
 
-def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None):
+def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, flag=None):
     """run_case for a code check: the check's codes on the draw's inputs, filled into its dataset (<count>.nc), the
-    result written to nc_path (<count>.codes.nc)."""
+    result written to nc_path (<count>.codes.nc). The draw's killed codes (code_killed) are re-run here and first fill
+    the draw itself (<count>.nc; in its record code_filled, and stride_flagged_n redone with flag), or the check fails."""
     import xarray as xr
 
     from tearing_physics_suite.drivers import multi_run
@@ -492,12 +505,29 @@ def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels
     other, inputs = multi_run.run_case(eq, prof, kwargs, wd, os.path.join(wd, 'codes.nc'), pkl_path, label, labels)
     if other is None:
         return None, inputs
-    with xr.open_dataset(nc_path.removesuffix('.codes.nc') + '.nc', engine='scipy') as ds:
-        ds = fill_codes(ds.load().drop_encoding(), other)        # the file's int dtypes would not hold NaN padding
-    tmp = f'{nc_path}.tmp.{os.getpid()}'
-    ds.to_netcdf(tmp, engine='scipy')
-    os.replace(tmp, nc_path)
+    base = nc_path.removesuffix('.codes.nc')
+    rec = fq.read_json(base + '.json')
+    killed = sorted(rec.get('code_killed', ()))
+    lost = dict(CODE_KILLED) or [c for c in killed if c not in other.code.values]
+    if lost:
+        raise RuntimeError(f'killed code(s) not re-run: {lost}')
+    with xr.open_dataset(base + '.nc', engine='scipy') as ds:
+        ds = ds.load().drop_encoding()                          # the file's int dtypes would not hold NaN padding
+    if killed:                                                  # the draw keeps its own variables
+        ds = fill_codes(ds, other.sel(code=killed))[list(ds.variables)]
+        rec = dict(rec, code_filled=killed, **({'stride_flagged_n': stride_flagged_n(ds, flag)} if flag else {}))
+        _write_nc(ds, base + '.nc')
+        fq.write_json(base + '.json', rec)
+    ds = fill_codes(ds, other)
+    _write_nc(ds, nc_path)
     return ds, inputs
+
+
+def _write_nc(ds, path):
+    """ds to path (netCDF, scipy engine) by a temporary file and a rename."""
+    tmp = f'{path}.tmp.{os.getpid()}'
+    ds.to_netcdf(tmp, engine='scipy')
+    os.replace(tmp, path)
 
 
 def _code_wall_s():
@@ -662,13 +692,20 @@ def _stride_flag(rec, nn):
     return np.array([-1 if f is None else int(n in f) for n in nn], dtype=np.int8)
 
 
+def _awaits_fill(nc_path, rec):
+    """True while a draw's killed codes (code_killed) wait for its code check to fill them (code_filled)."""
+    return ('code_killed' in rec and 'code_filled' not in rec
+            and not _draw_state(nc_path[:-len('.nc')] + '.codes.json')[0])
+
+
 def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32, code_check=False):
     """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (code checks: to <shot>_codes.zarr) (single
     writer, under a lease).
 
     Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
     whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. With
-    ``finalize``, a lease held elsewhere is waited for (a dead one is stolen once stale) instead of skipped."""
+    ``finalize``, a lease held elsewhere is waited for (a dead one is stolen once stale) instead of skipped. With a code
+    check, a draw with a killed code waits until its check has filled it or is final (see _check_case)."""
     import xarray as xr
 
     from tearing_physics_suite.drivers.multi_run import (
@@ -702,7 +739,8 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
             codes = study_codes(cfg['tps_kwargs'], check['codes'] if code_check else ())
             spot = None if code_check else spot_config(cfg)
             flag = not code_check and (check or {}).get('flag')
-            new = sorted(k for k in draws if k not in seen)
+            held = [] if code_check or not check else [k for k in draws if k not in seen and _awaits_fill(*draws[k])]
+            new = sorted(k for k in draws if k not in seen and k not in held)
             for i in range(0, len(new), batch):
                 keys, dsets = [], []
                 for key in new[i:i + batch]:
@@ -735,7 +773,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     finally:
         q.drop('leases', lease)
     print(f'compile: shot {shot}: {len(new)} new draw(s), {len(state["compiled"])} in the store, '
-          f'{len(state["broken"])} broken', flush=True)
+          f'{len(state["broken"])} broken, {len(held)} awaiting a code-check fill', flush=True)
     return state
 
 
@@ -820,7 +858,8 @@ def open_study(study, shots=None, code_check=False):
 # --- status ------------------------------------------------------------------------------------
 
 def draw_status(study, cfg=None, code_check=False):
-    """Counts of draw (code-check) statuses per shot, and failure signatures with counts and an example."""
+    """Counts of draw (code-check) statuses per shot (and of records with code_killed, code_filled), and failure
+    signatures with counts and an example."""
     cfg = cfg or load_config(study)
     per_shot, sigs = {}, {}
     for p in glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*', 'draws', '*.json')):
@@ -829,6 +868,7 @@ def draw_status(study, cfg=None, code_check=False):
         r = fq.read_json(p) or {}
         c = per_shot.setdefault(r.get('shot'), collections.Counter())
         c[r.get('status')] += 1
+        c.update(k for k in ('code_killed', 'code_filled') if k in r)
         if r.get('status') not in ('ok', 'running'):
             s = sigs.setdefault((r.get('error') or {}).get('signature', r.get('status')), [0, p])
             s[0] += 1

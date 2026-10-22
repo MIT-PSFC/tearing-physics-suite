@@ -12,6 +12,7 @@ from tearing_physics_suite.analysis.shot_data import open_shot
 from tearing_physics_suite.drivers import fsqueue as fq
 from tearing_physics_suite.drivers import multi_run, profile_read
 from tearing_physics_suite.drivers import parallel as st
+from tearing_physics_suite.utils import CODE_KILLED
 
 
 def _record(study, shot, t_ms, variant='base', status='done', selected=(0, 1, 2, 3, 4)):
@@ -67,7 +68,8 @@ def _run_dataset(c, n_r=3):
 
 
 def _fake_pipeline(monkeypatch, behaviour):
-    """read_bouquet_archive / run_case stand-ins; behaviour[count] is None (ok), an exception, or 'none'."""
+    """read_bouquet_archive / run_case stand-ins; behaviour[count] is None (ok), an exception, 'none', or 'killed'
+    (STRIDE killed: NaN, in CODE_KILLED)."""
     def read(path, draw_counts=None, eqdsk_out_dir=None, **kw):
         os.makedirs(eqdsk_out_dir, exist_ok=True)
         return [f'{eqdsk_out_dir}/eq{c}' for c in draw_counts], [dict(bq_count=c) for c in draw_counts]
@@ -83,6 +85,9 @@ def _fake_pipeline(monkeypatch, behaviour):
         ds = _run_dataset(prof['bq_count'])
         if prof['bq_count'] == 1:                         # a draw where STRIDE did not run
             ds = ds.sel(code=['rdcon'])
+        if b == 'killed':
+            CODE_KILLED['stride'] = [1]
+            ds['Delta_prime'].loc[dict(code='stride')] = np.nan
         ds = multi_run._augment_combined_xr(ds, label, prof, labels)
         ds.to_netcdf(nc_path, engine='scipy')
         return ds, dict(nn=1, vac_flag='t')
@@ -342,6 +347,9 @@ def test_code_check_config():
     only_galerkin_n2 = st.code_check_kwargs(cfg, dict(codes=['jGPEC_galerkin'], nvec=[2]))   # RDCON: surfaces only
     assert {k: only_galerkin_n2[k] for k in ('nvec', 'jgpec_nvec', 'rdcon_delta_prime', 'jgpec_solvers')} == dict(
         nvec=[2], jgpec_nvec=[2], rdcon_delta_prime=False, jgpec_solvers=['galerkin'])
+    refill = st.code_check_kwargs(cfg, dict(codes=['jGPEC_galerkin'], nvec=[2]), {'stride': [1]})   # every study n
+    assert {k: refill[k] for k in ('nvec', 'jgpec_nvec', 'run_stride')} == dict(nvec=[1, 2], jgpec_nvec=[2],
+                                                                                 run_stride=True)
 
 
 def test_code_check_fills_ok_draws(study, monkeypatch):
@@ -438,6 +446,10 @@ def test_code_check_feed_order(study):
     assert st.feed_codes(study, extra=2) == 3 and list(reasons().values()).count('random') == 3
     _ok_draw(study, uid, 7, stride_flagged_n=[1])
     assert st.feed_codes(study, extra=2) == 1 and reasons()[f'{uid}.d7'] == 'flagged+random'
+    _ok_draw(study, uid, 8, stride_flagged_n=[1])
+    _ok_draw(study, uid, 9, code_killed={'stride': [4]})
+    assert st.feed_codes(study) == 1 and reasons()[f'{uid}.d9'] == 'killed+random'     # a killed code first
+    assert q.units()[f'{uid}.d9']['code_killed'] == {'stride': [4]} and st.feed_codes(study) == 0
 
 
 def test_stride_flag_recorded_and_compiled(study, monkeypatch):
@@ -459,3 +471,33 @@ def test_stride_flag_recorded_and_compiled(study, monkeypatch):
     assert _status(study, uid, 3)['status'] == 'ok' and 'KeyError' in _status(study, uid, 3)['stride_flag_error']
     st.compile_shot(study, 100)
     np.testing.assert_array_equal(xr.open_zarr(st.shot_store(study, 100)).stride_flag.values, [[1], [0], [1]])
+
+
+def test_killed_code_filled_by_its_code_check(study, monkeypatch):
+    """A draw whose STRIDE was killed records code_killed; its code check re-runs STRIDE into the draw itself (record
+    code_filled, flag redone), and the main compile holds the draw until then. Killed again, the check fails."""
+    from tearing_physics_suite.drivers import pipeline
+    uid = _record(study, 100, 1500, selected=(0, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {0: ['killed', None], 3: ['killed', 'killed']})
+    monkeypatch.setattr(pipeline, 'delta_prime_variability', lambda ds: ds)   # the fakes have no Delta_prime_surf
+    monkeypatch.setattr(st, 'stride_flagged_n', lambda ds, flag: [
+        int(n) for n in ds.nn.values if np.isnan(ds.Delta_prime.sel(code='stride', nn=n)).all()])
+    _set_code_check(study, fraction=0.0, flag=dict(im_re_max=0.01, psi_n=[0.01, 0.9]))
+    st.run_item(study, f'{uid}.c0')
+    st.run_item(study, f'{uid}.c1')
+    assert [_status(study, uid, c).get('code_killed') for c in (0, 2, 3)] == [{'stride': [1]}, None, {'stride': [1]}]
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_2']                 # 0 and 3 wait for their checks
+    assert st.feed_codes(study) == 2
+    st.run_item(study, f'{uid}.d0', code_check=True)
+    st.run_item(study, f'{uid}.d3', code_check=True)
+    assert {k: _status(study, uid, 0)[k] for k in ('code_filled', 'stride_flagged_n')} == dict(
+        code_filled=['stride'], stride_flagged_n=[])
+    check3 = json.load(open(os.path.join(study, '100', 'tps', uid, 'draws', '3.codes.json')))
+    assert check3['error']['signature'] == "RuntimeError: killed code(s) not re-run: {'stride': [1]}"
+    assert 'code_filled' not in _status(study, uid, 3)
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_2', f'{uid}_0', f'{uid}_3']   # 3: its check is final
+    dp = xr.open_zarr(st.shot_store(study, 100)).Delta_prime.sel(code='stride').isel(nn=0, r=0).values
+    assert dp[:2].tolist() == [2.0, 0.0] and np.isnan(dp[2])
+    assert {k: st.draw_status(study)[0][100][k] for k in ('code_killed', 'code_filled')} == dict(code_killed=2,
+                                                                                                  code_filled=1)

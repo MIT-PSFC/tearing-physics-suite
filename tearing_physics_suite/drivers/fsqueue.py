@@ -343,18 +343,23 @@ class Queue:
         u = self.units(refresh=True)
         return sorted(u, key=lambda k: -float(u[k].get('est', 0) or 0))
 
-    def next_unit(self, cursor, worker):
-        """Claim the next open unit and record the attempt; None if nothing is claimable now."""
+    def next_unit(self, cursor, worker, accept=None):
+        """Claim the next open unit (one ``accept(unit)`` takes, if given) and record the attempt; None if nothing is
+        claimable now."""
         if self.stopped() or self.draining():
             return None
         ids = cursor.ids(self)
         done = self.done_ids()
+        units = self.units()
         held = set(_ls(self.path('claims')))     # one listing: a held claim costs a heartbeat read, not a mkdir
         now = _now()
         for _ in range(len(ids)):
             uid = ids[cursor.i % len(ids)]
             cursor.i += 1
             if uid in done or uid in cursor.skip or cursor.defer.get(uid, 0) > now:
+                continue
+            if accept is not None and not accept(units[uid]):
+                cursor.skip.add(uid)
                 continue
             if (uid in held and not self.stale('claims', uid)) or not self.acquire('claims', uid, worker):
                 cursor.defer[uid] = now + self.STALE_S
@@ -448,12 +453,13 @@ class Heartbeat:
         return False
 
 
-def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=None, log=print):
+def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=None, accept=None, log=print):
     """Worker loop: claim -> ``run(uid, unit)`` -> finish, until no work, STOP, the deadline (epoch, or a callable
     returning it, e.g. JobDeadline) or
     MAX_CONSECUTIVE_FAILURES failures in a row. ``run`` returning means done; raising means a failure.
     ``Requeue`` gives the unit back uncounted and ends the loop; ``Broken`` records one failure and ends it.
-    ``on_idle()`` (e.g. a feeder) runs when a pass finds nothing; True means it added work. While others hold
+    ``on_idle()`` (e.g. a feeder) runs when a pass finds nothing; True means it added work. ``accept(unit)`` (picklable)
+    limits the units this worker claims (e.g. to those that fit its memory). While others hold
     claims, an idle worker stays at least STALE_S + poll_s, so a dead job's claims become stealable before it quits.
     Returns 'drained' | 'stopped' | 'deadline' | 'broken' | 'idle'."""
     cur = Cursor(start=0 if q.CLAIM_IN_ORDER else None)
@@ -469,7 +475,7 @@ def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=
         dl = deadline() if callable(deadline) else deadline
         if dl is not None and _now() >= dl:
             return done('deadline')
-        uid = q.next_unit(cur, worker)
+        uid = q.next_unit(cur, worker, accept)
         if uid is None:
             if q.draining():
                 return done('drained')

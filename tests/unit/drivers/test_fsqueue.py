@@ -77,6 +77,16 @@ def test_claims_follow_manifest_order(tmp_path):
     assert seen[:20] == [u['id'] for u in units]
 
 
+def test_worker_claims_only_what_it_accepts(tmp_path):
+    """work(accept=...): a worker passes over the units it does not accept and leaves them to others."""
+    q = fq.Queue(tmp_path, **FAST)
+    q.add_units([dict(id=f'u{i}', est=1, need=need) for i, need in enumerate((5, 30, 10))])
+    seen = []
+    fq.work(q, 'small', lambda uid, u: seen.append(uid), idle_exit_s=0, poll_s=0.01, accept=lambda u: u['need'] < 16,
+            log=lambda *a: None)
+    assert seen == ['u0', 'u2'] and q.done_ids() == {'u0', 'u2'}
+
+
 def test_live_deadline_is_reread(tmp_path, monkeypatch):
     """A --time-min job's limit is raised after it starts: workers follow squeue's end, and a failed query keeps the
     last good end instead of SLURM_JOB_END_TIME's first, short one (eq_stab 179bf09, 4741ba4)."""

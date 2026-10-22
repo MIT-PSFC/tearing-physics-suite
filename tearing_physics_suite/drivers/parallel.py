@@ -508,14 +508,16 @@ def _check_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels
     base = nc_path.removesuffix('.codes.nc')
     rec = fq.read_json(base + '.json')
     killed = sorted(rec.get('code_killed', ()))
-    lost = dict(CODE_KILLED) or [c for c in killed if c not in other.code.values]
-    if lost:
-        raise RuntimeError(f'killed code(s) not re-run: {lost}')
+    if CODE_KILLED or not set(killed) <= set(other.code.values):         # killed again here, or no result
+        raise RuntimeError(f'killed code(s) not re-run: {dict(CODE_KILLED) or killed}')
     with xr.open_dataset(base + '.nc', engine='scipy') as ds:
         ds = ds.load().drop_encoding()                          # the file's int dtypes would not hold NaN padding
-    if killed:                                                  # the draw keeps its own variables
-        ds = fill_codes(ds, other.sel(code=killed))[list(ds.variables)]
-        rec = dict(rec, code_filled=killed, **({'stride_flagged_n': stride_flagged_n(ds, flag)} if flag else {}))
+    if killed:
+        own = list(ds.variables)                                # the draw keeps its own variables
+        ds = fill_codes(ds, other.sel(code=killed))[own]
+        rec['code_filled'] = killed
+        if flag:
+            rec['stride_flagged_n'] = stride_flagged_n(ds, flag)
         _write_nc(ds, base + '.nc')
         fq.write_json(base + '.json', rec)
     ds = fill_codes(ds, other)

@@ -361,6 +361,21 @@ def test_code_check_config():
     n24 = st.code_check_kwargs(cfg4, both, only_n=[2, 4])                   # Julia at its n among the flagged
     assert {k: n24[k] for k in ('nvec', 'jgpec_nvec', 'run_jgpec')} == dict(nvec=[2, 4], jgpec_nvec=[2], run_jgpec=True)
     assert st.code_check_kwargs(cfg4, both)['nvec'] == [1, 2, 3, 4]         # not flagged-only: the study's n
+    k4 = st.code_check_kwargs(cfg4, both, {'stride': [4]}, only_n=[4])      # STRIDE killed at n=4: re-run there only
+    assert {k: k4[k] for k in ('nvec', 'run_stride', 'run_jgpec')} == dict(nvec=[4], run_stride=True, run_jgpec=False)
+    assert st.code_check_kwargs(cfg4, both, {'stride': [4]})['nvec'] == [1, 2, 3, 4]   # not flagged-only: every n
+
+
+def test_check_n():
+    """flagged_n_only: a draw checked for a flag or a killed code needs its flagged and killed n; the random sample
+    and the extras every n."""
+    assert st._check_n(dict(reason='flagged', flagged_n=[3, 4])) == [3, 4]
+    assert st._check_n(dict(reason='killed+flagged', flagged_n=[4], code_killed={'stride': [4]})) == [4]
+    assert st._check_n(dict(reason='killed', code_killed={'stride': [2, 4]})) == [2, 4]
+    assert st._check_n(dict(reason='killed+flagged', flagged_n=[3], code_killed={'stride': [4]})) == [3, 4]
+    for it in (dict(reason='flagged+random', flagged_n=[4]), dict(reason='killed+random', code_killed={'stride': [4]}),
+               dict(reason='random'), dict(reason='extra'), dict()):
+        assert st._check_n(it) is None
 
 
 def test_code_check_fills_ok_draws(study, monkeypatch):

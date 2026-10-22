@@ -57,10 +57,10 @@ DEFAULTS = dict(
     spot_check=None,            # true or SpotCheck fields: re-run a seeded random fraction of the draws through the key
                                 # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
     code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...], "flag":
-                                # {"im_re_max", "psi_n": [lo, hi]}}: run these codes at these n (default: the study's)
-                                # on the 'ok' draws of a seeded random fraction of shots or draws, filled in
-                                # (--code-check); draws with a killed code first (see _check_case), then with flag
-                                # the STRIDE-flagged ones (see stride_flagged_n)
+                                # {"im_re_max", "psi_n": [lo, hi], "dp_abs_max" (optional)}}: run these codes at these
+                                # n (default: the study's) on the 'ok' draws of a seeded random fraction of shots or
+                                # draws, filled in (--code-check); draws with a killed code first (see _check_case),
+                                # then with flag the STRIDE-flagged ones (see stride_flagged_n)
 )
 FINAL = ('ok', 'error', 'crashed')
 MAX_DRAW_ATTEMPTS = 2           # a timed-out or crashed draw is retried once

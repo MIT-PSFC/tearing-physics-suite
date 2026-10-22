@@ -123,11 +123,13 @@ def gpec_toml_sections(eq_filename, nn, solver, inputs, **jgpec_kwargs):
                integrator=solver, kinetic_factor=0.0, local_stability_flag=False, psiedge=1.0,
                force_termination=True, HDF5_filename='gpec.h5')
     if solver == 'galerkin':
+        gal_solver = _unquote(inputs['solver'])  # RDCON's 'cholesky' falls back to LU; Julia's does as 'auto'
         ffs.update(gal_nx=int(inputs['nx']), gal_nq=int(inputs['nq']), gal_pfac=float(inputs['pfac']),
                    gal_dx0=float(inputs['dx0']), gal_dx1=float(inputs['dx1']), gal_dx2=float(inputs['dx2']),
                    gal_cutoff=int(inputs['cutoff']), gal_tol=float(inputs['gal_tol']),
                    gal_dx1dx2_flag=_true(inputs['dx1dx2_flag']), gal_sing_order=int(inputs['sing_order']),
-                   gal_sing_order_ceiling=_true(inputs['sing_order_ceiling']), gal_solver=_unquote(inputs['solver']),
+                   gal_sing_order_ceiling=_true(inputs['sing_order_ceiling']),
+                   gal_solver='auto' if gal_solver == 'cholesky' else gal_solver,
                    gal_rpec_flag=False)  # rpec drops the vacuum edge
     sections = {'Equilibrium': eq, 'Wall': wall, 'ForceFreeStates': ffs}
     for k, v in jgpec_kwargs.items():

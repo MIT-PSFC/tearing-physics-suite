@@ -327,6 +327,8 @@ def test_code_check_config():
         by='draw', fraction=0.01, seed=0, codes=['rdcon'], nvec=None, flag=None)
     flag = dict(im_re_max=0.01, psi_n=[0.01, 0.9])
     assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=flag)))['flag'] == flag
+    big = dict(flag, dp_abs_max=1e3)
+    assert st.code_check_config(dict(cfg, code_check=dict(codes=['rdcon'], flag=big)))['flag'] == big
     for bad in (dict(by='slice', codes=['rdcon']), dict(codes=['stride']), dict(codes=[]),
                 dict(codes=['rdcon'], nvec=[3]), dict(codes=['rdcon'], budget='extra'),
                 dict(codes=['rdcon'], flag=dict(flag, no_dp=True))):
@@ -385,6 +387,21 @@ def test_stride_flagged_n():
     ds.Delta_prime_surf.values[1, 0, 1, 0] = np.nan              # no Delta' at n=2, psi_N 0.5
     assert st.stride_flagged_n(ds, flag) == [1, 2]
     assert st.stride_flagged_n(ds.sel(code=['rdcon']), flag) == [1, 2]       # STRIDE dropped: no Delta'
+
+
+def test_stride_flagged_n_dp_abs_max():
+    """With dp_abs_max, |Re Delta'| above it is suspect too (Im/Re small there); psi_n [0, hi] reaches the axis."""
+    dims = ('nn', 'Delta_prime_type', 'code', 'r')
+    re, im = np.ones((2, 1, 2, 2)), np.zeros((2, 1, 2, 2))
+    re[0, 0, 1, 0] = 5e7                                        # n=1 at psi_N 0.005: huge, Im/Re 0
+    re[1, 0, 1, 1] = -2e3                                       # n=2 at psi_N 0.5: over 1e3
+    ds = xr.Dataset({'Delta_prime_surf': (dims, re), 'Im_Delta_prime_surf': (dims, im),
+                     'psi_n_rational': (('nn', 'code', 'r'), np.tile([0.005, 0.5], (2, 2, 1)))},
+                    coords={'nn': [1, 2], 'Delta_prime_type': ['single helicity'], 'code': ['rdcon', 'stride']})
+    assert st.stride_flagged_n(ds, dict(im_re_max=0.01, psi_n=[0.01, 0.9])) == []           # without it: missed
+    assert st.stride_flagged_n(ds, dict(im_re_max=0.01, psi_n=[0.01, 0.9], dp_abs_max=1e3)) == [2]
+    assert st.stride_flagged_n(ds, dict(im_re_max=0.01, psi_n=[0.0, 0.9], dp_abs_max=1e3)) == [1, 2]
+    assert st.stride_flagged_n(ds, dict(im_re_max=0.01, psi_n=[0.0, 0.9], dp_abs_max=1e8)) == []
 
 
 def _ok_draw(study, uid, c, **rec):

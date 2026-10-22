@@ -176,24 +176,28 @@ def code_check_config(cfg):
     defaults = dict(by='draw', fraction=0.01, seed=0, codes=[], nvec=None, flag=None)
     c = dict(defaults, **c)
     study_n = cfg['tps_kwargs'].get('nvec') or [1]
-    flag_ok = c['flag'] is None or (set(c['flag']) == {'im_re_max', 'psi_n'}
+    flag_ok = c['flag'] is None or ({'im_re_max', 'psi_n'} <= set(c['flag']) <= {'im_re_max', 'psi_n', 'dp_abs_max'}
                                     and cfg['tps_kwargs'].get('run_stride', True))     # the flag reads STRIDE's Delta'
     if (set(c) - set(defaults) or c['by'] not in ('shot', 'draw') or not c['codes'] or not flag_ok
             or set(c['codes']) - (set(CODE_ORDER) - {'stride'}) or not set(c['nvec'] or study_n) <= set(study_n)):
         raise ValueError(f"code_check: keys {sorted(defaults)}, by 'shot' or 'draw', codes from "
                          f"{[k for k in CODE_ORDER if k != 'stride']}, nvec from the study's {study_n}, flag "
-                         f"{{im_re_max, psi_n: [lo, hi]}} on a STRIDE study: {c}")
+                         f"{{im_re_max, psi_n: [lo, hi], dp_abs_max (optional)}} on a STRIDE study: {c}")
     return c
 
 
 def stride_flagged_n(ds, flag):
-    """The n at which a draw's STRIDE single-helicity Delta' is suspect: |Im| > im_re_max |Re|, or no Re, on a
-    rational surface with psi_n[0] < psi_N < psi_n[1] (RDCON's surface map; a draw without STRIDE has no Delta')."""
+    """The n at which a draw's STRIDE single-helicity Delta' is suspect: |Im| > im_re_max |Re|, no Re, or (with
+    dp_abs_max) |Re| > dp_abs_max, on a rational surface with psi_n[0] < psi_N < psi_n[1] (RDCON's surface map; a
+    draw without STRIDE has no Delta')."""
     sh = ds[['Delta_prime_surf', 'Im_Delta_prime_surf', 'psi_n_rational']].sel(Delta_prime_type='single helicity')
     sh = sh.reindex(code=['rdcon', 'stride'])
     re, im = sh.Delta_prime_surf.sel(code='stride'), sh.Im_Delta_prime_surf.sel(code='stride')
     psi = sh.psi_n_rational.sel(code='rdcon')
-    bad = (re.isnull() | (abs(im) > flag['im_re_max'] * abs(re))) & (psi > flag['psi_n'][0]) & (psi < flag['psi_n'][1])
+    suspect = re.isnull() | (abs(im) > flag['im_re_max'] * abs(re))
+    if flag.get('dp_abs_max') is not None:
+        suspect = suspect | (abs(re) > flag['dp_abs_max'])
+    bad = suspect & (psi > flag['psi_n'][0]) & (psi < flag['psi_n'][1])
     return [int(n) for n in ds.nn.values[bad.any('r').values]]
 
 

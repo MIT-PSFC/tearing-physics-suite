@@ -53,6 +53,9 @@ def test_toml_sections_solver_keys_and_overrides(inputs):
     assert gal['ForceFreeStates']['nn_low'] == gal['ForceFreeStates']['nn_high'] == 2
     assert ric['ForceFreeStates']['sing_order'] == int(ins['sing_order'])
     assert gal['Equilibrium']['mtheta'] == 129 and gal['ForceFreeStates']['nstep'] == 7 and gal['Wall']['a'] == 0.5
+    assert gal['ForceFreeStates']['gal_solver'] == 'LU'
+    chol = jgpec.gpec_toml_sections(EQ.name, 2, 'galerkin', inputs(solver="'cholesky'"))
+    assert chol['ForceFreeStates']['gal_solver'] == 'auto'  # Julia's 'cholesky' errors where RDCON's falls back to LU
 
 
 def test_write_gpec_toml_round_trip(tmp_path, inputs):

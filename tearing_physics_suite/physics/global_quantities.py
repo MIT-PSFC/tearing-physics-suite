@@ -186,7 +186,9 @@ def add_comparison_across_var(xarray, Delta_prime_surf, comparison_var,override_
         Input dataset with difference variables added.
     """
 
-    Delta_prime_diffs_across_var = np.abs(Delta_prime_surf.max(dim=comparison_var)-Delta_prime_surf.min(dim=comparison_var))
+    skipna = comparison_var != 'code'   # a code without Delta' leaves the comparison NaN, not 0
+    Delta_prime_diffs_across_var = np.abs(Delta_prime_surf.max(dim=comparison_var, skipna=skipna)
+                                          - Delta_prime_surf.min(dim=comparison_var, skipna=skipna))
     Delta_prime_reldiffs_across_var = Delta_prime_diffs_across_var / np.abs(Delta_prime_surf).mean(dim=comparison_var)
     Delta_prime_reldiffs_across_var2 = Delta_prime_diffs_across_var / Delta_prime_surf.mean(dim=comparison_var)
 

@@ -193,7 +193,7 @@ def test_spot_dataset_pads_ragged_spots(spot_results):
     assert ds.sizes['surf'] == 5 and ds.sizes['scan_value'] == 2
     np.testing.assert_array_equal(ds.r_value.values[1], [2.0] + [np.nan] * 4)
     assert ds.Delta_prime_surf.isel(spot=1, scan_value=1).isnull().all()
-    np.testing.assert_array_equal(sc.spot_check_flag(ds, 3, [1, 2], ['rdcon', 'stride']), [[0, 0], [0, 1]])
+    np.testing.assert_array_equal(sc.spot_check_flag(ds, 3, [1, 2], ['rdcon', 'stride']), [[0, 0], [-1, -1]])  # 1 value
 
 
 def test_spot_dataset_leaves_out_a_failed_scan_value(spot_results):
@@ -201,6 +201,7 @@ def test_spot_dataset_leaves_out_a_failed_scan_value(spot_results):
     failed = dict(spot_results[0], DP_surf_xarray=spot_results[0]['DP_surf_xarray'].isel(mtheta=slice(1)))
     ds = sc.spot_dataset([failed])
     assert list(ds.scan_value_str.isel(spot=0).values) == ['129'] and ds.sizes['scan_value'] == 1
+    assert (ds.rel_exceeded_psi95 == -1).all() and (ds.abs_exceeded_psi95 == -1).all()  # nothing compared: not checked
 
 
 def test_stride_rdcon_disagreement(spot_results):

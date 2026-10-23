@@ -143,10 +143,11 @@ def run_spot_task(args, working_dir, master_working_dir):
     return key, True, None
 
 
-def _flag(da, codes):
-    """Per-code flag (1 exceeded, 0 not, -1 code absent) from a *_thresh_exceeded_psi95_anywhere DataArray."""
+def _flag(da, codes, compared):
+    """Per-code flag (1 exceeded, 0 not, -1 not checked: code absent or not in `compared`) from a
+    *_thresh_exceeded_psi95_anywhere DataArray."""
     have = dict(zip(np.atleast_1d(da.code.values).tolist(), np.atleast_1d(da.values).tolist()))
-    return [int(bool(have[c])) if c in have else -1 for c in codes]
+    return [int(bool(have[c])) if c in have and c in compared else -1 for c in codes]
 
 
 def _spot_dataset(res, codes):
@@ -161,8 +162,10 @@ def _spot_dataset(res, codes):
     ds = ds.reindex(code=codes)
     ds['r_value'] = ('surf', r_value)
     ds['scan_value_str'] = ('scan_value', [str(v) for v in dp[name].values])   # a failed scan value is left out
-    ds['rel_exceeded_psi95'] = ('code', np.int8(_flag(res['rel_thresh_exceeded_psi95_anywhere'], codes)))
-    ds['abs_exceeded_psi95'] = ('code', np.int8(_flag(res['abs_thresh_exceeded_psi95_anywhere'], codes)))
+    n_values = ds.Delta_prime_surf.notnull().any(['Delta_prime_type', 'surf']).sum('scan_value')
+    compared = set(n_values.code[n_values >= 2].values.tolist())   # a code with Delta' at < 2 scan values is not checked
+    ds['rel_exceeded_psi95'] = ('code', np.int8(_flag(res['rel_thresh_exceeded_psi95_anywhere'], codes, compared)))
+    ds['abs_exceeded_psi95'] = ('code', np.int8(_flag(res['abs_thresh_exceeded_psi95_anywhere'], codes, compared)))
     return ds.assign(run_idx=res['run_idx'], scan=res['scan'], input_name=name, nn=res['nn'])
 
 

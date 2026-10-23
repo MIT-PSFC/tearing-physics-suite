@@ -50,7 +50,6 @@
     calc_delta_prime=t
     calc_dp_with_vac=t
     big_soln_err_tol=1e-07
-    dprime_banded=f
     integrate_riccati=f
     riccati_bounce=t
     riccati_match_hamiltonian_evals=f

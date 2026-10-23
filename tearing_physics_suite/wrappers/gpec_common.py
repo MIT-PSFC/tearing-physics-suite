@@ -9,10 +9,9 @@ from tearing_physics_suite.utils import CODE_KILLED, run_code
 STRIDE_STACK = 1 << 30  # bytes: main-thread stack limit of a STRIDE run (OMP_STACKSIZE 1G for its threads)
 
 
-def peak_gib(code, mpert, msing, nx=None, banded=False):
+def peak_gib(code, mpert, msing, nx=None):
     """Predicted peak memory (GiB) of a STRIDE run or an RDCON Delta' run ('rdcon') at one n, from that code's mpert
-    and the msing rational surfaces (complex arrays, 16 B). STRIDE (CG, W4 peaks): 2 GiB plus the dense BVP matrix and
-    its copy in ode_calc_delta_prime, nMat^2 each, nMat = (2 + 4 msing) mpert; banded (dprime_banded): 0.3 GiB plus
+    and the msing rational surfaces (complex arrays, 16 B). STRIDE (its banded Delta' solve, GPEC #351): 0.3 GiB plus
     2.6e-4 mpert^2 (CCG: 109 peaks, mpert 34-77, within -0.2-0.26 GiB of it). RDCON (CCG, gal.f as of GPEC 433329b4,
     which frees the element matrices on the LU path, with MALLOC_MMAP_THRESHOLD_; 0.09-0.98 GiB above 64 measured peaks,
     'LU' and 'cholesky'): 1.1 GiB plus rhs and sol, 4 msing columns of ndim = 2 mpert (nx (msing + 1) + 1) + 2 msing
@@ -20,7 +19,7 @@ def peak_gib(code, mpert, msing, nx=None, banded=False):
     nx (msing + 1) cells, with the Cholesky band, 4 mpert + 1 rows ('cholesky' holds both until it is done or falls
     back to LU)."""
     if code == 'stride':
-        return 0.3 + 2.6e-4 * mpert ** 2 if banded else 2 + 32 * ((2 + 4 * msing) * mpert) ** 2 / 2 ** 30
+        return 0.3 + 2.6e-4 * mpert ** 2
     ndim = 2 * mpert * (nx * (msing + 1) + 1) + 2 * msing
     elements = 16 * mpert ** 2 * nx * (msing + 1)
     return 1.1 + 16 * (max(elements + (4 * mpert + 1) * ndim, (12 * mpert + 1) * ndim) + 4 * msing * ndim) / 2 ** 30

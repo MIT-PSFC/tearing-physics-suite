@@ -601,14 +601,14 @@ def test_memory_classes(study, monkeypatch):
     does not."""
     uid = '100_1500_base'
     _set_code_check(study, fraction=0.0, flagged_n_only=True, mem_classes=[9, 16, 35, 64])
-    _sized_draw(study, uid, 0, 65, 38, code_killed={'stride': [4]}, stride_flagged_n=[4])   # fill: STRIDE 5.8 GiB
+    _sized_draw(study, uid, 0, 65, 38, code_killed={'stride': [4]}, stride_flagged_n=[4])   # fill: STRIDE 1.7 GiB
     _sized_draw(study, uid, 1, 49, 28, stride_flagged_n=[4])                                 # RDCON 8.7 GiB
     _sized_draw(study, uid, 2, 65, 38, stride_flagged_n=[4])                                 # RDCON 19.1 GiB
     _sized_draw(study, uid, 3, 93, 64, stride_flagged_n=[4])                                 # RDCON 64.4: no class
     q = fq.Queue(st.qroot(study, code_check=True))
     assert st.feed_codes(study) == 4
     need = {k: it['need_gib'] for k, it in q.units(refresh=True).items()}
-    assert need == {f'{uid}.f0': 5.8, f'{uid}.d1': 8.7, f'{uid}.d2': 19.1, f'{uid}.d3': 64.4}
+    assert need == {f'{uid}.f0': 1.7, f'{uid}.d1': 8.7, f'{uid}.d2': 19.1, f'{uid}.d3': 64.4}
     assert [st._mem_class(need[f'{uid}.{k}'], [9, 16, 35, 64]) for k in ('f0', 'd1', 'd2', 'd3')] == [9, 16, 35, 64]
     _set_code_check(study, fraction=1.0, flagged_n_only=True, mem_classes=[9, 16, 35, 64])
     _sized_draw(study, uid, 4, 20, 5)                     # picked, class 9, where the fill still waits
@@ -625,13 +625,13 @@ def test_memory_classes(study, monkeypatch):
     st._check_memory(19.1)
 
 
-def test_fill_need_follows_the_studys_inputs(study):
-    """A fill runs with the study's tps_kwargs as they are now: with dprime_banded on, its STRIDE is predicted banded,
-    also for a draw recorded before the key."""
+def test_item_need_follows_the_studys_inputs(study):
+    """An item runs with the study's tps_kwargs as they are now, so its predicted peak uses them over the draw's
+    recorded inputs (here nx)."""
     uid = '100_1500_base'
     _set_code_check(study, mem_classes=[9, 16, 35, 64])
-    _sized_draw(study, uid, 0, 65, 38, code_killed={'stride': [4]})
-    it, cfg = dict(shot=100, unit_id=uid, draws=[0], fill_n=[4]), st.load_config(study)
-    assert st._item_need_gib(study, cfg, it) == pytest.approx(5.77, abs=0.01)
-    cfg['tps_kwargs']['dprime_banded'] = 't'
-    assert st._item_need_gib(study, cfg, it) == pytest.approx(1.69, abs=0.01)
+    _sized_draw(study, uid, 0, 49, 28, stride_flagged_n=[4])
+    it, cfg = dict(shot=100, unit_id=uid, draws=[0]), st.load_config(study)
+    assert st._item_need_gib(study, cfg, it) == pytest.approx(8.7, abs=0.01)
+    cfg['tps_kwargs']['nx'] = 128
+    assert st._item_need_gib(study, cfg, it) == pytest.approx(4.9, abs=0.01)

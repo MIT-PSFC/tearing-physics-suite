@@ -325,7 +325,7 @@ _SIZES = {}  # draw .nc -> {n: (RDCON's mpert, msing)}: the feeder's cache
 
 def _need_gib(nc_path, inputs, codes, n=None):
     """Predicted peak (GiB, gpec_common.peak_gib) of running codes ('stride'; 'rdcon': its Delta') on a draw at n
-    (None: all its n), from the draw's RDCON surface pass (mpert, msing) and inputs (nx, delta_mhigh, dprime_banded)."""
+    (None: all its n), from the draw's RDCON surface pass (mpert, msing) and inputs (nx, delta_mhigh)."""
     import xarray as xr
 
     from tearing_physics_suite.wrappers.gpec_common import peak_gib
@@ -336,9 +336,9 @@ def _need_gib(nc_path, inputs, codes, n=None):
             rd = ds[['mpert', 'psi_n_rational']].sel(code='rdcon').load()
         _SIZES[nc_path] = {int(k): (int(rd.mpert.sel(nn=k)), int(rd.psi_n_rational.sel(nn=k).count()))
                            for k in rd.nn.values}
-    dm, nx, banded = inputs['delta_mhigh'], inputs['nx'], inputs.get('dprime_banded') == 't'  # not in older records
+    dm, nx = inputs['delta_mhigh'], inputs['nx']
     sizes = [s for k, s in _SIZES[nc_path].items() if n is None or k in n]
-    return max([peak_gib('stride', mp + dm, ms, banded=banded) for mp, ms in sizes if 'stride' in codes]
+    return max([peak_gib('stride', mp + dm, ms) for mp, ms in sizes if 'stride' in codes]
                + [peak_gib('rdcon', mp, ms, nx) for mp, ms in sizes if 'rdcon' in codes], default=0.0)
 
 

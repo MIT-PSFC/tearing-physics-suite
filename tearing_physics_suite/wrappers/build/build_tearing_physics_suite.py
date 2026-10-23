@@ -183,7 +183,7 @@ def build_all(
     gpec_single_threaded=False,
     legacy_gpec_test=True,
     work_dir=None,
-    gpec_branch="tps-pin-72598620",
+    gpec_branch="tps-pin-433329b4",
     pest3_gpec_vacuum=True,
     jgpec_home=None,
 ):
@@ -419,8 +419,8 @@ def main():
     parser.add_argument(
         "--gpec-branch",
         type=str,
-        default="tps-pin-72598620",
-        help="GPEC branch or tag to clone if submodules/GPEC is missing and TPS is not a git checkout (default: tps-pin-72598620, the Princeton tag on the pin)",
+        default="tps-pin-433329b4",
+        help="GPEC branch or tag to clone if submodules/GPEC is missing and TPS is not a git checkout (default: tps-pin-433329b4, the Princeton tag on the pin)",
     )
 
     # Skip flags

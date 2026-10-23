@@ -109,7 +109,7 @@ def test_live_deadline_is_reread(tmp_path, monkeypatch):
 
 def test_held_claims_are_not_retried(tmp_path, monkeypatch):
     """A unit another worker holds is skipped from one claims listing: no mkdir (hot directory on DVS) and no
-    attempt/failure listings for it; a stale one is still stolen (eq_stab a54bdae)."""
+    attempt/failure listings for it; a stale one is still stolen, once no free unit is left (eq_stab a54bdae, fc87939)."""
     q = fq.Queue(tmp_path, **FAST)
     q.add_units([dict(u, est=1) for u in _units(6)])
     held = [q.next_unit(fq.Cursor(start=0), 'a') for _ in range(4)]
@@ -119,7 +119,23 @@ def test_held_claims_are_not_retried(tmp_path, monkeypatch):
     got = q.next_unit(fq.Cursor(start=0), 'b')
     assert got == 'u004' and tried == ['u004'] and got not in held
     q.expire('claims', held[0])
-    assert q.next_unit(fq.Cursor(start=0), 'c') == held[0]
+    c = fq.Cursor(start=0)
+    assert [q.next_unit(c, 'c') for _ in range(2)] == ['u005', held[0]]
+
+
+def test_held_heartbeats_are_read_only_when_no_unit_is_free(tmp_path, monkeypatch):
+    """A worker back for its next unit passes every claim made since its last one: reading each one's heartbeat
+    (listdir + stat + open) was ~600 x 3 metadata ops per claim on CFS/DVS (eq_stab fc87939; WB 10-23)."""
+    q = fq.Queue(tmp_path, **FAST)
+    q.add_units([dict(u, est=1) for u in _units(6)])
+    for _ in range(4):
+        q.next_unit(fq.Cursor(start=0), 'a')
+    reads = []
+    real = q._hb
+    monkeypatch.setattr(q, '_hb', lambda kind, name: reads.append(name) or real(kind, name))
+    c = fq.Cursor(start=0)
+    assert [q.next_unit(c, 'b') for _ in range(2)] == ['u004', 'u005'] and reads == []
+    assert q.next_unit(c, 'b') is None and len(reads) == 6         # nothing free: the six held ones are checked
 
 
 def test_idle_worker_waits_to_steal_a_dead_claim(tmp_path):

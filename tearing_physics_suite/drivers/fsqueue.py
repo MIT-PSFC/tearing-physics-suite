@@ -353,29 +353,32 @@ class Queue:
         units = self.units()
         held = set(_ls(self.path('claims')))     # one listing: a held claim costs a heartbeat read, not a mkdir
         now = _now()
-        for _ in range(len(ids)):
-            uid = ids[cursor.i % len(ids)]
-            cursor.i += 1
-            if uid in done or uid in cursor.skip or cursor.defer.get(uid, 0) > now:
-                continue
-            if accept is not None and not accept(units[uid]):
-                cursor.skip.add(uid)
-                continue
-            if (uid in held and not self.stale('claims', uid)) or not self.acquire('claims', uid, worker):
-                cursor.defer[uid] = now + self.STALE_S
-                continue
-            if os.path.exists(self.path('done', uid)):     # finished in the gap
-                self.drop('claims', uid)
-                cursor.skip.add(uid)
-                continue
-            if self.n_failures(uid) >= self.MAX_FAILURES or self.n_attempts(uid) >= self.MAX_ATTEMPTS:
-                self.finish(uid, 'failed', reason='max_failures' if self.n_failures(uid) >= self.MAX_FAILURES
-                            else 'max_attempts')
-                cursor.skip.add(uid)
-                continue
-            cursor.attempt = self.record_attempt(uid, worker)
-            cursor.defer.pop(uid, None)
-            return uid
+        for steal in (False, True):     # free units first: held claims' heartbeats are read only when none is left
+            for _ in range(len(ids)):
+                uid = ids[cursor.i % len(ids)]
+                cursor.i += 1
+                if uid in done or uid in cursor.skip or cursor.defer.get(uid, 0) > now:
+                    continue
+                if accept is not None and not accept(units[uid]):
+                    cursor.skip.add(uid)
+                    continue
+                if uid in held and not steal:
+                    continue
+                if (uid in held and not self.stale('claims', uid)) or not self.acquire('claims', uid, worker):
+                    cursor.defer[uid] = now + self.STALE_S
+                    continue
+                if os.path.exists(self.path('done', uid)):     # finished in the gap
+                    self.drop('claims', uid)
+                    cursor.skip.add(uid)
+                    continue
+                if self.n_failures(uid) >= self.MAX_FAILURES or self.n_attempts(uid) >= self.MAX_ATTEMPTS:
+                    self.finish(uid, 'failed', reason='max_failures' if self.n_failures(uid) >= self.MAX_FAILURES
+                                else 'max_attempts')
+                    cursor.skip.add(uid)
+                    continue
+                cursor.attempt = self.record_attempt(uid, worker)
+                cursor.defer.pop(uid, None)
+                return uid
         return None
 
     def pending_elsewhere(self, cursor):

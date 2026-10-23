@@ -160,7 +160,7 @@ def _spot_dataset(res, codes):
     ds = ds.reset_coords(drop=True).drop_vars([name, 'r']).rename_dims({name: 'scan_value', 'r': 'surf'})
     ds = ds.reindex(code=codes)
     ds['r_value'] = ('surf', r_value)
-    ds['scan_value_str'] = ('scan_value', [str(v) for v in res['input_values']])
+    ds['scan_value_str'] = ('scan_value', [str(v) for v in dp[name].values])   # a failed scan value is left out
     ds['rel_exceeded_psi95'] = ('code', np.int8(_flag(res['rel_thresh_exceeded_psi95_anywhere'], codes)))
     ds['abs_exceeded_psi95'] = ('code', np.int8(_flag(res['abs_thresh_exceeded_psi95_anywhere'], codes)))
     return ds.assign(run_idx=res['run_idx'], scan=res['scan'], input_name=name, nn=res['nn'])

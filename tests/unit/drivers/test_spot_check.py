@@ -196,6 +196,13 @@ def test_spot_dataset_pads_ragged_spots(spot_results):
     np.testing.assert_array_equal(sc.spot_check_flag(ds, 3, [1, 2], ['rdcon', 'stride']), [[0, 0], [0, 1]])
 
 
+def test_spot_dataset_leaves_out_a_failed_scan_value(spot_results):
+    """A scan value whose run failed is not in the scan's Delta' (input_scans.delta_prime_compiler) nor its labels."""
+    failed = dict(spot_results[0], DP_surf_xarray=spot_results[0]['DP_surf_xarray'].isel(mtheta=slice(1)))
+    ds = sc.spot_dataset([failed])
+    assert list(ds.scan_value_str.isel(spot=0).values) == ['129'] and ds.sizes['scan_value'] == 1
+
+
 def test_stride_rdcon_disagreement(spot_results):
     assert sc.stride_rdcon_disagreements(spot_results, 0.05) == []  # first scan value is unscaled
     r = dict(spot_results[0])

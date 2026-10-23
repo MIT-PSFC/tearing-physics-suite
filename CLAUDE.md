@@ -55,7 +55,7 @@
 ## Environment and git
 - Python: `/fusion/projects/tmdb/scripts/eq_stab/venvs/genvenv1/.venv`. `TPSHOME` (from
   `tearing_physics_suite_env.sh`) is read lazily via `utils.tps_home()`; never read it at import time.
-- Fortran GPEC pin: 433329b4 (`submodules/GPEC`; Fortran PSFC_dev = develop 3c0b8f3b + #300 + #325 + #326 + #327 + #328 + #329 + 'original' grid fix + version.inc fixed-form fix + Wc comment + opt-in RDCON_LIBSCIHOME + STRIDE `dprime_banded` option + RDCON Galerkin frees each element matrix once assembled), fetchable as the Princeton tag `tps-pin-433329b4` (tps-build's clone default); version.inc takes any `git describe`; on Perlmutter build with RDCON_LIBSCIHOME=$CRAY_LIBSCI_PREFIX_DIR (rdcon on serial LibSci); PEST3: `master`.
+- Fortran GPEC pin: e1ccf1f5 (`submodules/GPEC`; Fortran PSFC_dev = upstream develop 65415a8f + our PRs #325, #327, #328, #329, #335, #351 (STRIDE Δ′ BVP always banded), #352 (RDCON Galerkin frees element matrices) + PSFC_dev-only version.inc fixed-form fix, Wc comment, opt-in RDCON_LIBSCIHOME), fetchable as the Princeton tag `tps-pin-e1ccf1f5` (tps-build's clone default); version.inc takes any `git describe`; on Perlmutter build with RDCON_LIBSCIHOME=$CRAY_LIBSCI_PREFIX_DIR (rdcon on serial LibSci); PEST3: `master`.
 - `submodules/GPEC` and `submodules/PEST3` are git submodules pinned to a commit (clone TPS with
   `--recurse-submodules`). The build never resets an existing checkout; it warns when HEAD differs from the pin.
   Bump a pin: `cd submodules/GPEC && git checkout <sha> && cd ../.. && git add submodules/GPEC && git commit`.

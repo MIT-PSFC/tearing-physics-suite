@@ -726,7 +726,7 @@ def build_PEST3(lib_paths, build_dir=None, debug=False, rebuild=False, run_tests
     return True
 
 
-def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="tps-pin-433329b4", disable_openmp=False, legacy_test=True, work_dir=None):
+def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=False, run_tests=True, branch="tps-pin-e1ccf1f5", disable_openmp=False, legacy_test=True, work_dir=None):
     """
     Build the GPEC code from the submodules/GPEC submodule (cloned from GitHub when TPS
     is not a git checkout) with make.
@@ -768,7 +768,7 @@ def build_GPEC(lib_paths, build_dir=None, rebuild=False, remake=False, debug=Fal
         If True (default), run GPEC_install_test() after a successful build.
         Set to False to skip post-build verification.
     branch : str
-        Git branch or tag to clone when not using the submodule (default: "tps-pin-433329b4", the Princeton tag on the pin).
+        Git branch or tag to clone when not using the submodule (default: "tps-pin-e1ccf1f5", the Princeton tag on the pin).
     disable_openmp : bool
         If True, pass ``OMPFLAG=`` (empty) to make, omitting the OpenMP
         compiler flag so the compiled executables run single-threaded.

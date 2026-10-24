@@ -53,6 +53,17 @@ def test_feed(study):
     assert st.feed(study) == 2
 
 
+def test_feed_adds_draws_appended_to_a_fed_unit(study):
+    """A bouquet fill-up appends draws to a unit's archive after it was fed: only those get items."""
+    uid = _record(study, 100, 1500)
+    assert st.feed(study) == 4
+    _record(study, 100, 1500, selected=(0, 1, 2, 3, 4, 6, 7, 9))
+    assert st.feed(study) == 2
+    items = fq.Queue(st.qroot(study)).units()
+    assert items[f'{uid}.d6']['draws'] == [6, 7] and items[f'{uid}.d9']['draws'] == [9]
+    assert st.feed(study) == 0
+
+
 def test_feed_adds_baseline_to_a_fed_unit(study):
     uid = _record(study, 100, 1500, selected=(0,))
     cfg = st.load_config(study)

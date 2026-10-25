@@ -244,11 +244,11 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=None,psi_surfs_of_
         psi_n_at_q_surfs_of_interest.append(psi_n_at_q_root)
 
     #########################################################################################################
-    # Check psi_n_of_interest values are in the range of psi_n values in rdcon_xarray:
-    for psi_n_of_interest in psi_surfs_of_interest:
-        if psi_n_of_interest < rdcon_xarray.psi_n.min() or psi_n_of_interest > rdcon_xarray.psi_n.max():
-            print(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Must be between {rdcon_xarray.psi_n.min()} and {rdcon_xarray.psi_n.max()}.")
-            raise ValueError(f"psi_n_of_interest {psi_n_of_interest} is out of bounds. Please check your input to decorrelation_timescales.")
+    # psi_n values of interest outside the grid (e.g. an edge truncated below them) get NaN, like a missing q surface
+    psi_lo, psi_hi = rdcon_xarray.psi_n.min().item(), rdcon_xarray.psi_n.max().item()
+    psi_n_at_psi_surfs_of_interest = [p if psi_lo <= p <= psi_hi else np.nan for p in psi_surfs_of_interest]
+    if verbose and np.isnan(psi_n_at_psi_surfs_of_interest).any():
+        print(f"psi_surfs_of_interest {psi_surfs_of_interest}: NaN outside the grid [{psi_lo:.3g}, {psi_hi:.3g}].")
 
     def _tdecorr(key, ref_psi, dim, coords):
         """2*pi/(omega_surf - omega(ref_psi)): decorrelation timescale (s) to each reference surface, along dim.
@@ -275,7 +275,7 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=None,psi_surfs_of_
                 return new_vars[f"{key_no_suffix}_tdecorr_qsurf"]
         if len(psi_surfs_of_interest) > 0:
             new_vars[f"{key_no_suffix}_tdecorr_psisurf"] = _tdecorr(
-                key, psi_surfs_of_interest, 'psi_surf_of_interest', psi_surfs_of_interest)
+                key, psi_n_at_psi_surfs_of_interest, 'psi_surf_of_interest', psi_surfs_of_interest)
         rdcon_xarray = rdcon_xarray.assign(**new_vars)
     # Save rotation keys onto xarray for later reference:
     rdcon_xarray = rdcon_xarray.assign(rotation_keys=rotation_keys)

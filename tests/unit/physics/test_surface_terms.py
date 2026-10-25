@@ -2,6 +2,7 @@ import numpy as np
 
 import tearing_physics_suite.physics.constants as gv
 from tearing_physics_suite.drivers.profile_read import read_kin_file
+from tearing_physics_suite.physics.rotation import decorrelation_timescales
 from tearing_physics_suite.physics.surface_terms import (deltaprime_crit_on_modes, mre_terms_on_modes, spitzer_zeff_factor,
                                                          wc_prefac_m)
 
@@ -113,3 +114,13 @@ def test_single_impurity_species(code_fixture, kin_file):
     old = mre_terms_on_modes(code_fixture('rdcon'), **kw, average_ion_mass=2.5)   # one ion species, as before
     np.testing.assert_allclose(old.rho_surf.values, old.ni_m3_surf.values*2.5*gv.amu + old.ne_m3_surf.values*gv.me)
     assert 'nimp_m3_surf' not in old and float(old.ne_on_ni_axis) != 1.0
+
+
+def test_decorrelation_psi_surface_beyond_grid_is_nan(rdcon_surface_terms):
+    """A psi_n of interest past the grid's edge (truncated below it) gives NaN there; the others are unchanged."""
+    rd = rdcon_surface_terms.drop_dims('psi_surf_of_interest')
+    ref = decorrelation_timescales(rd, psi_surfs_of_interest=[0.5], verbose=False)
+    out = decorrelation_timescales(rd, psi_surfs_of_interest=[0.5, 1.5], verbose=False)
+    t = out['omega_i_tdecorr_psisurf']
+    assert t.sel(psi_surf_of_interest=1.5).isnull().all()
+    np.testing.assert_array_equal(t.sel(psi_surf_of_interest=0.5), ref['omega_i_tdecorr_psisurf'].sel(psi_surf_of_interest=0.5))

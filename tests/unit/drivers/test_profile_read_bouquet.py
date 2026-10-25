@@ -93,6 +93,7 @@ def test_draw_species():
 def test_ida_extras_from_this_clusters_ida_dir(tmp_path, monkeypatch):
     """An archive written on another cluster names its IDA file there: the same file name in $TPS_IDA_DIR is used."""
     import xarray as xr
+
     from tearing_physics_suite.drivers import profile_read
     ida = xr.Dataset({'tau_e_basic': ('time', [0.1, 0.2]), 'tau_th_basic': ('time', [0.3, 0.4])},
                      coords={'time': [1000.0, 1500.0], 'psi_n': [0.0, 1.0]})

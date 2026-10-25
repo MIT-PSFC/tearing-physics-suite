@@ -326,14 +326,15 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
             with open(eq_path, 'wb') as fh:
                 fh.write(eq_bytes)
             coord = attrs.get('profile_coord', 'psi_n')
+            psi_q = (gfile_q if eq_source == 'geqdsk' else ifile_q)(eq_bytes)
             if coord == 'phi_n':
-                prof = _phi_n_to_psi_n(prof, *(gfile_q if eq_source == 'geqdsk' else ifile_q)(eq_bytes))
+                prof = _phi_n_to_psi_n(prof, *psi_q)
             elif coord != 'psi_n':
                 raise NotImplementedError(f"Bouquet draw {key}/{count} has profile_coord={coord!r}.")
             eq_filenames.append(eq_path)
             p = _bouquet_draw_profiles(prof, attrs, cfg, key, count, ida_extras, meta_data, impurity_mass_amu,
                                        main_ion_mass_amu)
-            profile_list.append(dict(p, bq_profile_coord=coord, **labels))
+            profile_list.append(dict(p, bq_profile_coord=coord, psi_n_sawtooth=_saw_psi_n(attrs, *psi_q), **labels))
         if verbose:
             print(f"[read_bouquet_archive] scan {key}: {len(draws)} draws unpacked to {eqdsk_out_dir}")
 
@@ -366,17 +367,26 @@ def ifile_q(eq_bytes):
     return (d['psi'] - b0) / (b1 - b0), np.abs(d['q'])
 
 
-def _phi_n_to_psi_n(prof, psi, q):
-    """Profiles of a Φ_N bouquet draw with their grids (psi_N, psi_N_kinetic) mapped to ψ_N.
-
-    Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's equilibrium-file q (bouquet.coords.phi_n_from_q).
-    """
+def _phi_n_map(psi, q):
+    """(Φ_N, ψ_N) grids, Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's equilibrium-file q (bouquet.coords.phi_n_from_q)."""
     if psi[-1] < 1.0:                       # an i-file stops at the LCFS pad: q held to ψ_N = 1
         psi, q = np.append(psi, 1.0), np.append(q, q[-1])
     phi = np.concatenate([[0.0], np.cumsum(0.5*(q[1:] + q[:-1])*np.diff(psi))])
     phi /= phi[-1]
     if not np.all(np.diff(phi) > 0):
         raise ValueError("Φ_N(ψ_N) from the equilibrium-file q is not monotonic")
+    return phi, psi
+
+
+def _saw_psi_n(attrs, psi, q):
+    """ψ_N of bouquet's sawtooth reset radius (draw attr swb_saw_rho_m, √Φ_N); NaN without a reset (0) or the attr."""
+    rho = float(attrs.get('swb_saw_rho_m', 0.0))
+    return float(np.interp(rho**2, *_phi_n_map(psi, q))) if rho > 0 else np.nan
+
+
+def _phi_n_to_psi_n(prof, psi, q):
+    """Profiles of a Φ_N bouquet draw with their grids (psi_N, psi_N_kinetic) mapped to ψ_N (_phi_n_map)."""
+    phi, psi = _phi_n_map(psi, q)
     out = dict(prof)
     for grid in ('psi_N', 'psi_N_kinetic'):
         if grid in prof:

@@ -162,8 +162,8 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=None,psi_surfs_of_
         Dataset with rotation quantities already added (via add_rotation / add_drift_rotation).
     q_surfs_of_interest : list of float
         q values whose largest-psi_n rational surface is used as a reference (default [1]).
-    psi_surfs_of_interest : list of float
-        psi_n values used as reference surfaces (default [0.95]).
+    psi_surfs_of_interest : list of float, or dict {label: psi_n}
+        psi_n values used as reference surfaces (default [0.95]); a dict (per-case values) labels them by its keys.
     omega_splines : dict or None
         Same omega_splines passed to add_rotation; keys determine which rotations are included.
     verbose : bool
@@ -244,11 +244,15 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=None,psi_surfs_of_
         psi_n_at_q_surfs_of_interest.append(psi_n_at_q_root)
 
     #########################################################################################################
-    # psi_n values of interest outside the grid (e.g. an edge truncated below them) get NaN, like a missing q surface
+    # psi_n values of interest: below the grid (the axis, 0) read at its first point; past its edge (an edge
+    # truncated below them) NaN, like a missing q surface
+    psi_labels = psi_surfs_of_interest
+    if isinstance(psi_surfs_of_interest, dict):
+        psi_labels, psi_surfs_of_interest = list(psi_surfs_of_interest), list(psi_surfs_of_interest.values())
     psi_lo, psi_hi = rdcon_xarray.psi_n.min().item(), rdcon_xarray.psi_n.max().item()
-    psi_n_at_psi_surfs_of_interest = [p if psi_lo <= p <= psi_hi else np.nan for p in psi_surfs_of_interest]
+    psi_n_at_psi_surfs_of_interest = [max(p, psi_lo) if p <= psi_hi else np.nan for p in psi_surfs_of_interest]
     if verbose and np.isnan(psi_n_at_psi_surfs_of_interest).any():
-        print(f"psi_surfs_of_interest {psi_surfs_of_interest}: NaN outside the grid [{psi_lo:.3g}, {psi_hi:.3g}].")
+        print(f"psi_surfs_of_interest {psi_surfs_of_interest}: NaN past the grid's edge {psi_hi:.3g}.")
 
     def _tdecorr(key, ref_psi, dim, coords):
         """2*pi/(omega_surf - omega(ref_psi)): decorrelation timescale (s) to each reference surface, along dim.
@@ -275,10 +279,13 @@ def decorrelation_timescales(rdcon_xarray,q_surfs_of_interest=None,psi_surfs_of_
                 return new_vars[f"{key_no_suffix}_tdecorr_qsurf"]
         if len(psi_surfs_of_interest) > 0:
             new_vars[f"{key_no_suffix}_tdecorr_psisurf"] = _tdecorr(
-                key, psi_n_at_psi_surfs_of_interest, 'psi_surf_of_interest', psi_surfs_of_interest)
+                key, psi_n_at_psi_surfs_of_interest, 'psi_surf_of_interest', psi_labels)
         rdcon_xarray = rdcon_xarray.assign(**new_vars)
-    # Save rotation keys onto xarray for later reference:
+    # Save rotation keys and the reference psi_n used onto xarray for later reference:
     rdcon_xarray = rdcon_xarray.assign(rotation_keys=rotation_keys)
+    if len(psi_surfs_of_interest) > 0:
+        rdcon_xarray = rdcon_xarray.assign(psi_n_of_interest=xr.DataArray(
+            psi_n_at_psi_surfs_of_interest, dims='psi_surf_of_interest', coords={'psi_surf_of_interest': psi_labels}))
 
     return rdcon_xarray
 

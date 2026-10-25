@@ -124,3 +124,16 @@ def test_decorrelation_psi_surface_beyond_grid_is_nan(rdcon_surface_terms):
     t = out['omega_i_tdecorr_psisurf']
     assert t.sel(psi_surf_of_interest=1.5).isnull().all()
     np.testing.assert_array_equal(t.sel(psi_surf_of_interest=0.5), ref['omega_i_tdecorr_psisurf'].sel(psi_surf_of_interest=0.5))
+
+
+def test_decorrelation_labelled_surfaces_and_axis(rdcon_surface_terms):
+    """A dict labels the psi_n surfaces by its keys; psi_n 0 (the axis) is read at the grid's first point; NaN gives NaN."""
+    rd = rdcon_surface_terms.drop_dims('psi_surf_of_interest')
+    lo = float(rd.psi_n.min())
+    ref = decorrelation_timescales(rd, psi_surfs_of_interest=[lo], verbose=False)
+    out = decorrelation_timescales(rd, psi_surfs_of_interest={'0.0': 0.0, 'psi_n_sawtooth': np.nan}, verbose=False)
+    t = out['omega_i_tdecorr_psisurf']
+    assert list(t.psi_surf_of_interest.values) == ['0.0', 'psi_n_sawtooth']
+    np.testing.assert_array_equal(t.sel(psi_surf_of_interest='0.0'), ref['omega_i_tdecorr_psisurf'].sel(psi_surf_of_interest=lo))
+    assert t.sel(psi_surf_of_interest='psi_n_sawtooth').isnull().all()
+    np.testing.assert_array_equal(out.psi_n_of_interest, [lo, np.nan])

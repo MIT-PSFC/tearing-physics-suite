@@ -6,7 +6,7 @@ import pytest
 from scipy.integrate import cumulative_trapezoid
 
 from tearing_physics_suite.drivers.multi_run import _profile_kwargs, _validate_case
-from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _bouquet_ida_extras, _phi_n_to_psi_n, gfile_q, ifile_q, read_bouquet_archive
+from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _bouquet_ida_extras, _phi_n_to_psi_n, _saw_psi_n, gfile_q, ifile_q, read_bouquet_archive
 
 
 def test_gfile_q(eq_file):
@@ -77,6 +77,18 @@ def test_profile_kwargs_labels():
     out = _profile_kwargs(prof, dict(tau_e_label='tau_E_th'))
     assert out == dict(energy_confinement_time=0.2, chi_perp_spline='S', chi_perp_i_spline='I')
     assert _profile_kwargs(prof, dict(chi_perp_spline='K'))['chi_perp_spline'] == 'K'
+
+
+def test_sawtooth_radius_as_psi_surface(eq_file):
+    """swb_saw_rho_m (√Φ_N) maps to ψ_N with the draw's q (NaN without a reset); psi_surfs_of_interest names it."""
+    psi, q = gfile_q(open(eq_file, 'rb').read())
+    phi = cumulative_trapezoid(q, psi, initial=0.0) / np.trapezoid(q, psi)
+    saw = _saw_psi_n({'swb_saw_rho_m': 0.3}, psi, q)
+    np.testing.assert_allclose(saw, np.interp(0.09, phi, psi), atol=1e-12)
+    assert np.isnan(_saw_psi_n({'swb_saw_rho_m': 0.0}, psi, q)) and np.isnan(_saw_psi_n({}, psi, q))
+    out = _profile_kwargs(dict(psi_n_sawtooth=saw), dict(psi_surfs_of_interest=[0.0, 'psi_n_sawtooth']))
+    assert out['psi_surfs_of_interest'] == {'0.0': 0.0, 'psi_n_sawtooth': saw}
+    assert _profile_kwargs({}, dict(psi_surfs_of_interest=[0.95]))['psi_surfs_of_interest'] == [0.95]
 
 
 def test_draw_species():

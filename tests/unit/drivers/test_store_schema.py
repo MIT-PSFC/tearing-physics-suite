@@ -49,7 +49,17 @@ def test_dwdt_dropped_and_float32_except_recompute_inputs():
 def test_options_off_keep_everything_but_store_drop():
     ds = _run()
     out = prepare_for_store(ds, store_float32=False, drop_duplicates=False)
-    xr.testing.assert_identical(out, ds.drop_vars(['dwdt_surf', 'cell_x1', 'te_keV']))
+    xr.testing.assert_identical(out, ds.drop_vars(['dwdt_surf', 'cell_x1', 'te_keV']).assign(shear=(('code', 'r'), np.full((3, 3), np.nan))))
+
+
+def test_stride_v160_repeats_dropped_and_shear_in_every_run():
+    """GPEC v1.6's STRIDE writes di/dr_rational, resm, msing (stored already) and shear (kept; NaN without STRIDE)."""
+    ds = _run().assign(shear=(('code', 'r'), np.ones((3, 3))), resm=(('code', 'r'), np.ones((3, 3), dtype=np.int32)),
+                       di_rational=(('code', 'r'), np.ones((3, 3))), dr_rational=(('code', 'r'), np.ones((3, 3))),
+                       msing=(('code',), np.ones(3)))
+    out, bare = prepare_for_store(ds), prepare_for_store(_run())
+    assert not {'resm', 'di_rational', 'dr_rational', 'msing'} & set(out) and set(out) == set(bare)
+    assert out.shear.dims == bare.shear.dims == ('code', 'r') and np.isnan(bare.shear).all()
 
 
 def test_stride_equil_copy_blanked_rdcon_kept():

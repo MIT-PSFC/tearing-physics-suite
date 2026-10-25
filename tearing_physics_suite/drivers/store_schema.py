@@ -16,7 +16,11 @@ from tearing_physics_suite.drivers.mre_recompute import INPUTS as RECOMPUTE_INPU
 INPUT_PROFILES = ('ne_m3', 'ni_m3', 'te_keV', 'ti_keV', 'Er', 'omega_tor', 'omega_e', 'omega_i', 'omega_ExB',
                   'omega_ExB_plus_omega_e', 'omega_ExB_plus_omega_i', 'dq_dpsi_n', 'dmu0p_dpsi_n', 'eta_spitz',
                   'lnLamb_ei', 'lnLamb_ee')
-STORE_DROP = ('dwdt_surf', 'interval_icell', 'iitvl', 'etypes', 'cell_x1', 'cell_x2') + INPUT_PROFILES
+# GPEC v1.6's STRIDE outputs that repeat stored values: di/dr_rational (Di_surf, Dr_surf), resm (m_rational) and
+# msing (the surface count); its shear is kept, NaN in a run without STRIDE output so every run has it (user 10-24)
+STRIDE_REPEATS = ('di_rational', 'dr_rational', 'resm', 'msing')
+STRIDE_ONLY = ('shear',)
+STORE_DROP = ('dwdt_surf', 'interval_icell', 'iitvl', 'etypes', 'cell_x1', 'cell_x2') + INPUT_PROFILES + STRIDE_REPEATS
 # W eigenvectors kept for the least-stable modes only (mode 1 is the least stable in RDCON and STRIDE, user 10-17);
 # W_t and the eigenvalues stay in full
 EIGVEC_VARS = ('W_t_eigenvector', 'W_p_eigenvector', 'W_v_eigenvector')
@@ -118,6 +122,8 @@ def prepare_for_store(ds, store_float32=True, drop_duplicates=True):
     """One run's combined dataset reduced for the compiled zarr (plans/F.md, P1/P6/P7/P9; cell grid, W eigenvectors,
     input profiles; float32 profiles bit-rounded)."""
     ds = keep_least_stable_eigenvectors(ds.drop_vars([v for v in STORE_DROP if v in ds]))
+    dims = [d for d in ('nn', 'code', 'r') if d in ds.dims]
+    ds = ds.assign({v: (dims, np.full([ds.sizes[d] for d in dims], np.nan)) for v in STRIDE_ONLY if v not in ds})
     if drop_duplicates:
         ds = blank_duplicates(drop_store_duplicates(ds))
     return round_profiles(to_float32(ds)) if store_float32 else ds

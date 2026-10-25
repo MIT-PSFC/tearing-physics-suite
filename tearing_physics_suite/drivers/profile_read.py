@@ -455,6 +455,8 @@ def _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, tol_ms, verbose):
                     or getattr(getattr(cfg, 'uncertainty', None), 'ida_path', None))
     if ida_path is None:
         return {}
+    if not os.path.exists(ida_path):         # an archive written on another cluster: this cluster's $TPS_IDA_DIR
+        ida_path = os.path.join(os.environ.get('TPS_IDA_DIR') or os.path.dirname(ida_path), os.path.basename(ida_path))
     if not os.path.exists(ida_path):
         warnings.warn(f"IDA file {ida_path} not found; skipping IDA extras for scan {key}.", stacklevel=2)
         return {}

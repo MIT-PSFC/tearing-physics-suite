@@ -6,7 +6,7 @@ import pytest
 from scipy.integrate import cumulative_trapezoid
 
 from tearing_physics_suite.drivers.multi_run import _profile_kwargs, _validate_case
-from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _phi_n_to_psi_n, gfile_q, ifile_q, read_bouquet_archive
+from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _bouquet_ida_extras, _phi_n_to_psi_n, gfile_q, ifile_q, read_bouquet_archive
 
 
 def test_gfile_q(eq_file):
@@ -88,3 +88,16 @@ def test_draw_species():
     assert _bouquet_draw_profiles(prof, {}, None, '1500', 0, {}, False, None, 2.5)['species']['main_mass'] == 2.5
     beam = _bouquet_draw_profiles(dict(prof, z_fast=1e18 + 0*x, z2_fast=1e18 + 0*x), {}, None, '1500', 0, {}, False, None)
     np.testing.assert_allclose([beam['species'][k](0.5) for k in ('z_fast', 'z2_fast')], 1e18)
+
+
+def test_ida_extras_from_this_clusters_ida_dir(tmp_path, monkeypatch):
+    """An archive written on another cluster names its IDA file there: the same file name in $TPS_IDA_DIR is used."""
+    import xarray as xr
+    xr.Dataset({'tau_e_basic': ('time', [0.1, 0.2]), 'tau_th_basic': ('time', [0.3, 0.4])},
+               coords={'time': [1000.0, 1500.0], 'psi_n': [0.0, 1.0]}).to_netcdf(tmp_path / 'IDA_100_.cdf', engine='h5netcdf')
+    other = '/other/cluster/ida_lite/IDA_100_.cdf'
+    with pytest.warns(UserWarning, match='not found'):
+        assert _bouquet_ida_extras(None, '1500', other, None, 1.0, False) == {}
+    monkeypatch.setenv('TPS_IDA_DIR', str(tmp_path))
+    got = _bouquet_ida_extras(None, '1500', other, None, 1.0, False)
+    assert got['IDA_time'] == 1500.0 and got['tau_e_basic'] == 0.2 and got['tau_th_basic'] == 0.4

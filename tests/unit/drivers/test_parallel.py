@@ -408,6 +408,9 @@ def test_code_check_fills_ok_draws(study, monkeypatch):
     codes = xr.open_zarr(st.shot_store(study, 100, code_check=True))
     assert list(codes.case_key.values) == [f'{uid}_0'] and list(codes.code_check_reason.values) == ['random']
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # main store: own files only
+    _fake_pipeline(monkeypatch, {1: TimeoutError('hung')})                  # a check's timeout: recorded once, final
+    assert [d['status'] for d in st.run_item(study, f'{uid}.d1', code_check=True)['draws']] == ['timeout']
+    assert st.run_item(study, f'{uid}.d1', code_check=True)['draws'] == []
 
 
 def test_code_check_store_takes_checks_with_and_without_julia(study):

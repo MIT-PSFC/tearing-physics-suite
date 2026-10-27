@@ -73,7 +73,7 @@ Each run in a store has `case_key` (`<unit_id>_<count>`), `shot_id`, `t_ms`, `dr
 
 **Failures.**
 - A draw that fails in the pipeline is a result (`error`, with its signature); its item still succeeds.
-- A draw that times out (`code_timeout`) or whose process dies is retried once, then final (`timeout`/`crashed`).
+- A draw that times out (`code_timeout`) or whose process dies is retried once, then final (`timeout`/`crashed`). A code check's or fill's timeout is final at once (not retried).
 - An item fails (and is retried by the queue, at most `MAX_FAILURES` times) for a first timeout or an error outside
   the draws. `ImportError`, `MemoryError`, a full or read-only disk, a build mismatch, or `n_same_sig` draws in a row
   failing with one signature across two units mark the worker broken: it exits. When workers of

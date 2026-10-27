@@ -458,12 +458,13 @@ def _run_spot_checks(spot, eq, kwargs, sdir, wd):
 
 
 def _draw_state(path):
-    """(final, attempts) of a draw's status file."""
+    """(final, attempts) of a draw's status file; a code check's or fill's timeout is final (not retried)."""
     r = fq.read_json(path)
     if r is None:
         return False, 0
     n = r.get('attempts', 1)
-    return r.get('status') in FINAL or n >= MAX_DRAW_ATTEMPTS, n
+    timed_out_check = r.get('status') == 'timeout' and path.endswith(('.codes.json', '.fill.json'))
+    return r.get('status') in FINAL or n >= MAX_DRAW_ATTEMPTS or timed_out_check, n
 
 
 def _scalars(d):
@@ -556,7 +557,7 @@ def run_item(study, item_id, code_check=False):
                                           os.path.join(wd, 'work'), case, spot, sfx, None if code_check else flag))
     finally:
         shutil.rmtree(wd, ignore_errors=True)
-    if any(d['status'] in ('timeout',) for d in out['draws']):
+    if not code_check and any(d['status'] in ('timeout',) for d in out['draws']):
         raise RuntimeError('draw timeout(s), to retry: ' + ', '.join(str(d['draw']) for d in out['draws']
                                                                    if d['status'] == 'timeout'))
     return out

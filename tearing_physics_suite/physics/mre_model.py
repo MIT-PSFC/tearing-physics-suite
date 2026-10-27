@@ -50,8 +50,10 @@ def extract_critical_mre_factors_on_modes(
     # Defining output structures (k1, C0 dims last; prefac_surf gets k0):
     per_k = xr.full_like(DP_da, np.nan).expand_dims(k1=k1s, C0=C0s, axis=[-2, -1])
     w_margs, w_sats, w_max_locs, dwdtau_maxs, wd_at_margs = (per_k.copy(deep=True) for _ in range(5))
-    prefacs = xr.full_like(rdcon_xarray.psi_n_rational, np.nan).expand_dims(k0=k0s, axis=-1).copy(deep=True)
-    wd_at_X0s = xr.full_like(rdcon_xarray.psi_n_rational, np.nan)
+    surfs = rdcon_xarray.psi_n_rational   # RDCON's surfaces under this dataset's code label (assign aligns on 'code')
+    surfs = surfs.assign_coords(code=code_xarray.code) if 'code' in surfs.dims else surfs
+    prefacs = xr.full_like(surfs, np.nan).expand_dims(k0=k0s, axis=-1).copy(deep=True)
+    wd_at_X0s = xr.full_like(surfs, np.nan)
     dwdt_lowres_da = xr.DataArray(
         np.full(DP_da.shape + (len(w_vec_lowres),), np.nan),
         dims=DP_da.dims + ('w_bar',),
@@ -118,7 +120,7 @@ def extract_critical_mre_factors_on_modes(
     code_xarray = code_xarray.assign(
         X0_on_w_marg_surf = (X0_any_code/code_xarray['w_marg_surf']).transpose(*lead, ...),
         X0_on_wd_at_marg_surf = (X0_any_code/code_xarray['wd_at_marg_surf']).transpose(*lead, ...),
-        X0_on_wd_at_X0_surf = X0/code_xarray['wd_at_X0_surf'])
+        X0_on_wd_at_X0_surf = (X0_any_code/code_xarray['wd_at_X0_surf']).transpose(*lead))
 
     return code_xarray
 

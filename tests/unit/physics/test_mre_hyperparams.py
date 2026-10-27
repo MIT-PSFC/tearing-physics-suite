@@ -48,7 +48,9 @@ def test_k0_only_rescales_prefac(grid):
 
 def test_x0_ratios_filled_for_every_code(grid):
     for c in grid.code.values:
-        assert np.isfinite(grid.X0_on_w_marg_surf.sel(code=c)).any(), c
+        for v in ('X0_on_w_marg_surf', 'prefac_surf', 'wd_at_X0_surf', 'X0_on_wd_at_X0_surf'):
+            assert np.isfinite(grid[v].sel(code=c)).any(), (c, v)
+    np.testing.assert_array_equal(grid.wd_at_X0_surf.sel(code='stride'), grid.wd_at_X0_surf.sel(code='rdcon'))
 
 
 def test_global_ranks_per_k(grid):

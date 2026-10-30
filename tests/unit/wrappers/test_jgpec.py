@@ -83,6 +83,21 @@ def test_read_jgpec_h5(solver, wall):
     np.testing.assert_array_equal(ds.q_rational, [2, 3, 4, 5, 6])
     assert ('A_prime' in ds) == (solver == 'galerkin')
     assert ds.attrs['n'] == 1 and ds.attrs['qlim'] == 6.2
+    assert np.isnan(ds.attrs['total1']) and np.isnan(ds.attrs['nzero'])     # these files hold no stability output
+
+
+@pytest.mark.parametrize('nstep_total,nzero', [(812, 2.0), (0, np.nan)])    # ODE integration ran / did not (Galerkin)
+def test_reader_ideal_stability(tmp_path, nstep_total, nzero):
+    import h5py
+    p = str(tmp_path / 'gpec.h5')
+    shutil.copy(_h5('riccati', 'nowall'), p)
+    with h5py.File(p, 'r+') as f:
+        f['ForceFreeStates/FreeBoundaryStability/eigenmode_energies'] = np.array([-17.1 + 1e-7j, 2.5 + 0j])
+        f['ForceFreeStates/Solutions/ForwardIntegration/nstep_total'] = nstep_total
+        f['ForceFreeStates/Solutions/ForwardIntegration/nzero'] = 2
+    ds = jgpec.read_jgpec_h5(p)
+    assert ds.attrs['total1'] == -17.1
+    np.testing.assert_equal(ds.attrs['nzero'], nzero)
 
 
 def test_reader_orientation_matches_rdcon(code_fixture):

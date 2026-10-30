@@ -238,10 +238,12 @@ def read_jgpec_h5(path):
     """Delta' outputs of a jGPEC gpec.h5 in the RDCON schema, on the surfaces jGPEC solved across.
 
     Delta_prime, A_prime, B_prime, Gamma_prime (i, r_prime, r) with i = 0 real, 1 imaginary (A/B/Gamma:
-    Galerkin only); psi_n_rational, q_rational (r); r = r_prime = m. Attributes n, psilim, qlim.
+    Galerkin only); psi_n_rational, q_rational (r); r = r_prime = m. Attributes n, psilim, qlim, and the ideal
+    stability verdicts total1 and nzero (_ideal_stability).
     """
     import h5py
     with h5py.File(path, 'r') as f:
+        total1, nzero = _ideal_stability(f)
         ss = f['SingularSurfaces']
         if 'Delta_prime_matrix' not in ss:
             raise KeyError(f"{path}: no SingularSurfaces/Delta_prime_matrix (no Delta' computed)")
@@ -260,8 +262,20 @@ def read_jgpec_h5(path):
         coords={'i': [0, 1], 'r_prime': r, 'r': r})
     ds['psi_n_rational'] = ('r', psi[keep])
     ds['q_rational'] = ('r', q[keep])
-    ds.attrs.update(n=n, psilim=float(info['psilim']), qlim=float(info['qlim']))
+    ds.attrs.update(n=n, psilim=float(info['psilim']), qlim=float(info['qlim']), total1=total1, nzero=nzero)
     return ds
+
+
+def _ideal_stability(f):
+    """(total1, nzero) of a gpec.h5 as RDCON names them: the least-stable free-boundary mode energy (jGPEC's is
+    power-normalized, so only its sign compares with RDCON's) and the fixed-boundary zero crossings of the ODE
+    integration. NaN where jGPEC did not compute them (Galerkin: neither; nzero: jGPEC builds that write it)."""
+    fwd = 'ForceFreeStates/Solutions/ForwardIntegration'
+    et = f.get('ForceFreeStates/FreeBoundaryStability/eigenmode_energies')
+    total1 = float(np.real(et[0])) if et is not None and et.size else np.nan
+    ran = f.get(f'{fwd}/nstep_total')
+    nzero = float(f[f'{fwd}/nzero'][()]) if f'{fwd}/nzero' in f and ran is not None and ran[()] > 0 else np.nan
+    return total1, nzero
 
 
 def _solved_surfaces(psi, m, nsolved, info, path):

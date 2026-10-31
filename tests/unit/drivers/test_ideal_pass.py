@@ -97,3 +97,24 @@ def test_feed_run_compile(study, monkeypatch):
     np.testing.assert_array_equal(ds.nzero.sel(code='stride').values, [[np.nan, 1]] * 3)
     assert ds.ideal_unstable.values.tolist() == [[0, 1]] * 3                # n=2: 3 crossings, STRIDE decides
     assert ds.ideal_stride_reason.values.tolist() == [['', 'pathological']] * 3
+
+
+def test_open_shot_joins_the_ideal_store(tmp_path):
+    """A study shot read with open_shot gets the ideal pass's variables by case_key; runs without a verdict get
+    NaN, -1 or ''; the pass's n are matched to the store's."""
+    from tearing_physics_suite.analysis.shot_data import open_shot
+    keys = np.array(['u_0', 'u_1', 'u_2'], dtype=object)
+    main = xr.Dataset({'Delta_prime': ('run_idx', [1.0, 2.0, 3.0]), 'shot_id': ('run_idx', [100] * 3),
+                       't_ms': ('run_idx', [1500] * 3), 'case_key': ('run_idx', keys)},
+                      coords=dict(nn=[1, 2], code=['rdcon', 'stride']))
+    main.to_zarr(st.shot_store(str(tmp_path), 100), consolidated=True)
+    ideal = xr.Dataset({'nzero': (('run_idx', 'nn', 'code'), np.array([[[2, np.nan]], [[0, np.nan]]], np.float32)),
+                        'ideal_unstable': (('run_idx', 'nn'), np.array([[1], [0]], np.int8)),
+                        'ideal_stride_reason': (('run_idx', 'nn'), np.array([[''], ['']], object)),
+                        'case_key': ('run_idx', keys[[2, 0]]), 't_ms': ('run_idx', [0, 0])},
+                       coords=dict(nn=[1], code=['rdcon', 'stride']))
+    ideal.to_zarr(ip.shot_store(str(tmp_path), 100), consolidated=True)
+    ds = open_shot(str(tmp_path), 100)
+    np.testing.assert_array_equal(ds.nzero.sel(code='rdcon').values, [[0, np.nan], [np.nan, np.nan], [2, np.nan]])
+    np.testing.assert_array_equal(ds.ideal_unstable.sel(nn=1).values, [0, -1, 1])
+    assert ds.t_ms.values.tolist() == [1500] * 3 and ds.Delta_prime.values.tolist() == [1.0, 2.0, 3.0]

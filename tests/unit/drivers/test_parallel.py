@@ -649,3 +649,14 @@ def test_item_need_follows_the_studys_inputs(study):
     assert st._item_need_gib(study, cfg, it) == pytest.approx(8.7, abs=0.01)
     cfg['tps_kwargs']['nx'] = 128
     assert st._item_need_gib(study, cfg, it) == pytest.approx(4.9, abs=0.01)
+
+
+def test_item_runs_under_its_stored_need(study):
+    """A check runs under the need_gib it was classed by (feed rounds it): an item stored at 14.4 GiB but
+    recomputed at 14.43 was taken by a 16 GiB session and then refused (10-28, 167434_2804 d12)."""
+    uid = '100_1500_base'
+    _set_code_check(study, mem_classes=[16, 35])
+    _sized_draw(study, uid, 0, 49, 28, stride_flagged_n=[4])
+    cfg = st.load_config(study)
+    assert st._run_need_gib(study, cfg, dict(shot=100, unit_id=uid, draws=[0], need_gib=14.4)) == 14.4
+    assert st._run_need_gib(study, cfg, dict(shot=100, unit_id=uid, draws=[0])) == pytest.approx(8.7, abs=0.01)

@@ -358,6 +358,12 @@ def _item_need_gib(study, cfg, it):
     return _need_gib(path + '.nc', inputs, codes, n)
 
 
+def _run_need_gib(study, cfg, it):
+    """The predicted peak a code-check item runs under: the need_gib it was classed and accepted by (feed stores it
+    rounded), so a session never refuses an item it took; recomputed only for items fed without one."""
+    return it.get('need_gib') or _item_need_gib(study, cfg, it)
+
+
 def _mem_class(need_gib, classes):
     """The smallest memory class (GiB) need_gib fits (utils.fits_memory), else the largest; None without classes."""
     return next((c for c in classes if fits_memory(need_gib, c)), classes[-1]) if classes else None
@@ -533,7 +539,7 @@ def run_item(study, item_id, code_check=False):
         return out
     check = code_check_config(cfg)
     flag = (check or {}).get('flag')
-    need = _item_need_gib(study, cfg, it) if code_check and session_mem_gib() else 0.0
+    need = _run_need_gib(study, cfg, it) if code_check and session_mem_gib() else 0.0
     if not code_check:
         kwargs, case = dict(cfg['tps_kwargs']), run_case
     elif 'fill_n' in it:

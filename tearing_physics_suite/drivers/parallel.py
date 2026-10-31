@@ -520,20 +520,10 @@ def run_item(study, item_id, code_check=False):
     """Run the draws of one work item (a code-check item: their code checks, or fills) that are not final yet.
     Returns a summary dict."""
     from tearing_physics_suite.drivers.multi_run import run_case
-    from tearing_physics_suite.drivers.profile_read import read_bouquet_archive
     cfg = load_config(study)
     it = fq.Queue(qroot(study, code_check)).units()[item_id]
-    if cfg.get('code_timeout'):
-        os.environ['TPS_CODE_TIMEOUT'] = str(cfg['code_timeout'])
-    ddir = os.path.join(unit_dir(study, cfg, it['shot'], it['unit_id']), 'draws')
-    os.makedirs(ddir, exist_ok=True)
     sfx = ('.fill' if 'fill_n' in it else '.codes') if code_check else ''
-    states = {c: _draw_state(os.path.join(ddir, f'{c}{sfx}.json')) for c in it['draws']}
-    for c, (final, _) in states.items():                 # a draw left 'running' crashed its process twice
-        r = fq.read_json(os.path.join(ddir, f'{c}{sfx}.json')) or {}
-        if final and r.get('status') == 'running':
-            fq.write_json(os.path.join(ddir, f'{c}{sfx}.json'), dict(r, status='crashed'))
-    todo = [c for c, (final, _) in states.items() if not final]
+    ddir, states, todo = draws_to_run(study, cfg, it, sfx)
     out = dict(item=item_id, draws=[])
     if not todo:
         return out
@@ -551,22 +541,43 @@ def run_item(study, item_id, code_check=False):
     spot = None if code_check else spot_config(cfg)
     if cfg.get('tau_e'):
         kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
-    wd = tempfile.mkdtemp(prefix=f'tps_{item_id}_', dir=work_root())
+    out['draws'] = run_draws(cfg, it, ddir, states, todo, kwargs, case, spot, sfx, None if code_check else flag)
+    if not code_check and any(d['status'] in ('timeout',) for d in out['draws']):
+        raise RuntimeError('draw timeout(s), to retry: ' + ', '.join(str(d['draw']) for d in out['draws']
+                                                                   if d['status'] == 'timeout'))
+    return out
+
+
+def draws_to_run(study, cfg, it, sfx):
+    """(draws dir, {count: (final, attempts)}, counts not final) of a work item's draws, by their status records
+    <count><sfx>.json (code timeout set from the config); a draw left 'running' when final is recorded 'crashed'."""
+    if cfg.get('code_timeout'):
+        os.environ['TPS_CODE_TIMEOUT'] = str(cfg['code_timeout'])
+    ddir = os.path.join(unit_dir(study, cfg, it['shot'], it['unit_id']), 'draws')
+    os.makedirs(ddir, exist_ok=True)
+    states = {c: _draw_state(os.path.join(ddir, f'{c}{sfx}.json')) for c in it['draws']}
+    for c, (final, _) in states.items():                 # a draw left 'running' crashed its process twice
+        r = fq.read_json(os.path.join(ddir, f'{c}{sfx}.json')) or {}
+        if final and r.get('status') == 'running':
+            fq.write_json(os.path.join(ddir, f'{c}{sfx}.json'), dict(r, status='crashed'))
+    return ddir, states, [c for c, (final, _) in states.items() if not final]
+
+
+def run_draws(cfg, it, ddir, states, todo, kwargs, case, spot=None, sfx='', flag=None):
+    """Read the todo draws of item it from its bouquet archive and run each through case (run_case's signature,
+    see _run_draw) in a scratch dir; returns their summaries."""
+    from tearing_physics_suite.drivers.profile_read import read_bouquet_archive
+    wd = tempfile.mkdtemp(prefix=f"tps_{it['id']}_", dir=work_root())
     try:
         eqs, profs = read_bouquet_archive(it['archive'], selection='all', draw_counts=todo,
                                           eqdsk_out_dir=os.path.join(wd, 'eq'), eq_source=cfg['eq_source'],
                                           ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'],
                                           main_ion_mass_amu=cfg['main_ion_mass_amu'],
                                           impurity_mass_amu=cfg['impurity_mass_amu'])
-        for eq, prof in zip(eqs, profs):
-            out['draws'].append(_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1,
-                                          os.path.join(wd, 'work'), case, spot, sfx, None if code_check else flag))
+        return [_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1, os.path.join(wd, 'work'),
+                          case, spot, sfx, flag) for eq, prof in zip(eqs, profs)]
     finally:
         shutil.rmtree(wd, ignore_errors=True)
-    if not code_check and any(d['status'] in ('timeout',) for d in out['draws']):
-        raise RuntimeError('draw timeout(s), to retry: ' + ', '.join(str(d['draw']) for d in out['draws']
-                                                                   if d['status'] == 'timeout'))
-    return out
 
 
 def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None, sfx='', flag=None):
@@ -719,13 +730,16 @@ def cmd_run_item(a):
 # --- worker (parent) ---------------------------------------------------------------------------
 
 class Runner:
-    """Picklable ``make_run`` for fsqueue.launch: each item runs as a run-item child process."""
+    """Picklable ``make_run`` for fsqueue.launch: each item runs as a run-item child process (of module, compiled by
+    compile_fn(study, shot, cfg); default: this driver's, per --code-check)."""
 
-    def __init__(self, a):
+    def __init__(self, a, module='tearing_physics_suite.drivers.parallel', compile_fn=None):
         self.study, self.timeout, self.min_left = a.study, a.item_timeout, a.min_left
         self.allow_drift, self.deadline = a.allow_build_drift, fq.JobDeadline(0.0)   # live: --time-min limits rise
         self.compile = not getattr(a, 'no_compile', False)
         self.code_check = getattr(a, 'code_check', False)
+        self.module = module
+        self.compile_fn = compile_fn or functools.partial(compile_shot, code_check=self.code_check)
 
     def __call__(self, q, worker):
         cfg = load_config(self.study)
@@ -745,7 +759,7 @@ class Runner:
             with open(log, 'a') as fh:
                 fh.write(f'\n=== {time.ctime()} {worker} attempt {q.n_attempts(uid)}\n')
             res_path = os.path.join(q.root, 'results', f'{uid}.{worker}.{q.n_attempts(uid)}.json')
-            argv = [sys.executable, '-m', 'tearing_physics_suite.drivers.parallel', 'run-item',
+            argv = [sys.executable, '-m', self.module, 'run-item',
                     '--study', self.study, '--item', uid, '--result', res_path]
             if self.code_check:
                 argv.append('--code-check')
@@ -766,7 +780,7 @@ class Runner:
             n = collections.Counter(d['status'] for d in res.get('draws', []))
             if self.compile and _shot_finished(q, item['shot'], uid):
                 try:
-                    compile_shot(self.study, item['shot'], cfg, code_check=self.code_check)
+                    self.compile_fn(self.study, item['shot'], cfg)
                 except Exception as e:
                     print(f'[{worker}] compile of shot {item["shot"]} failed: {fq.error_signature(e)}', flush=True)
             return dict(n_draws=len(res.get('draws', [])), **n)

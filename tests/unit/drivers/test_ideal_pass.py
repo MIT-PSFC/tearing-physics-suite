@@ -33,10 +33,11 @@ def _fake_gpec(monkeypatch, rdcon, stride, calls=None):
 
 
 def test_stop_rules_and_stride(tmp_path, monkeypatch):
-    """n=1 stable; n=2 RDCON crosses on q = 3/2 (pathological): STRIDE's 0 decides, go on; n=3 unstable (STRIDE as
-    the sample): stop; n=4 not run."""
+    """n=1 stable; n=2 RDCON crosses on q = 3/2 (pathological): STRIDE's 0 decides, go on; n=3 on q = 1.333 as
+    printed, 3 q - 4 = -1e-3, within 3 x its print resolution (pathological): STRIDE's 1 decides, stop; n=4 not
+    run. Then a RDCON-unstable run sampled for STRIDE."""
     calls = []
-    _fake_gpec(monkeypatch, {1: (0, []), 2: (1, [(0.126, 1.5)]), 3: (1, [(0.2, 1.1)])}, {2: 0, 3: 1}, calls)
+    _fake_gpec(monkeypatch, {1: (0, []), 2: (1, [(0.126, 1.5)]), 3: (1, [(0.2, 1.3334)])}, {2: 0, 3: 1}, calls)
     icfg = dict(ip.DEFAULTS, nvec=[1, 2, 3, 4], sample=1.0)
     ds, _ = ip._ideal_case('eq', {}, dict(vac_flag='t'), str(tmp_path), str(tmp_path / 'd.ideal.nc'), label='k',
                            icfg=icfg)
@@ -45,9 +46,12 @@ def test_stop_rules_and_stride(tmp_path, monkeypatch):
     assert calls[2][2]['vac_flag'] == 't'                                  # STRIDE at the study's settings
     np.testing.assert_array_equal(ds.nzero.values, [[0, np.nan], [1, 0], [1, 1], [np.nan, np.nan]])
     assert ds.ideal_unstable.values.tolist() == [0, 0, 1, -1]
-    assert ds.ideal_rational_crossing.values.tolist() == [0, 1, 0, -1]
-    assert ds.ideal_stride_reason.values.tolist() == ['', 'pathological', 'sample', '']
+    assert ds.ideal_rational_crossing.values.tolist() == [0, 1, 1, -1]
+    assert ds.ideal_stride_reason.values.tolist() == ['', 'pathological', 'pathological', '']
     assert ds.ideal_crossing_q.sel(nn=2).values[0] == 1.5
+    _fake_gpec(monkeypatch, {1: (1, [(0.2, 1.1)])}, {1: 0})
+    ds, _ = ip._ideal_case('eq', {}, {}, str(tmp_path), str(tmp_path / 'f.ideal.nc'), label='k', icfg=icfg)
+    assert ds.ideal_stride_reason.values[0] == 'sample' and ds.ideal_unstable.values[0] == 1   # RDCON decides
     _fake_gpec(monkeypatch, {1: (5, [])}, {1: None})                       # a STRIDE build without nzero
     with pytest.raises(RuntimeError, match='no nzero'):
         ip._ideal_case('eq', {}, {}, str(tmp_path), str(tmp_path / 'e.ideal.nc'), label='k', icfg=icfg)

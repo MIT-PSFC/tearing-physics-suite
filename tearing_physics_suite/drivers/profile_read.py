@@ -232,7 +232,7 @@ def read_IDA_lite_all_times(filename, verbose=False, **kwargs):
 def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_dir=None,
                          ida_path=None, ida_extra_keys=None, ida_time_tol_ms=1.0,
                          meta_data=False, sample_limit=None, impurity_mass_amu=None, main_ion_mass_amu=2.0,
-                         eq_source='geqdsk', draw_counts=None, verbose=False):
+                         eq_source='geqdsk', draw_counts=None, ifile_dir=None, verbose=False):
     """Unpack a bouquet (schema v2) archive into multi_run_ inputs.
 
     Requires bouquet (branch bouquet_unified). Per draw: the equilibrium file is written
@@ -272,6 +272,9 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         run_resistive_calculation).
     draw_counts : list of int or None
         Read only these draws (by count), whatever their selection flag. -1 is the scan's baseline.
+    ifile_dir : str or None
+        With eq_source 'ifile': where the i-file of a draw whose archive no longer stores it (dropped once its shot is
+        done) is read instead, as <archive stem>_<scan key>_<count>.ifile (rebuilt from its TokaMaker state).
 
     Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with the q of the equilibrium file it unpacks (g-file or i-file).
     Profile dicts carry shot_id / bq_unit_id / bq_variant when the archive's root attrs have them.
@@ -319,6 +322,10 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
             prof = d.profiles
             attrs = d.attrs
             eq_bytes = d.eqdsk_bytes if eq_source == 'geqdsk' else d.ifile_bytes
+            rebuilt = ifile_dir and os.path.join(ifile_dir, f"{header}_{key}_{count}.ifile")
+            if eq_bytes is None and rebuilt and os.path.exists(rebuilt):
+                with open(rebuilt, 'rb') as fh:
+                    eq_bytes = fh.read()
             if eq_bytes is None:
                 raise KeyError(f"Bouquet draw {key}/{count} has no stored {eq_source} "
                                f"(i-files need a bouquet run with write_ifile=True).")

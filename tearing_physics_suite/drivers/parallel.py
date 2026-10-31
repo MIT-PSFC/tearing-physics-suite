@@ -573,7 +573,7 @@ def run_draws(cfg, it, ddir, states, todo, kwargs, case, spot=None, sfx='', flag
                                           eqdsk_out_dir=os.path.join(wd, 'eq'), eq_source=cfg['eq_source'],
                                           ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'],
                                           main_ion_mass_amu=cfg['main_ion_mass_amu'],
-                                          impurity_mass_amu=cfg['impurity_mass_amu'])
+                                          impurity_mass_amu=cfg['impurity_mass_amu'], ifile_dir=cfg.get('ifile_dir'))
         return [_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1, os.path.join(wd, 'work'),
                           case, spot, sfx, flag) for eq, prof in zip(eqs, profs)]
     finally:

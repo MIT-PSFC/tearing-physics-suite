@@ -1,6 +1,7 @@
 """Ideal-stability pass of a study: per 'ok' draw of the main pass, RDCON's ideal ODE (fixed-boundary zero crossings,
 nzero) at each n in turn, stopping at the first n found unstable. RDCON's count decides unless it is pathological
-(nzero >= max_nzero, or a crossing on a rational surface, |n q - m| < q_tol); STRIDE's count decides then. STRIDE also
+(nzero >= max_nzero, or a crossing on a rational surface: |n q - m| below q_tol, or below n times the resolution of
+the q crit.out prints, 4 significant digits); STRIDE's count decides then. STRIDE also
 runs on a seeded random fraction (sample) of the runs RDCON alone finds unstable, to measure the codes' agreement.
 
     python -m tearing_physics_suite.drivers.ideal_pass init    --study S [--config ideal.json]
@@ -30,7 +31,8 @@ import numpy as np
 from tearing_physics_suite.drivers import fsqueue as fq
 from tearing_physics_suite.drivers import parallel
 
-DEFAULTS = dict(nvec=None, max_nzero=3, q_tol=1e-3, sample=0.01, seed=0)   # nvec None: the study's
+DEFAULTS = dict(nvec=None, max_nzero=3, q_tol=1e-3, sample=0.01, seed=0,   # nvec None: the study's
+                ifile_dir=None)     # i-files of draws whose archive dropped them (read_bouquet_archive)
 IDEAL_RDCON = dict(ode_flag='t', vac_flag='f', gal_flag='f', MRE_flag='f',
                    rdcon_delta_prime=True)                 # (False would switch the ODE off too)
 CROSSING = re.compile(r'Zero crossing at psi =\s*(\S+), q =\s*(\S+)')
@@ -78,6 +80,11 @@ def _crossings(path):
         return [(float(m[1]), float(m[2])) for m in CROSSING.finditer(fh.read())]
 
 
+def _half_ulp(q):
+    """Half the last printed digit of q in crit.out (Fortran e10.3: 4 significant digits)."""
+    return 5e-4 * 10.0 ** np.floor(np.log10(abs(q))) if q else 0.0
+
+
 def _run_code(code, eq, n, kwargs, wd):
     """nzero of one RDCON (ideal ODE) or STRIDE run at n, and RDCON's crossings; (NaN, []) when it failed."""
     from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation
@@ -99,7 +106,7 @@ def _ideal_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels
     nvec, rows = icfg['nvec'], []
     for n in nvec:
         z, cross = _run_code('rdcon', eq, n, kwargs, wd)
-        rational = any(abs(n * q - round(n * q)) < icfg['q_tol'] for _, q in cross)
+        rational = any(abs(n * q - round(n * q)) < max(icfg['q_tol'], n * _half_ulp(q)) for _, q in cross)
         path = z >= icfg['max_nzero'] or rational
         sample = z > 0 and not path and parallel._coin(icfg['seed'], f'{label}_n{n}') < icfg['sample']
         reason = 'pathological' if path else 'sample' if sample else ''
@@ -134,7 +141,7 @@ def run_item(study, item_id):
     out = dict(item=item_id, draws=[])
     if todo:
         case = functools.partial(_ideal_case, icfg=icfg)
-        out['draws'] = parallel.run_draws(dict(cfg, tau_e=None), it, ddir, states, todo,
+        out['draws'] = parallel.run_draws(dict(cfg, tau_e=None, ifile_dir=icfg['ifile_dir']), it, ddir, states, todo,
                                           gpec_kwargs(cfg['tps_kwargs']), case, sfx='.ideal')
     return out
 

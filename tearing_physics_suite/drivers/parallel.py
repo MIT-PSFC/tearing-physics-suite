@@ -563,9 +563,10 @@ def draws_to_run(study, cfg, it, sfx):
     return ddir, states, [c for c, (final, _) in states.items() if not final]
 
 
-def run_draws(cfg, it, ddir, states, todo, kwargs, case, spot=None, sfx='', flag=None):
-    """Read the todo draws of item it from its bouquet archive and run each through case (run_case's signature,
-    see _run_draw) in a scratch dir; returns their summaries."""
+def run_draws(cfg, it, ddir, states, todo, kwargs, case, spot=None, sfx='', flag=None, ifile_dir=None):
+    """Read the todo draws of item it from its bouquet archive (dropped i-files from ifile_dir, see
+    read_bouquet_archive) and run each through case (run_case's signature, see _run_draw) in a scratch dir; returns
+    their summaries."""
     from tearing_physics_suite.drivers.profile_read import read_bouquet_archive
     wd = tempfile.mkdtemp(prefix=f"tps_{it['id']}_", dir=work_root())
     try:
@@ -573,7 +574,7 @@ def run_draws(cfg, it, ddir, states, todo, kwargs, case, spot=None, sfx='', flag
                                           eqdsk_out_dir=os.path.join(wd, 'eq'), eq_source=cfg['eq_source'],
                                           ida_extra_keys=cfg['ida_extra_keys'], meta_data=cfg['meta_data'],
                                           main_ion_mass_amu=cfg['main_ion_mass_amu'],
-                                          impurity_mass_amu=cfg['impurity_mass_amu'], ifile_dir=cfg.get('ifile_dir'))
+                                          impurity_mass_amu=cfg['impurity_mass_amu'], ifile_dir=ifile_dir)
         return [_run_draw(it, cfg, kwargs, ddir, eq, prof, states[prof['bq_count']][1] + 1, os.path.join(wd, 'work'),
                           case, spot, sfx, flag) for eq, prof in zip(eqs, profs)]
     finally:

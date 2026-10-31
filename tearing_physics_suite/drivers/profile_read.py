@@ -322,8 +322,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
             prof = d.profiles
             attrs = d.attrs
             eq_bytes = d.eqdsk_bytes if eq_source == 'geqdsk' else d.ifile_bytes
-            rebuilt = ifile_dir and os.path.join(ifile_dir, f"{header}_{key}_{count}.ifile")
-            if eq_bytes is None and rebuilt and os.path.exists(rebuilt):
+            rebuilt = os.path.join(ifile_dir or '', f"{header}_{key}_{count}.ifile")
+            if eq_bytes is None and eq_source == 'ifile' and ifile_dir and os.path.exists(rebuilt):
                 with open(rebuilt, 'rb') as fh:
                     eq_bytes = fh.read()
             if eq_bytes is None:

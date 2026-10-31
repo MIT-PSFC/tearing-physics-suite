@@ -87,8 +87,8 @@ def test_feed_run_compile(study, monkeypatch):
     monkeypatch.setattr(profile_read, 'read_bouquet_archive', read)
     calls = []
     _fake_gpec(monkeypatch, {1: (0, []), 2: (3, [(0.3, 1.25), (0.4, 1.3), (0.5, 1.4)])}, {2: 1}, calls)
-    for item in (f'{uid}.i0', f'{uid}.i3'):
-        assert [x['status'] for x in ip.run_item(study, item)['draws']] in (['ok', 'ok'], ['ok'])
+    for item, n in ((f'{uid}.i0', 2), (f'{uid}.i3', 1)):
+        assert [x['status'] for x in ip.run_item(study, item)['draws']] == ['ok'] * n
     assert 'k0' not in calls[0][2] and calls[0][2]['qlow'] == 1.01
     assert ip.ideal_pending(study, 100) == []
     assert ip.compile_shot(study, 100) == 3

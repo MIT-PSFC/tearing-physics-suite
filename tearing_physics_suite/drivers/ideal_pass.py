@@ -141,8 +141,9 @@ def run_item(study, item_id):
     out = dict(item=item_id, draws=[])
     if todo:
         case = functools.partial(_ideal_case, icfg=icfg)
-        out['draws'] = parallel.run_draws(dict(cfg, tau_e=None, ifile_dir=icfg['ifile_dir']), it, ddir, states, todo,
-                                          gpec_kwargs(cfg['tps_kwargs']), case, sfx='.ideal')
+        out['draws'] = parallel.run_draws(dict(cfg, tau_e=None), it, ddir, states, todo,    # (no MRE: no tau_E)
+                                          gpec_kwargs(cfg['tps_kwargs']), case, sfx='.ideal',
+                                          ifile_dir=icfg['ifile_dir'])
     return out
 
 
@@ -239,7 +240,11 @@ class Feeder:
 
 
 def cmd_init(a):
-    cfg = ideal_config(a.study, json.load(open(a.config)) if a.config else {})
+    cfg = {}
+    if a.config:
+        with open(a.config) as fh:
+            cfg = json.load(fh)
+    cfg = ideal_config(a.study, cfg)
     cfg['hash'] = hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:12]
     path, old = os.path.join(qroot(a.study), 'ideal.json'), fq.read_json(os.path.join(qroot(a.study), 'ideal.json'))
     if old and old['hash'] != cfg['hash'] and not a.force:

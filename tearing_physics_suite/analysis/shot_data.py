@@ -38,18 +38,13 @@ def _with_ideal(ds, path):
     if not os.path.exists(path) or 'case_key' not in ds:
         return ds
     ideal = xr.open_zarr(zarr.storage.ZipStore(path, mode='r') if path.endswith('.zip') else path).load()
-    pos = {k: i for i, k in enumerate(ideal['case_key'].values)}
-    idx = np.array([pos.get(k, -1) for k in ds['case_key'].values])
-    out = {}
-    for v in [v for v in ideal.data_vars if v == 'nzero' or v.startswith('ideal_')]:
-        a = ideal[v]
-        text = a.dtype.kind in 'OTU'
-        fill = '' if text else -1 if a.dtype.kind == 'i' else np.nan
-        vals = np.take(a.values.astype(object) if text else a.values, np.maximum(idx, 0), axis=a.dims.index('run_idx'))
-        mask = (idx < 0).reshape([-1 if d == 'run_idx' else 1 for d in a.dims])
-        out[v] = xr.DataArray(np.where(mask, fill, vals), dims=a.dims,
-                              coords={d: ideal[d] for d in a.dims if d in ideal.coords})
-    return ds.assign(out)                                  # on ds's nn and code
+    keep = [v for v in ideal.data_vars if v == 'nzero' or v.startswith('ideal_')]
+    text = [v for v in keep if ideal[v].dtype.kind in 'OTU']                    # zarr's StringDType: as objects
+    fill = {v: '' if v in text else -1 if ideal[v].dtype.kind == 'i' else np.nan for v in keep}
+    keys = ideal['case_key'].values.astype(object)
+    ideal = ideal[keep].assign({v: ideal[v].astype(object) for v in text}).assign_coords(run_idx=keys)
+    ideal = ideal.reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
+    return ds.assign({v: ideal[v].drop_vars('run_idx') for v in keep})          # on ds's nn and code
 
 
 def select(ds, t_ms=None, draws=None):

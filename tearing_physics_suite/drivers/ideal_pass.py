@@ -165,8 +165,9 @@ def feed(study, shots=None):
         recs.sort(key=lambda r: r['draw'])
         for k in range(0, len(recs), n):
             chunk = recs[k:k + n]
-            items.append(dict(id=f"{uid}.i{chunk[0]['draw']}", **{x: chunk[0][x] for x in ('unit_id', 'shot', 't_ms',
-                         'variant', 'archive')}, draws=[r['draw'] for r in chunk], est=len(chunk)))
+            unit = {x: chunk[0][x] for x in ('unit_id', 'shot', 't_ms', 'variant', 'archive')}
+            items.append(dict(id=f"{uid}.i{chunk[0]['draw']}", **unit, draws=[r['draw'] for r in chunk],
+                              est=len(chunk)))
     added = q.add_units(items)
     print(f'feed: {added} ideal-pass item(s) added', flush=True)
     return added

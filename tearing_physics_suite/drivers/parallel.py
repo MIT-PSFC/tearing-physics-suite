@@ -913,6 +913,24 @@ def _awaits_fill(nc_path, rec):
             and not _draw_state(nc_path[:-len('.nc')] + '.fill.json')[0])
 
 
+# Variables only some draws carry, NaN in the others: STRIDE's zero-crossing count (calc_nzero 't', ledger C-12)
+OPTIONAL_VARS = {'nzero': ('nn', 'code')}
+
+
+def _fit_optional(dsets, zpath):
+    """The draws of a batch with every OPTIONAL_VARS variable that one of them or the store has (NaN where a draw lacks
+    it); one the store lacks goes into it first, NaN for the runs already there."""
+    import xarray as xr
+    old = xr.open_zarr(zpath, consolidated=True) if os.path.exists(zpath) else None
+    have = set() if old is None else set(old.data_vars)
+    want = {v: ('run_idx',) + d for v, d in OPTIONAL_VARS.items() if v in have or any(v in ds for ds in dsets)}
+    nan = lambda ds, d: (d, np.full([ds.sizes[k] for k in d], np.nan, np.float32))   # noqa: E731
+    if old is not None and set(want) - have:
+        xr.Dataset({v: nan(old, d) for v, d in want.items() if v not in have}).to_zarr(zpath, mode='a',
+                                                                                         consolidated=True)
+    return [ds.assign({v: ds[v].transpose(*d) if v in ds else nan(ds, d) for v, d in want.items()}) for ds in dsets]
+
+
 def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32, code_check=False):
     """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (code checks: to <shot>_codes.zarr) (single
     writer, under a lease).
@@ -971,7 +989,8 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                     if code_check:
                         ds['code_check_reason'] = np.array(draws[key][1].get('reason', 'random'), dtype=object)
                     ds = ds.assign(_timing_vars(draws[key][1], ds.nn.values, codes))
-                    sig = [sorted(map(str, x)) for x in _zarr_signature(ds)]
+                    bare = ds.drop_vars(OPTIONAL_VARS, errors='ignore')
+                    sig = [sorted(map(str, x)) for x in _zarr_signature(bare)]
                     if state['signature'] is None:
                         state['signature'] = sig
                     if sig != state['signature']:
@@ -980,6 +999,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                         keys.append(key)
                         dsets.append(bare_episode(ds.assign(case_key=np.array(key, dtype=object))))
                 if dsets:
+                    dsets = _fit_optional(dsets, zpath)
                     add_to_zarr_store(stack_episodes(dsets, 'run_idx'), zpath, episode_dim='run_idx')
                     state['compiled'] += keys
                 fq.write_json(spath, state)

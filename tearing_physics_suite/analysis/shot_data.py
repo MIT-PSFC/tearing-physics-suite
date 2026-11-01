@@ -33,7 +33,7 @@ def open_shot(source, shot, variables=None):
 
 def _with_ideal(ds, path):
     """ds with the ideal store's variables at path (or its .zip), matched by case_key: NaN, -1 (int flags) or ''
-    for runs without a verdict; ds unchanged without the store."""
+    for runs without a verdict, or ds's own value (the main pass's STRIDE nzero); ds unchanged without the store."""
     path = path + '.zip' if os.path.exists(path + '.zip') else path
     if not os.path.exists(path) or 'case_key' not in ds:
         return ds
@@ -44,7 +44,8 @@ def _with_ideal(ds, path):
     keys = ideal['case_key'].values.astype(object)
     ideal = ideal[keep].assign({v: ideal[v].astype(object) for v in text}).assign_coords(run_idx=keys)
     ideal = ideal.reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
-    return ds.assign({v: ideal[v].drop_vars('run_idx') for v in keep})          # on ds's nn and code
+    ideal = ideal.drop_vars('run_idx')
+    return ds.assign({v: ideal[v].combine_first(ds[v]) if v in ds else ideal[v] for v in keep})   # on ds's nn, code
 
 
 def _with_eps_surf(ds):

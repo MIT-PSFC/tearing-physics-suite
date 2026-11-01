@@ -116,12 +116,14 @@ def test_feed_run_compile(study, monkeypatch):
 
 def test_open_shot_joins_the_ideal_store(tmp_path):
     """A study shot read with open_shot gets the ideal pass's variables by case_key; runs without a verdict get
-    NaN, -1 or ''; the pass's n are matched to the store's; eps_surf is ideal_eps at the run's rational surfaces."""
+    NaN, -1 or '' (nzero: the main store's); the pass's n are matched to the store's; eps_surf is ideal_eps at the
+    run's rational surfaces."""
     from tearing_physics_suite.analysis.shot_data import open_shot
     keys = np.array(['u_0', 'u_1', 'u_2'], dtype=object)
     main = xr.Dataset({'Delta_prime': ('run_idx', [1.0, 2.0, 3.0]), 'shot_id': ('run_idx', [100] * 3),
                        't_ms': ('run_idx', [1500] * 3), 'case_key': ('run_idx', keys),
-                       'psi_n_rational': (('run_idx', 'nn', 'code', 'r'), np.tile([0.25, 0.6, np.nan], (3, 2, 2, 1)))},
+                       'psi_n_rational': (('run_idx', 'nn', 'code', 'r'), np.tile([0.25, 0.6, np.nan], (3, 2, 2, 1))),
+                       'nzero': (('run_idx', 'nn', 'code'), np.array([[[np.nan, c]] * 2 for c in (5, 6, 7)], 'f4'))},
                       coords=dict(nn=[1, 2], code=['rdcon', 'stride']))
     main.to_zarr(st.shot_store(str(tmp_path), 100), consolidated=True)
     ideal = xr.Dataset({'nzero': (('run_idx', 'nn', 'code'), np.array([[[2, np.nan]], [[0, np.nan]]], np.float32)),
@@ -134,6 +136,7 @@ def test_open_shot_joins_the_ideal_store(tmp_path):
     ideal.to_zarr(ip.shot_store(str(tmp_path), 100), consolidated=True)
     ds = open_shot(str(tmp_path), 100)
     np.testing.assert_array_equal(ds.nzero.sel(code='rdcon').values, [[0, np.nan], [np.nan, np.nan], [2, np.nan]])
+    np.testing.assert_array_equal(ds.nzero.sel(code='stride').values, [[5, 5], [6, 6], [7, 7]])
     np.testing.assert_array_equal(ds.ideal_unstable.sel(nn=1).values, [0, -1, 1])
     assert ds.t_ms.values.tolist() == [1500] * 3 and ds.Delta_prime.values.tolist() == [1.0, 2.0, 3.0]
     np.testing.assert_allclose(ds.eps_surf.sel(nn=1, code='rdcon').values, [[0.1, 0.24, np.nan], [np.nan] * 3,

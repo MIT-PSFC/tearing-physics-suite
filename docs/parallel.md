@@ -92,7 +92,9 @@ long can lose its lease, and the item then runs twice: harmless (each run writes
 finished item is never marked failed), but logged ("lease was taken over").
 
 **Stores.** `compile` appends by position along ragged dims (NaN-padded), as `multi_compile_zarr` does; `open_study`
-pads and concatenates the shot stores the same way.
+pads and concatenates the shot stores the same way. A draw whose variables differ from the store's is `broken`, except
+for `parallel.OPTIONAL_VARS` (STRIDE's `nzero`, from `calc_nzero` 't'): NaN in the runs without it, added to a store
+compiled before it.
 
 **Cost (omega, one CPU, production settings: n = 1-4, RDCON + STRIDE + jGPEC Galerkin, DIII-D wall).** About
 24 min per draw (RDCON ~7.5, STRIDE ~6.5, jGPEC Galerkin ~9 including ~1.5 min of JIT per item) and a peak of

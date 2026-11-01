@@ -81,7 +81,7 @@ def _run_dataset(c, n_r=3):
 
 def _fake_pipeline(monkeypatch, behaviour):
     """read_bouquet_archive / run_case stand-ins; behaviour[count] is None (ok), an exception, 'none', 'killed' (STRIDE
-    killed: NaN, in CODE_KILLED) or 'skipped' (STRIDE not started: also in CODE_SKIPPED)."""
+    killed: NaN, in CODE_KILLED), 'skipped' (STRIDE not started: also in CODE_SKIPPED) or 'nzero' (STRIDE's nzero)."""
     def read(path, draw_counts=None, eqdsk_out_dir=None, **kw):
         os.makedirs(eqdsk_out_dir, exist_ok=True)
         return [f'{eqdsk_out_dir}/eq{c}' for c in draw_counts], [dict(bq_count=c) for c in draw_counts]
@@ -97,6 +97,8 @@ def _fake_pipeline(monkeypatch, behaviour):
         ds = _run_dataset(prof['bq_count'])
         if prof['bq_count'] == 1:                         # a draw where STRIDE did not run
             ds = ds.sel(code=['rdcon'])
+        if b == 'nzero':                                  # STRIDE run with calc_nzero
+            ds['nzero'] = (('code', 'nn'), [[np.nan], [2.0]])
         if b in ('killed', 'skipped'):
             for lost in (CODE_KILLED, CODE_SKIPPED) if b == 'skipped' else (CODE_KILLED,):
                 lost['stride'] = [1]
@@ -216,6 +218,21 @@ def test_run_case_eps(tmp_path, monkeypatch):
     ds, _ = multi_run.run_case(str(tmp_path / 'eq'), prof, {}, str(tmp_path), str(tmp_path / 'd.nc'), eps=True)
     np.testing.assert_allclose(xr.open_dataset(tmp_path / 'd.nc', engine='scipy').eps.values, [0.0, 0.2, 0.3])
     assert 'eps' not in multi_run.run_case(str(tmp_path / 'eq'), prof, {}, str(tmp_path), str(tmp_path / 'e.nc'))[0]
+
+
+def test_compile_optional_nzero(study, monkeypatch):
+    """Draws with STRIDE's nzero join a store compiled without it (C-12): NaN for the runs without, none broken."""
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {2: 'nzero'})
+    st.run_item(study, f'{uid}.c0')
+    st.compile_shot(study, 100)
+    st.run_item(study, f'{uid}.c1')
+    state = st.compile_shot(study, 100)
+    assert state['broken'] == [] and len(state['compiled']) == 4
+    ds = xr.open_zarr(st.shot_store(study, 100)).load()
+    np.testing.assert_array_equal(ds.nzero.sel(nn=1, code='stride').values, [np.nan, np.nan, 2, np.nan])
+    assert ds.nzero.dims == ('run_idx', 'nn', 'code')
 
 
 def test_compile_repairs_an_interrupted_append(study, monkeypatch):

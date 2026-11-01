@@ -97,6 +97,7 @@ def test_feed_run_compile(study, monkeypatch):
     np.testing.assert_array_equal(ds.nzero.sel(code='stride').values, [[np.nan, 1]] * 3)
     assert ds.ideal_unstable.values.tolist() == [[0, 1]] * 3                # n=2: 3 crossings, STRIDE decides
     assert ds.ideal_stride_reason.values.tolist() == [['', 'pathological']] * 3
+    assert ds.tps_version.values.tolist() == [''] * 3                           # no build record: no job ran it
 
 
 def test_open_shot_joins_the_ideal_store(tmp_path):

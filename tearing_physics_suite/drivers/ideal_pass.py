@@ -13,7 +13,8 @@ runs on a seeded random fraction (sample) of the runs RDCON alone finds unstable
 Items (<unit_id>.i<first draw>) come from <study>/_queue/tps_ideal (settings in its ideal.json). Each draw writes
 draws/<count>.ideal.nc (status .ideal.json), compiled into <shot>_ideal.zarr: nzero(nn, code) (NaN where a code did
 not run), ideal_unstable(nn) (1, 0; -1 undecided or not run), ideal_rational_crossing(nn), ideal_stride_reason(nn)
-('pathological', 'sample' or '') and RDCON's crossings (ideal_crossing_psi, ideal_crossing_q).
+('pathological', 'sample' or '') and RDCON's crossings (ideal_crossing_psi, ideal_crossing_q), with each run's
+provenance (parallel.run_provenance).
 """
 import argparse
 import collections
@@ -206,13 +207,14 @@ def compile_shot(study, shot, cfg=None):
         return None
     try:
         with fq.Heartbeat(q, lease, kind='leases'):
-            dsets = []
+            dsets, builds = [], parallel.load_builds(study, cfg)
             for p in parallel._records(study, cfg, '.ideal', shot):
                 r = fq.read_json(p) or {}
                 if r.get('status') == 'ok':
                     with xr.open_dataset(p.removesuffix('.json') + '.nc', engine='scipy') as ds:
                         ds = parallel._vlen_strings(ds.load().drop_encoding())
-                    dsets.append(bare_episode(ds.assign(case_key=np.array(r['case_key'], dtype=object))))
+                    run = dict(case_key=r['case_key'], **parallel.run_provenance(r, builds))
+                    dsets.append(bare_episode(ds.assign({k: np.array(v, dtype=object) for k, v in run.items()})))
             if dsets:
                 path = shot_store(study, shot)
                 tmp = f'{path}.tmp.{os.getpid()}'

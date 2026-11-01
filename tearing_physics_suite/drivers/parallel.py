@@ -44,8 +44,8 @@ from tearing_physics_suite.utils import (
     CODE_SKIPPED,
     CODE_WALL_S,
     fits_memory,
+    gpec_home,
     session_mem_gib,
-    tps_home,
     work_root,
 )
 
@@ -135,15 +135,46 @@ def _describe(path):
         return None
 
 
-def versions():
-    """git describes of the TPS package and its Fortran codes (None outside a checkout)."""
+def code_dirs():
+    """The TPS package, the GPEC executables it runs (gpec_home) and jGPEC."""
     pkg = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
-        home = tps_home()
+        gpec = gpec_home()
     except KeyError:
-        home = pkg
-    return dict(tps=_describe(pkg), gpec=_describe(os.path.join(home, 'submodules', 'GPEC')),
-                jgpec=_describe(os.environ.get('JGPEC_HOME', '/fusion/projects/tmdb/src/GPEC')))
+        gpec = os.path.join(pkg, 'submodules', 'GPEC')
+    return dict(tps=pkg, gpec=gpec, jgpec=os.environ.get('JGPEC_HOME', '/fusion/projects/tmdb/src/GPEC'))
+
+
+def versions():
+    """git describes of code_dirs (None outside a checkout)."""
+    return {k: _describe(p) for k, p in code_dirs().items()}
+
+
+def builds_dir(study, cfg):
+    return os.path.join(out_root(study, cfg), '_builds')
+
+
+def record_build(study, cfg, now):
+    """<out_root>/_builds/<job>.json: the code versions and dirs of this Slurm job (else 'local'), whose draws'
+    provenance (run_provenance) the compile reads by their slurm_job."""
+    os.makedirs(builds_dir(study, cfg), exist_ok=True)
+    fq.write_json(os.path.join(builds_dir(study, cfg), f"{os.environ.get('SLURM_JOB_ID') or 'local'}.json"),
+                  dict(versions=now, dirs=code_dirs(), host=socket.gethostname(),
+                       time=time.strftime('%Y-%m-%dT%H:%M:%S')))
+
+
+def load_builds(study, cfg):
+    return {os.path.basename(p).removesuffix('.json'): fq.read_json(p) or {}
+            for p in glob.glob(os.path.join(builds_dir(study, cfg), '*.json'))}
+
+
+def run_provenance(rec, builds):
+    """A draw's slurm_job and the {tps,gpec,jgpec}_version of its job's build (the describe, else the dir; '' without
+    a build record)."""
+    b = builds.get(rec.get('slurm_job') or 'local', {})
+    return dict(slurm_job=rec.get('slurm_job', ''),
+                **{f'{c}_version': b.get('versions', {}).get(c) or b.get('dirs', {}).get(c, '')
+                 for c in ('tps', 'gpec', 'jgpec')})
 
 
 def cmd_init(a):
@@ -169,11 +200,12 @@ def cmd_init(a):
 
 
 def check_build(cfg, allow_drift=False):
-    """Refuse to run on a build other than the one the study was initialised with."""
+    """Refuse to run on a build other than the one the study was initialised with; returns the build's versions."""
     now, then = versions(), cfg.get('versions', {})
     drift = {k: (then.get(k), v) for k, v in now.items() if v and then.get(k) and v != then.get(k)}
     if drift and not allow_drift:
         raise fq.Broken(f'build differs from the study config: {drift} (--allow-build-drift to run anyway)')
+    return now
 
 
 def spot_config(cfg):
@@ -750,7 +782,7 @@ class Runner:
 
         def run(uid, item):
             if not checked:
-                check_build(cfg, self.allow_drift)
+                record_build(self.study, cfg, check_build(cfg, self.allow_drift))
                 checked.append(True)
             dl = self.deadline()
             if dl and dl - time.time() < self.min_left:
@@ -949,7 +981,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                     state['compiled'] += keys
                 fq.write_json(spath, state)
             if state['compiled']:
-                _write_inputs(zpath, state['compiled'], draws)
+                _write_inputs(zpath, state['compiled'], draws, load_builds(study, cfg))
             if finalize and new and os.path.exists(zpath):
                 rechunk_store(zpath, 'run_idx', mb_per_chunk)
     finally:
@@ -988,10 +1020,11 @@ def _vlen_strings(ds):
         {k: conv(v) for k, v in ds.data_vars.items() if is_str(v)})
 
 
-def _write_inputs(zpath, keys, draws):
-    """<shot>_inputs.nc: the scalar inputs of every compiled draw, along run_idx (store order)."""
+def _write_inputs(zpath, keys, draws, builds):
+    """<shot>_inputs.nc: the scalar inputs and run_provenance of every compiled draw, along run_idx (store order)."""
     import xarray as xr
-    rows = [draws[k][1].get('inputs', {}) if k in draws else {} for k in keys]
+    rows = [dict(draws[k][1].get('inputs', {}), **run_provenance(draws[k][1], builds)) if k in draws else {}
+            for k in keys]
     names = sorted({n for r in rows for n in r})
     data = {}
     for n in names:

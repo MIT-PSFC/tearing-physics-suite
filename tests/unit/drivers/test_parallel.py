@@ -253,6 +253,26 @@ def test_build_drift(study, monkeypatch):
     st.check_build(cfg, allow_drift=True)
 
 
+def test_run_provenance(study, monkeypatch):
+    """A job's first item records its build; the compile gives each run its job's versions in <shot>_inputs.nc (the
+    dir where not a checkout, '' for a job without a record); GPEC is TPS_GPEC_DIR's."""
+    monkeypatch.setenv('TPS_GPEC_DIR', '/x/gpec')
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    monkeypatch.setattr(fq, 'run_child', lambda argv, *a, **k: st.run_item(study, argv[argv.index('--item') + 1]))
+    a = type('A', (), dict(study=study, item_timeout=None, min_left=0, allow_build_drift=False, no_compile=True))
+    monkeypatch.setenv('SLURM_JOB_ID', '7')
+    st.Runner(a)(fq.Queue(st.qroot(study)), 'w')(f'{uid}.c0', dict(shot=100, unit_id=uid))
+    monkeypatch.setenv('SLURM_JOB_ID', '8')
+    st.run_item(study, f'{uid}.c1')
+    st.compile_shot(study, 100)
+    inputs = xr.open_dataset(st.shot_store(study, 100).removesuffix('.zarr') + '_inputs.nc')
+    assert inputs.slurm_job.values.tolist() == ['7', '7', '8', '8']
+    assert inputs.tps_version.values.tolist() == ['v1', 'v1', '', '']
+    assert inputs.gpec_version.values.tolist()[:2] == ['/x/gpec'] * 2
+
+
 def test_tau_e_from_i2(study, monkeypatch, tmp_path):
     import xarray as xr
     tau = np.full((2, 4), np.nan)

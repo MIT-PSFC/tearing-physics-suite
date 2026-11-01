@@ -30,6 +30,7 @@
  "bin_galsol": "f",
  "calc_delta_prime": "t",
  "calc_dp_with_vac": "t",
+ "calc_nzero": "f",
  "crit_break": "t",
  "crossover": 0.01,
  "cutoff": 10,

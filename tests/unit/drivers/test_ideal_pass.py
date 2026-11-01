@@ -43,7 +43,7 @@ def test_stop_rules_and_stride(tmp_path, monkeypatch):
                            icfg=icfg)
     assert [(c, n) for c, n, _ in calls] == [('rdcon', 1), ('rdcon', 2), ('stride', 2), ('rdcon', 3), ('stride', 3)]
     assert calls[0][2]['ode_flag'] == 't' and calls[0][2]['gal_flag'] == calls[0][2]['vac_flag'] == 'f'
-    assert calls[2][2]['vac_flag'] == 't'                                  # STRIDE at the study's settings
+    assert calls[2][2]['vac_flag'] == 't' and calls[2][2]['calc_nzero'] == 't'   # STRIDE: the study's settings
     np.testing.assert_array_equal(ds.nzero.values, [[0, np.nan], [1, 0], [1, 1], [np.nan, np.nan]])
     assert ds.ideal_unstable.values.tolist() == [0, 0, 1, -1]
     assert ds.ideal_rational_crossing.values.tolist() == [0, 1, 1, -1]

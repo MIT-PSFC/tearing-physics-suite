@@ -35,6 +35,7 @@ DEFAULTS = dict(nvec=None, max_nzero=3, q_tol=1e-3, sample=0.01, seed=0,   # nve
                 ifile_dir=None)     # i-files of draws whose archive dropped them (read_bouquet_archive)
 IDEAL_RDCON = dict(ode_flag='t', vac_flag='f', gal_flag='f', MRE_flag='f',
                    rdcon_delta_prime=True)                 # (False would switch the ODE off too)
+IDEAL_STRIDE = dict(calc_nzero='t')                       # STRIDE's zero-crossing count
 CROSSING = re.compile(r'Zero crossing at psi =\s*(\S+), q =\s*(\S+)')
 CODES = ['rdcon', 'stride']
 
@@ -89,14 +90,14 @@ def _run_code(code, eq, n, kwargs, wd):
     """nzero of one RDCON (ideal ODE) or STRIDE run at n, and RDCON's crossings; (NaN, []) when it failed."""
     from tearing_physics_suite.wrappers.gpec import GPEC_resistive_calculation
     d = os.path.join(wd, f'{code}_n{n}')
-    kw = {**kwargs, **IDEAL_RDCON} if code == 'rdcon' else kwargs
+    kw = {**kwargs, **(IDEAL_RDCON if code == 'rdcon' else IDEAL_STRIDE)}
     rd, sd, *_ = GPEC_resistive_calculation(eq, n, run_rdcon=code == 'rdcon', run_stride=code == 'stride',
                                             working_dir=d, **kw)
     ds = rd if code == 'rdcon' else sd
     if ds is None:
         return np.nan, []
     if 'nzero' not in ds.attrs:
-        raise RuntimeError(f'{code} wrote no nzero (a STRIDE build without its zero-crossing count?)')
+        raise RuntimeError(f'{code} wrote no nzero (a STRIDE build without calc_nzero?)')
     return float(ds.attrs['nzero']), _crossings(os.path.join(d, 'crit.out')) if code == 'rdcon' else []
 
 

@@ -90,6 +90,15 @@ def test_stride_only_shared_keys(tmp_path):
     assert out['tol_nr'] == 1e-10 and out['tol_nr_stride'] == 1e-12
 
 
+def test_stride_calc_nzero_only_when_on(tmp_path):
+    """calc_nzero reaches stride.in only when 't' (STRIDE builds without the zero-crossing count reject the name)."""
+    write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False)
+    assert 'calc_nzero' not in (tmp_path / 'stride.in').read_text()
+    write_rdcon_stride_inputs(str(tmp_path), EQ, verbose=False, calc_nzero='t')
+    assert 'calc_nzero=t\n' in (tmp_path / 'stride.in').read_text()
+    assert 'calc_nzero' not in (tmp_path / 'rdcon.in').read_text()
+
+
 def test_stride_threads_from_tps_threads(tmp_path, monkeypatch):
     """STRIDE's nThreads is $TPS_THREADS (1 when unset) unless given."""
     monkeypatch.setenv('TPS_THREADS', '12')

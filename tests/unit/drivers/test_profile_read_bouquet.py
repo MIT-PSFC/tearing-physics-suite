@@ -1,4 +1,5 @@
-"""Bouquet-reader helpers: g-file and i-file q, the Φ_N -> ψ_N map, and multi_run's equilibrium-named markers."""
+"""Bouquet-reader helpers: g-file and i-file q, i-file inverse aspect ratio,
+the Φ_N -> ψ_N map, and multi_run's equilibrium-named markers."""
 import struct
 
 import numpy as np
@@ -6,7 +7,7 @@ import pytest
 from scipy.integrate import cumulative_trapezoid
 
 from tearing_physics_suite.drivers.multi_run import _profile_kwargs, _validate_case
-from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _bouquet_ida_extras, _phi_n_to_psi_n, _saw_psi_n, gfile_q, ifile_q, read_bouquet_archive
+from tearing_physics_suite.drivers.profile_read import _bouquet_draw_profiles, _bouquet_ida_extras, _phi_n_to_psi_n, _saw_psi_n, gfile_q, ifile_eps, ifile_q, read_bouquet_archive
 
 
 def test_gfile_q(eq_file):
@@ -42,6 +43,19 @@ def test_ifile_q():
     out = _phi_n_to_psi_n({'psi_N': np.array([0.0, 1.0])}, x, qa)
     assert x[-1] < 1 and out['psi_N'][-1] == 1.0
 
+
+def test_ifile_eps():
+    """Each surface's (R_max - R_min)/(R_max + R_min): the i-file's R rows are its surfaces (Fortran R(theta, psi))."""
+    pytest.importorskip('bouquet')
+    th = np.linspace(0, 2*np.pi, 8, endpoint=False)
+    a = np.array([[0.0], [0.5], [1.0]])                     # minor radii; centres shifted out by 0.1 a from R = 3
+    R, Z = 3 + 0.1*a + a*np.cos(th), 1.5*a*np.sin(th)
+    psi = np.array([0.3, 0.1, -0.03])
+    recs = [struct.pack('<ii', 3, 8)] + [x.astype('<f8').tobytes() for x in (psi, 0*psi, 0*psi, 0*psi + 2, R, Z,
+                                                                              np.array([0.3, -0.03]))]
+    x, eps = ifile_eps(b''.join(struct.pack('<i', len(r)) + r + struct.pack('<i', len(r)) for r in recs))
+    np.testing.assert_allclose(eps, a.ravel()/(3 + 0.1*a.ravel()))
+    np.testing.assert_allclose(x, (psi - 0.3)/-0.33)
 
 def test_marker_names_equilibrium(tmp_path):
     (tmp_path / 'done_0.marker').write_text('/a/eq1')

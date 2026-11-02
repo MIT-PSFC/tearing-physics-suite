@@ -14,7 +14,9 @@ Items (<unit_id>.i<first draw>) come from <study>/_queue/tps_ideal (settings in 
 draws/<count>.ideal.nc (status .ideal.json), compiled into <shot>_ideal.zarr: nzero(nn, code) (NaN where a code did
 not run), ideal_unstable(nn) (1, 0; -1 undecided or not run), ideal_rational_crossing(nn), ideal_stride_reason(nn)
 ('pathological', 'sample' or '') and RDCON's crossings (ideal_crossing_psi, ideal_crossing_q), with each run's
-provenance (parallel.run_provenance).
+provenance (parallel.run_provenance). A study on i-files (eq_source 'ifile') also gets each surface's inverse aspect
+ratio, ideal_eps on psi_N ideal_eps_psi_n (dim psi_ifile; profile_read.ifile_eps), which open_shot puts on the
+rational surfaces (eps_surf).
 """
 import argparse
 import collections
@@ -102,9 +104,16 @@ def _run_code(code, eq, n, kwargs, wd):
     return float(ds.attrs['nzero']), _crossings(os.path.join(d, 'crit.out')) if code == 'rdcon' else []
 
 
-def _ideal_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, icfg=None):
-    """run_case for the ideal pass (see the module docstring): the draw's verdicts per n, written to nc_path."""
+def _ideal_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, icfg=None, ifile=False):
+    """run_case for the ideal pass (see the module docstring): the draw's verdicts per n (and its surfaces' inverse
+    aspect ratio when eq is an i-file), written to nc_path."""
     import xarray as xr
+    eps = {}
+    if ifile:
+        from tearing_physics_suite.drivers.profile_read import ifile_eps
+        with open(eq, 'rb') as fh:
+            psi_n, e = ifile_eps(fh.read())
+        eps = dict(ideal_eps=('psi_ifile', e.astype(np.float32)), ideal_eps_psi_n=('psi_ifile', psi_n))
     nvec, rows = icfg['nvec'], []
     for n in nvec:
         z, cross = _run_code('rdcon', eq, n, kwargs, wd)
@@ -128,7 +137,7 @@ def _ideal_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels
                          ideal_rational_crossing=('nn', np.array([r['rational'] for r in rows], np.int8)),
                          ideal_stride_reason=('nn', np.array([r['reason'] for r in rows], object)),
                          ideal_crossing_psi=(('nn', 'crossing'), cross[..., 0]),
-                         ideal_crossing_q=(('nn', 'crossing'), cross[..., 1]),
+                         ideal_crossing_q=(('nn', 'crossing'), cross[..., 1]), **eps,
                          **{k: np.array(v, object if isinstance(v, str) else None) for k, v in (labels or {}).items()}),
                     coords=dict(nn=nvec, code=CODES))
     parallel._write_nc(ds, nc_path)
@@ -142,7 +151,7 @@ def run_item(study, item_id):
     ddir, states, todo = parallel.draws_to_run(study, cfg, it, '.ideal')
     out = dict(item=item_id, draws=[])
     if todo:
-        case = functools.partial(_ideal_case, icfg=icfg)
+        case = functools.partial(_ideal_case, icfg=icfg, ifile=cfg['eq_source'] == 'ifile')
         out['draws'] = parallel.run_draws(dict(cfg, tau_e=None), it, ddir, states, todo,    # (no MRE: no tau_E)
                                           gpec_kwargs(cfg['tps_kwargs']), case, sfx='.ideal',
                                           ifile_dir=icfg['ifile_dir'])

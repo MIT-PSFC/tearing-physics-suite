@@ -366,12 +366,27 @@ def gfile_q(eq_bytes):
     return np.linspace(0.0, 1.0, nw), np.abs(np.asarray(vals[need - nw:need]))
 
 
-def ifile_q(eq_bytes):
-    """(psi_N, q) of an OFT i-file given as bytes (psi_N from its psi-bounds record when present)."""
+def _ifile(eq_bytes):
+    """An OFT i-file given as bytes (bouquet's read_ifile) and its psi_N (from the psi-bounds record when present)."""
     from bouquet.utils import read_ifile
     d = read_ifile(eq_bytes)
     b0, b1 = d.get('psi_bounds', d['psi'][[0, -1]])
-    return (d['psi'] - b0) / (b1 - b0), np.abs(d['q'])
+    return d, (d['psi'] - b0) / (b1 - b0)
+
+
+def ifile_q(eq_bytes):
+    """(psi_N, q) of an OFT i-file given as bytes."""
+    d, psi_n = _ifile(eq_bytes)
+    return psi_n, np.abs(d['q'])
+
+
+def ifile_eps(eq_bytes):
+    """(psi_N, eps) of an OFT i-file given as bytes: each surface's inverse aspect ratio
+    (R_max - R_min)/(R_max + R_min)."""
+    d, psi_n = _ifile(eq_bytes)
+    R = d['R'].reshape(d['npsi'], d['ntheta'])                         # Fortran R(theta, psi): one row per surface
+    lo, hi = R.min(axis=1), R.max(axis=1)
+    return psi_n, (hi - lo) / (hi + lo)
 
 
 def _phi_n_map(psi, q):

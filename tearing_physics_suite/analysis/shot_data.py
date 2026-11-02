@@ -13,7 +13,7 @@ def open_shot(source, shot, variables=None):
     """source: a study dir (<study>/<shot>/tps/<shot>.zarr, or its published <shot>.zarr.zip), a zarr store
     (study or multi_compile_zarr, directory or .zip), or a glob of run dirs holding rdcon_xr.nc + meta.json
     (E7 layout). variables: keep only these. A study's shot gets its ideal-pass variables (nzero, ideal_*) by
-    case_key."""
+    case_key, and eps_surf from ideal_eps."""
     study = os.path.join(source, str(shot), 'tps', f'{shot}.zarr')
     study = study + '.zip' if os.path.exists(study + '.zip') else study
     if os.path.exists(study) or source.rstrip('/').endswith(('.zarr', '.zarr.zip')):
@@ -44,7 +44,21 @@ def _with_ideal(ds, path):
     keys = ideal['case_key'].values.astype(object)
     ideal = ideal[keep].assign({v: ideal[v].astype(object) for v in text}).assign_coords(run_idx=keys)
     ideal = ideal.reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
-    return ds.assign({v: ideal[v].drop_vars('run_idx') for v in keep})          # on ds's nn and code
+    ds = ds.assign({v: ideal[v].drop_vars('run_idx') for v in keep})            # on ds's nn and code
+    return ds.assign(eps_surf=_eps_surf(ds)) if 'ideal_eps' in ds and 'psi_n_rational' in ds else ds
+
+
+def _eps_surf(ds):
+    """The ideal pass's inverse aspect ratio (ideal_eps on ideal_eps_psi_n) at each run's rational surfaces, cubic as
+    physics.xr_utils.interp_to_surfaces; NaN for runs without it."""
+    from scipy.interpolate import interp1d
+    psi = ds['psi_n_rational'].transpose('run_idx', ...)
+    out = np.full(psi.shape, np.nan)
+    for i, (x, y) in enumerate(zip(ds['ideal_eps_psi_n'].values, ds['ideal_eps'].values)):
+        ok = np.isfinite(x) & np.isfinite(y)
+        if ok.sum() > 3:
+            out[i] = interp1d(x[ok], y[ok], kind='cubic', bounds_error=False)(psi.values[i])
+    return psi.copy(data=out)
 
 
 def select(ds, t_ms=None, draws=None):

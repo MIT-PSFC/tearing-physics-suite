@@ -389,6 +389,14 @@ def ifile_eps(eq_bytes):
     return psi_n, (hi - lo) / (hi + lo)
 
 
+def ifile_eps_vars(path, name):
+    """{name, name_psi_n} on dim psi_ifile, for a Dataset: the inverse aspect ratio of the i-file at path
+    (ifile_eps)."""
+    with open(path, 'rb') as fh:
+        psi_n, eps = ifile_eps(fh.read())
+    return {name: ('psi_ifile', eps.astype(np.float32)), f'{name}_psi_n': ('psi_ifile', psi_n)}
+
+
 def _phi_n_map(psi, q):
     """(Φ_N, ψ_N) grids, Φ_N(ψ_N) = ∫q dψ_N / ∫₀¹ q dψ_N from the draw's equilibrium-file q (bouquet.coords.phi_n_from_q)."""
     if psi[-1] < 1.0:                       # an i-file stops at the LCFS pad: q held to ψ_N = 1

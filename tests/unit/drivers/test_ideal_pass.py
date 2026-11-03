@@ -138,3 +138,9 @@ def test_open_shot_joins_the_ideal_store(tmp_path):
     assert ds.t_ms.values.tolist() == [1500] * 3 and ds.Delta_prime.values.tolist() == [1.0, 2.0, 3.0]
     np.testing.assert_allclose(ds.eps_surf.sel(nn=1, code='rdcon').values, [[0.1, 0.24, np.nan], [np.nan] * 3,
                                                                             [0.1, 0.24, np.nan]])
+    psi = np.linspace(0, 1, 6)                                  # a main-pass eps (new studies) is used first
+    main.assign(eps=(('run_idx', 'psi_ifile'), np.tile(0.5 * psi, (3, 1))),
+                eps_psi_n=(('run_idx', 'psi_ifile'), np.tile(psi, (3, 1)))).to_zarr(st.shot_store(str(tmp_path), 100),
+                                                                                   mode='w', consolidated=True)
+    np.testing.assert_allclose(open_shot(str(tmp_path), 100).eps_surf.sel(nn=1, code='rdcon').values,
+                               [[0.125, 0.3, np.nan]] * 3)

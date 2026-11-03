@@ -292,10 +292,12 @@ def _augment_combined_xr(combined_xr, idx, profile_dict, labels=None):
     return combined_xr.assign(labels or {})
 
 
-def run_case(eq_filename, profile_dict, kwargs, working_dir, nc_path, pkl_path=None, label=None, labels=None):
+def run_case(eq_filename, profile_dict, kwargs, working_dir, nc_path, pkl_path=None, label=None, labels=None,
+             eps=False):
     """Run nonlinear_resistive_calculation on one equilibrium; write its combined_xr to nc_path (tmp + rename).
 
-    pkl_path: also pickle the full result there (multi_run's result_{idx}.pkl). label: the run_idx value.
+    pkl_path: also pickle the full result there (multi_run's result_{idx}.pkl). label: the run_idx value. eps: also
+    store the i-file's surfaces' inverse aspect ratio (eps on eps_psi_n, profile_read.ifile_eps_vars).
     Returns (combined_xr, input_dict_out); combined_xr is None if the pipeline produced none (no nc written).
     """
     combined_xr, input_dict_out, pest3_xr_vec, xarray_vec = nonlinear_resistive_calculation(
@@ -319,6 +321,9 @@ def run_case(eq_filename, profile_dict, kwargs, working_dir, nc_path, pkl_path=N
             }, f)
     if combined_xr is not None:
         combined_xr = _augment_combined_xr(combined_xr, label, profile_dict, labels)
+        if eps:
+            from tearing_physics_suite.drivers.profile_read import ifile_eps_vars
+            combined_xr = combined_xr.assign(ifile_eps_vars(eq_filename, 'eps'))
         tmp_path = f'{nc_path}.tmp.{os.getpid()}'
         combined_xr.to_netcdf(tmp_path, engine="scipy")
         os.replace(tmp_path, nc_path)

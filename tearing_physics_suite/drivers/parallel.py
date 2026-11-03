@@ -66,6 +66,8 @@ DEFAULTS = dict(
     tau_e=None,                 # {"path": I2 netCDF(s), ':'-separated globs, $VARS expanded, "variable": name}: the
                                 # energy confinement time per draw (see tau_e_lookup)
     baseline=True,              # also run each archive's bouquet baseline, as draw -1 (item <unit>.base)
+    eps=True,                   # with eq_source 'ifile': each draw stores its surfaces' inverse aspect ratio (eps on
+                                # eps_psi_n; open_shot: eps_surf); off for studies initialised without the key
     spot_check=None,            # true or SpotCheck fields: re-run a seeded random fraction of the draws through the key
                                 # input scans (drivers/spot_check.py); the store gets spot_check_flag(nn, code)
     code_check=None,            # {"by": "shot" | "draw", "fraction", "seed", "codes": [...], "nvec": [...], "flag":
@@ -563,7 +565,8 @@ def run_item(study, item_id, code_check=False):
     flag = (check or {}).get('flag')
     need = _run_need_gib(study, cfg, it) if code_check and session_mem_gib() else 0.0
     if not code_check:
-        kwargs, case = dict(cfg['tps_kwargs']), run_case
+        kwargs = dict(cfg['tps_kwargs'])
+        case = functools.partial(run_case, eps=True) if cfg.get('eps') and cfg['eq_source'] == 'ifile' else run_case
     elif 'fill_n' in it:
         kwargs = dict(cfg['tps_kwargs'], nvec=it['fill_n'])
         case = functools.partial(_fill_case, need_gib=need, flag=flag)

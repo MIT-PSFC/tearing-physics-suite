@@ -86,7 +86,7 @@ def _fake_pipeline(monkeypatch, behaviour):
         os.makedirs(eqdsk_out_dir, exist_ok=True)
         return [f'{eqdsk_out_dir}/eq{c}' for c in draw_counts], [dict(bq_count=c) for c in draw_counts]
 
-    def run_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None):
+    def run_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels=None, eps=False):
         b = behaviour.get(prof['bq_count'])
         if isinstance(b, list):
             b = b.pop(0) if b else None
@@ -102,6 +102,8 @@ def _fake_pipeline(monkeypatch, behaviour):
                 lost['stride'] = [1]
             ds['Delta_prime'].loc[dict(code='stride')] = np.nan
         ds = multi_run._augment_combined_xr(ds, label, prof, labels)
+        if eps:
+            ds = ds.assign(eps=('psi_ifile', np.linspace(0, 0.4, 5)), eps_psi_n=('psi_ifile', np.linspace(0, 1, 5)))
         ds.to_netcdf(nc_path, engine='scipy')
         return ds, dict(nn=1, vac_flag='t')
     monkeypatch.setattr(profile_read, 'read_bouquet_archive', read)
@@ -184,6 +186,36 @@ def test_compile_incremental(study, monkeypatch):
     assert list(inputs.case_key.values) == list(ds.case_key.values) and set(inputs.vac_flag.values) == {'t'}
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # nothing new
     assert st.open_study(study).sizes['run_idx'] == 3
+
+
+def test_eps_in_ifile_studies(study, monkeypatch):
+    """An i-file study's draws store eps (run_case eps=True), compiled into the store; a study.json without the eps
+    key (studies initialised before it, as W4) runs as before."""
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    cfg = st.load_config(study)
+    fq.write_json(st.config_path(study), dict(cfg, eq_source='ifile'))
+    _fake_pipeline(monkeypatch, {})
+    st.run_item(study, f'{uid}.c0')
+    st.compile_shot(study, 100, finalize=True)
+    ds = xr.open_zarr(st.shot_store(study, 100)).load()
+    np.testing.assert_allclose(ds.eps.values, [np.linspace(0, 0.4, 5)] * 2)
+    assert ds.eps_psi_n.dims == ('run_idx', 'psi_ifile')
+    fq.write_json(st.config_path(study), {k: v for k, v in dict(cfg, eq_source='ifile').items() if k != 'eps'})
+    st.run_item(study, f'{uid}.c1')
+    with xr.open_dataset(os.path.join(study, '100', 'tps', uid, 'draws', '2.nc'), engine='scipy') as d2:
+        assert 'eps' not in d2
+
+
+def test_run_case_eps(tmp_path, monkeypatch):
+    """run_case(eps=True) adds the i-file's eps on eps_psi_n (profile_read.ifile_eps) to the draw's dataset."""
+    monkeypatch.setattr(multi_run, 'nonlinear_resistive_calculation', lambda *a, **k: (_run_dataset(0), {}, [], []))
+    monkeypatch.setattr(profile_read, 'ifile_eps', lambda b: (np.array([0.0, 0.5, 1.0]), np.array([0.0, 0.2, 0.3])))
+    (tmp_path / 'eq').write_bytes(b'i')
+    prof = dict(ni_spline=None, ne_spline=None, te_keV_spline=None, ti_keV_spline=None)
+    ds, _ = multi_run.run_case(str(tmp_path / 'eq'), prof, {}, str(tmp_path), str(tmp_path / 'd.nc'), eps=True)
+    np.testing.assert_allclose(xr.open_dataset(tmp_path / 'd.nc', engine='scipy').eps.values, [0.0, 0.2, 0.3])
+    assert 'eps' not in multi_run.run_case(str(tmp_path / 'eq'), prof, {}, str(tmp_path), str(tmp_path / 'e.nc'))[0]
 
 
 def test_compile_repairs_an_interrupted_append(study, monkeypatch):

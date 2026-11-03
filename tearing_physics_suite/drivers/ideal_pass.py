@@ -108,12 +108,8 @@ def _ideal_case(eq, prof, kwargs, wd, nc_path, pkl_path=None, label=None, labels
     """run_case for the ideal pass (see the module docstring): the draw's verdicts per n (and its surfaces' inverse
     aspect ratio when eq is an i-file), written to nc_path."""
     import xarray as xr
-    eps = {}
-    if ifile:
-        from tearing_physics_suite.drivers.profile_read import ifile_eps
-        with open(eq, 'rb') as fh:
-            psi_n, e = ifile_eps(fh.read())
-        eps = dict(ideal_eps=('psi_ifile', e.astype(np.float32)), ideal_eps_psi_n=('psi_ifile', psi_n))
+    from tearing_physics_suite.drivers.profile_read import ifile_eps_vars
+    eps = ifile_eps_vars(eq, 'ideal_eps') if ifile else {}
     nvec, rows = icfg['nvec'], []
     for n in nvec:
         z, cross = _run_code('rdcon', eq, n, kwargs, wd)

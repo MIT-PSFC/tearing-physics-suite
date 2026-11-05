@@ -280,6 +280,35 @@ def test_open_study_reads_published_zip(tmp_path):
     np.testing.assert_array_equal(open_shot(z + '.zip', 100)['t_ms'].values, [1500, 1600])
 
 
+def _n_store(study, keys, nn, codes, r):
+    """A shot store of these runs at these n and codes, with r rational surfaces."""
+    k, n, c = len(keys), len(nn), len(codes)
+    dp = np.arange(k * n * c * r, dtype=float).reshape(k, n, c, r)
+    ds = xr.Dataset({'Delta_prime': (('run_idx', 'nn', 'code', 'r'), dp),
+                     'stride_flag': (('run_idx', 'nn'), np.ones((k, n), np.int8)), 'shot_id': ('run_idx', [100] * k),
+                     't_ms': ('run_idx', [1500] * k), 'case_key': ('run_idx', np.array(keys, object))},
+                    coords=dict(nn=nn, code=codes, r=np.arange(r, dtype=float)))
+    ds.to_zarr(st.shot_store(study, 100), consolidated=True)
+
+
+def test_open_shot_more_n(tmp_path):
+    """open_shot(more_n=...): a later study's n join the shot's runs by case_key, codes by name, surfaces padded by
+    position; runs, codes and variables without them get NaN or -1; the shot's own n and inputs are unchanged."""
+    main, n4 = str(tmp_path / 'main'), str(tmp_path / 'n4')
+    _n_store(main, ['u_0', 'u_1', 'u_2'], [1, 2], ['rdcon', 'stride', 'jGPEC_galerkin'], 2)
+    _n_store(n4, ['u_2', 'u_0'], [4], ['rdcon', 'stride'], 3)
+    ds = open_shot(main, 100, more_n=[n4])
+    assert ds.nn.values.tolist() == [1, 2, 4] and ds.sizes['r'] == 3 and ds.t_ms.values.tolist() == [1500] * 3
+    own = open_shot(main, 100).Delta_prime.load()
+    xr.testing.assert_equal(ds.Delta_prime.sel(nn=[1, 2]).isel(r=[0, 1]).load(), own)
+    np.testing.assert_array_equal(ds.Delta_prime.sel(nn=4, code='stride').values,
+                                  [[9, 10, 11], [np.nan] * 3, [3, 4, 5]])
+    assert np.isnan(ds.Delta_prime.sel(nn=4, code='jGPEC_galerkin')).all()
+    assert ds.stride_flag.sel(nn=4).values.tolist() == [1, -1, 1] and ds.stride_flag.dtype == np.int8
+    with pytest.raises(ValueError, match='already in the store'):
+        open_shot(main, 100, more_n=[main])
+
+
 def test_runner_breaker(study, monkeypatch):
     q = fq.Queue(st.qroot(study))
     calls = iter([dict(draws=[dict(status='error', signature='E: rdcon missing', unit_id=u, draw=i)

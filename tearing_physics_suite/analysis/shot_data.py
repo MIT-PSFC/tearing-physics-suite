@@ -8,12 +8,15 @@ import numpy as np
 import xarray as xr
 import zarr
 
+from tearing_physics_suite.physics.global_quantities import global_mre_quantities
 
-def open_shot(source, shot, variables=None):
+
+def open_shot(source, shot, variables=None, more_n=()):
     """source: a study dir (<study>/<shot>/tps/<shot>.zarr, or its published <shot>.zarr.zip), a zarr store
     (study or multi_compile_zarr, directory or .zip), or a glob of run dirs holding rdcon_xr.nc + meta.json
     (E7 layout). variables: keep only these. A study's shot gets its ideal-pass variables (nzero, ideal_*) by
-    case_key, and eps_surf (see _with_eps_surf)."""
+    case_key, and eps_surf (see _with_eps_surf). more_n: sources of the same draws at further n (e.g. a later
+    STRIDE-only study at nvec [4] on the same bouquets), joined by case_key (see _with_n)."""
     study = os.path.join(source, str(shot), 'tps', f'{shot}.zarr')
     study = study + '.zip' if os.path.exists(study + '.zip') else study
     if os.path.exists(study) or source.rstrip('/').endswith(('.zarr', '.zarr.zip')):
@@ -27,6 +30,8 @@ def open_shot(source, shot, variables=None):
             ds = ds.isel(run_idx=np.flatnonzero(ds['shot_id'].values.astype(int) == shot))
         if path == study:
             ds = _with_ideal(ds, os.path.join(source, str(shot), 'tps', f'{shot}_ideal.zarr'))
+        for other in more_n:
+            ds = _with_n(ds, open_shot(other, shot))
         return _keep(_with_eps_surf(ds), variables)
     return _open_runs(sorted(glob.glob(source)), shot, variables)
 
@@ -40,12 +45,61 @@ def _with_ideal(ds, path):
     ideal = xr.open_zarr(zarr.storage.ZipStore(path, mode='r') if path.endswith('.zip') else path).load()
     keep = [v for v in ideal.data_vars if v == 'nzero' or v.startswith('ideal_')]
     text = [v for v in keep if ideal[v].dtype.kind in 'OTU']                    # zarr's StringDType: as objects
-    fill = {v: '' if v in text else -1 if ideal[v].dtype.kind == 'i' else np.nan for v in keep}
+    fill = {v: _fill(ideal[v]) for v in keep}
     keys = ideal['case_key'].values.astype(object)
     ideal = ideal[keep].assign({v: ideal[v].astype(object) for v in text}).assign_coords(run_idx=keys)
     ideal = ideal.reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
     ideal = ideal.drop_vars('run_idx')
     return ds.assign({v: ideal[v].combine_first(ds[v]) if v in ds else ideal[v] for v in keep})   # on ds's nn, code
+
+
+MRE_GLOBALS = ('min_w_marg_allsurf', 'max_dwdtau_allsurf', 'min_w_marg_rank', 'max_dwdtau_rank')   # global_mre_quantities
+
+
+def _with_n(ds, other):
+    """ds with other's n (other: the same draws at n ds has not), matched by case_key, on ds's variables with nn:
+    codes by name, other dims padded by position as in the stores; NaN, -1 or '' where a run, code or variable has
+    none. Variables without nn (inputs, provenance) stay ds's, but the least-stable-mode globals (min_w_marg_*,
+    max_dwdtau_*) are redone over every n."""
+    if set(other.nn.values) & set(ds.nn.values):
+        raise ValueError(f'more_n: n {sorted(set(other.nn.values) & set(ds.nn.values))} already in the store')
+    on_nn = [v for v in ds.data_vars if 'nn' in ds[v].dims]
+    keys = other['case_key'].values.astype(object)
+    other = other[[v for v in on_nn if v in other and 'nn' in other[v].dims]].load()
+    ds, other = (x.assign({v: x[v].compute().astype(object) for v in x.data_vars if x[v].dtype.kind in 'OTU'})
+                 for x in (ds, other))                                       # text as objects, as _with_ideal
+    fill = {v: _fill(ds[v]) for v in on_nn}
+    other = other.assign_coords(run_idx=keys).reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
+    other = other.drop_vars('run_idx').reindex(code=ds.code.values, fill_value=fill) if 'code' in other.dims else other
+    for d in (set(ds.dims) & set(other.dims)) - {'run_idx', 'nn', 'code'}:
+        n = max(ds.sizes[d], other.sizes[d])
+        coord = (ds if ds.sizes[d] == n else other)[d]
+        ds, other = _pad(ds, d, coord), _pad(other, d, coord)
+    joined = xr.concat([ds[on_nn], other], 'nn', join='override', data_vars='all', coords='minimal', compat='override',
+                       fill_value=fill)
+    ds = xr.merge([ds.drop_dims('nn'), joined], join='override', compat='override')
+    if 'min_w_marg_allsurf' not in ds:
+        return ds
+    cut = np.unique(ds['psi_pedestal_cutoff'].values)
+    if cut.size != 1:
+        raise ValueError(f'more_n: runs with different psi_pedestal_cutoff {cut}')
+    used = ['psi_n_rational', 'Delta_prime_surf', 'w_marg_surf', 'dwdtau_max_surf']
+    redone = global_mre_quantities(ds[used].load(), psi_pedestal_cutoff=float(cut[0]))
+    return ds.assign({v: redone[v].astype(ds[v].dtype) for v in MRE_GLOBALS if v in ds})
+
+
+def _pad(ds, d, coord):
+    """ds padded at the end of dim d to coord's length (each variable with its _fill), on coord."""
+    w = coord.size - ds.sizes[d]
+    if not w:
+        return ds
+    ds = ds.map(lambda da: da.pad({d: (0, w)}, constant_values=_fill(da)) if d in da.dims else da)
+    return ds.assign_coords({d: coord})
+
+
+def _fill(da):
+    """The missing value of da's dtype: '' (text), -1 (ints, as the stores' flags) or NaN."""
+    return '' if da.dtype.kind in 'OTU' else -1 if da.dtype.kind == 'i' else np.nan
 
 
 def _with_eps_surf(ds):

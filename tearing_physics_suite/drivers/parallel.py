@@ -2,7 +2,7 @@
 
     python -m tearing_physics_suite.drivers.parallel init    --study S --config cfg.json
     python -m tearing_physics_suite.drivers.parallel feed    --study S
-    python -m tearing_physics_suite.drivers.parallel work    --study S --workers W [--feed-every 300]
+    python -m tearing_physics_suite.drivers.parallel work    --study S --workers W [--feed-every 300] [--feed-extra N]
     python -m tearing_physics_suite.drivers.parallel compile --study S [--shots ...] [--finalize]
     python -m tearing_physics_suite.drivers.parallel status  --study S
 
@@ -468,7 +468,7 @@ def feed_codes(study, cfg=None, extra=0, mem_gib=None):
 
 class Feeder:
     """on_idle hook: feed, unless any worker fed in the last ``every`` seconds (code checks: up to ``workers`` extra
-    draws that fit the session's mem_gib)."""
+    draws that fit the session's mem_gib; work --feed-extra, else its --workers)."""
 
     def __init__(self, study, every, code_check=False, workers=0, mem_gib=None):
         self.study, self.every, self.code_check, self.workers, self.mem_gib = study, every, code_check, workers, mem_gib
@@ -848,7 +848,8 @@ def cmd_work(a):
     accept = functools.partial(_fits_session, a.study, a.mem_gib) if a.code_check and a.mem_gib else None
     out = fq.launch(qroot(a.study, a.code_check), a.workers, Runner(a), deadline=d, idle_exit_s=a.idle_exit,
                     accept=accept,
-                    on_idle=Feeder(a.study, a.feed_every, a.code_check, a.workers, a.mem_gib) if a.feed_every else None)
+                    on_idle=Feeder(a.study, a.feed_every, a.code_check, a.feed_extra or a.workers, a.mem_gib)
+                    if a.feed_every else None)
     for w, why in sorted(out.items()):
         print(f'  {w}: {why}', flush=True)
     if not a.no_compile:          # catch draws that finished while their shot was being compiled
@@ -1166,6 +1167,8 @@ def main(argv=None):
     p.add_argument('--margin', type=float, default=300, help='s before the job end to stop claiming')
     p.add_argument('--idle-exit', type=float, default=600)
     p.add_argument('--feed-every', type=float, default=300, help='s; 0: no feeding from workers')
+    p.add_argument('--feed-extra', type=int, help="code checks: extra draws a feed adds (default --workers); one feed "
+                   "reads every draw's status, so with many 1-worker sessions a feed should serve them all")
     p.add_argument('--allow-build-drift', action='store_true')
     p.add_argument('--no-compile', action='store_true', help="don't compile a shot's store when its items finish")
     p.add_argument('--mem-gib', type=float, default=float(os.environ.get('TPS_MEM_GIB') or 0) or None,

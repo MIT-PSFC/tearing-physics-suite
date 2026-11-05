@@ -678,6 +678,15 @@ def _sized_draw(study, uid, c, mpert, msing, **rec):
                                                      inputs=dict(nx=256, delta_mhigh=8), **rec))
 
 
+def test_work_feed_extra(study, monkeypatch):
+    """work --feed-extra: the extra draws a code-check session's feeds add (default: its workers)."""
+    seen = []
+    monkeypatch.setattr(st.fq, 'launch', lambda *a, on_idle=None, **k: seen.append(on_idle.workers) or {})
+    for extra in ([], ['--feed-extra', '25']):
+        st.main(['work', '--study', study, '--code-check', '--workers', '1', *extra])
+    assert seen == [1, 25]
+
+
 def test_memory_classes(study, monkeypatch):
     """Each item carries its predicted peak (a fill: STRIDE at its lost n; a check: RDCON's Delta' at its n) and is
     fed by priority within its memory class; a session takes only the items that fit it, and refuses a run that

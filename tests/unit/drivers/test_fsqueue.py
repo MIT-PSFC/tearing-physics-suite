@@ -44,6 +44,16 @@ def _units(n, prefix='u'):
     return [{'id': f'{prefix}{i:03d}', 'est': i % 7} for i in range(n)]
 
 
+def test_periodic_keeps_its_lease_while_it_runs(tmp_path):
+    """A feed that runs longer than a lease lives (3 x STALE_S) keeps beating it: no second feeder steals it."""
+    a, b = fq.Queue(tmp_path, **dict(FAST, STALE_S=1.0)), fq.Queue(tmp_path, **dict(FAST, STALE_S=1.0))
+
+    def long_feed():
+        time.sleep(4.0)
+        return b.acquire('leases', 'feeder', 'b')
+    assert a.periodic('feeder', 0, long_feed) is False
+
+
 def test_steal_race_one_winner(tmp_path):
     """Two workers saw the same stale claim; one steals it before the other renames: the second must not take it."""
     a, b = fq.Queue(tmp_path, **FAST), fq.Queue(tmp_path, **FAST)

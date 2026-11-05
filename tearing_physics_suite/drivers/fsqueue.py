@@ -245,7 +245,8 @@ class Queue:
         try:
             with open(last, 'w') as fh:
                 fh.write(str(int(_now())))
-            return fn()
+            with Heartbeat(self, name, kind='leases'):      # a long fn keeps it: no second runner steals it
+                return fn()
         finally:
             self.drop('leases', name)
 

@@ -194,6 +194,8 @@ def nonlinear_resistive_calculation(eq_filename, ni_spline, ne_spline, te_keV_sp
         return combined_xr, input_dict_out, pest3_xr_vec, xarray_vec
 
     if combined_xr is not None:
+        if 'w_marg_surf' not in combined_xr:
+            raise RuntimeError(f"No code gave a Delta' at any n = {list(nvec)}: the MRE analysis needs one")
         combined_xr = global_mre_quantities(combined_xr,psi_pedestal_cutoff=psi_pedestal_cutoff)
         # Settings the MRE outputs were computed with, so they can be recomputed from the dataset (drivers/mre_recompute.py)
         combined_xr = combined_xr.assign(

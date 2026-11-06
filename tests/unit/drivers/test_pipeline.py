@@ -70,13 +70,15 @@ DELTA_PRIME_RUN_VARS = ('A_prime', 'B_prime', 'Delta', 'Delta_prime', 'Gamma_pri
 
 def test_stride_only_with_rdcon_surface_pass(monkeypatch, code_fixture, kin_file):
     """rdcon_delta_prime=False: RDCON brings only the surface terms. STRIDE's MRE outputs and the surface terms equal
-    those with RDCON's full run; RDCON's Delta' outputs are NaN."""
+    those with RDCON's full run; RDCON's Delta' outputs are NaN. If STRIDE fails too, the draw fails with a clear
+    error."""
     import numpy as np
     from tearing_physics_suite.drivers.profile_read import read_kin_file
     p = read_kin_file(kin_file)
 
-    def run(rdcon_xr):
-        res = CodeResults(rdcon_xr, code_fixture('stride'), None, True, True, False, {'nn': 1}, None, {}, {})
+    def run(rdcon_xr, stride=True):
+        res = CodeResults(rdcon_xr, code_fixture('stride') if stride else None, None, True, stride, False, {'nn': 1},
+                          None, {}, {})
         monkeypatch.setattr(pl, 'run_resistive_calculation', lambda *a, **k: res)
         return pl.nonlinear_resistive_calculation('eq', p['ni_spline'], p['ne_spline'], p['te_keV_spline'],
                                                   p['ti_keV_spline'], Zeff=1.5, average_ion_mass=2.5, nvec=[1],
@@ -88,6 +90,8 @@ def test_stride_only_with_rdcon_surface_pass(monkeypatch, code_fixture, kin_file
         assert surf[v].sel(code='rdcon').isnull().all(), v
     for v in ('X0_surf', 'Wc_prefac_m_surf', 'chi_perp_surf', 'Delta_prime_crit', 'Delta_prime_tcrit'):
         np.testing.assert_array_equal(surf[v].values, full[v].values, err_msg=v)
+    with pytest.raises(RuntimeError, match="No code gave a Delta' at any n = \\[1\\]"):
+        run(rd.drop_vars([v for v in DELTA_PRIME_RUN_VARS if v in rd]), stride=False)
 
 
 def test_fill_codes_gives_the_full_run(monkeypatch, code_fixture, kin_file):

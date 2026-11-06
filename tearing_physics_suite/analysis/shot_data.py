@@ -36,6 +36,20 @@ def open_shot(source, shot, variables=None, more_n=()):
     return _open_runs(sorted(glob.glob(source)), shot, variables)
 
 
+def write_shot(source, shot, out, more_n=()):
+    """open_shot(source, shot, more_n=more_n) written as study dir out's shot store, chunked as finalized stores, so
+    open_shot(out, shot) and parallel.open_study(out) read it back; it appears only once complete, and an existing
+    one is refused. Provenance stays in each source's _inputs.nc."""
+    from tearing_physics_suite.drivers.multi_run import rechunk_store
+    from tearing_physics_suite.drivers.parallel import shot_store
+    from tearing_physics_suite.drivers.zarr_store import zarr_chunk
+    ds = open_shot(source, shot, more_n=more_n).drop_encoding()
+    path = shot_store(out, shot)
+    zarr_chunk(ds, dict(ds.sizes)).to_zarr(path + '.tmp', mode='w', consolidated=True)
+    rechunk_store(path + '.tmp')
+    os.rename(path + '.tmp', path)
+
+
 def _with_ideal(ds, path):
     """ds with the ideal store's variables at path (or its .zip), matched by case_key: NaN, -1 (int flags) or ''
     for runs without a verdict, or ds's own value (the main pass's STRIDE nzero); ds unchanged without the store."""

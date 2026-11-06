@@ -293,7 +293,8 @@ def _n_store(study, keys, nn, codes, r):
 
 def test_open_shot_more_n(tmp_path):
     """open_shot(more_n=...): a later study's n join the shot's runs by case_key, codes by name, surfaces padded by
-    position; runs, codes and variables without them get NaN or -1; the shot's own n and inputs are unchanged."""
+    position; runs, codes and variables without them get NaN or -1; the shot's own n and inputs are unchanged. join-n
+    writes it as a store."""
     main, n4 = str(tmp_path / 'main'), str(tmp_path / 'n4')
     _n_store(main, ['u_0', 'u_1', 'u_2'], [1, 2], ['rdcon', 'stride', 'jGPEC_galerkin'], 2)
     _n_store(n4, ['u_2', 'u_0'], [4], ['rdcon', 'stride'], 3)
@@ -307,6 +308,10 @@ def test_open_shot_more_n(tmp_path):
     assert ds.stride_flag.sel(nn=4).values.tolist() == [1, -1, 1] and ds.stride_flag.dtype == np.int8
     with pytest.raises(ValueError, match='already in the store'):
         open_shot(main, 100, more_n=[main])
+    out = str(tmp_path / 'n124')                                          # join-n: the same, written as a store
+    for _ in range(2):                                                    # a rerun skips the shots written
+        st.main(['join-n', '--study', main, '--more-n', n4, '--out', out])
+    xr.testing.assert_equal(open_shot(out, 100).load(), ds.load())
 
 
 def test_runner_breaker(study, monkeypatch):

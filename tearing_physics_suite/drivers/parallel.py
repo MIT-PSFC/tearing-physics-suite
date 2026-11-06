@@ -5,6 +5,7 @@
     python -m tearing_physics_suite.drivers.parallel work    --study S --workers W [--feed-every 300] [--feed-extra N]
     python -m tearing_physics_suite.drivers.parallel compile --study S [--shots ...] [--finalize]
     python -m tearing_physics_suite.drivers.parallel status  --study S
+    python -m tearing_physics_suite.drivers.parallel join-n  --study S --more-n S2 [...] --out S12 [--shots ...]
 
 Work items (``<unit_id>.c<k>``, a chunk of one bouquet unit's draws) are claimed from the fsqueue at
 ``<study>/_queue/tps`` and run in child processes. Each draw writes ``draws/<count>.nc`` and, last,
@@ -1075,6 +1076,20 @@ def cmd_compile(a):
         compile_shot(a.study, shot, cfg, finalize=a.finalize, code_check=a.code_check)
 
 
+def cmd_join_n(a):
+    """Each shot stored in the study and in every --more-n study, written with all their n to --out
+    (shot_data.write_shot) unless already there, so a rerun resumes; the shots missing from any study are listed."""
+    from tearing_physics_suite.analysis.shot_data import write_shot
+    shots = a.shots or study_shots(a.study)
+    stored = [shot for shot in shots if all(os.path.exists(p) or os.path.exists(p + '.zip')
+                                            for p in (shot_store(s, shot) for s in [a.study, *a.more_n]))]
+    for shot in stored:
+        if not os.path.exists(shot_store(a.out, shot)):
+            write_shot(a.study, shot, a.out, a.more_n)
+    if len(stored) < len(shots):
+        print(f'join-n: not in every study, skipped: {sorted(set(shots) - set(stored))}')
+
+
 def open_study(study, shots=None, code_check=False):
     """Lazy dataset of every compiled shot store (code-check store), concatenated along run_idx.
 
@@ -1180,6 +1195,10 @@ def main(argv=None):
     p = add('compile', cmd_compile)
     p.add_argument('--shots', type=int, nargs='*')
     p.add_argument('--finalize', action='store_true', help='rechunk the stores')
+    p = add('join-n', cmd_join_n, code_check=False)
+    p.add_argument('--more-n', nargs='+', required=True, help='studies of the same draws at further n')
+    p.add_argument('--out', required=True, help='study dir for the joined shot stores')
+    p.add_argument('--shots', type=int, nargs='*')
     p = add('code-check-pending', cmd_code_check_pending, code_check=False)
     p.add_argument('--shots', type=int, nargs='*')
     p = add('status', cmd_status)

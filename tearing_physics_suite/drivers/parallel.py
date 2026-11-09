@@ -628,6 +628,9 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
                started=time.time())
     if 'reason' in it:                                                  # a code check's
         rec['reason'] = it['reason']
+    from tearing_physics_suite.drivers.profile_read import IFILE_REBUILT
+    if eq in IFILE_REBUILT:                                             # its i-file rebuilt (read_bouquet_archive)
+        rec.update(ifile_rebuild_s=IFILE_REBUILT[eq]['s'], ifile_rebuild_oft=IFILE_REBUILT[eq]['oft'])
     fq.write_json(stat, dict(rec, status='running'))
     os.makedirs(wd, exist_ok=True)
     CODE_WALL_S.clear()
@@ -1114,7 +1117,8 @@ def open_study(study, shots=None, code_check=False):
 
 def draw_status(study, cfg=None, code_check=False):
     """Counts of draw (code-check and 'fill ...') statuses per shot (and of records with code_killed, code_skipped,
-    code_filled), and failure signatures with counts and an example."""
+    code_filled, ifile_rebuilt, with the rebuilds' summed ifile_rebuild_s), and failure signatures with counts and an
+    example."""
     cfg = cfg or load_config(study)
     per_shot, sigs = {}, {}
     for kind in ('.codes', '.fill') if code_check else ('',):
@@ -1123,6 +1127,8 @@ def draw_status(study, cfg=None, code_check=False):
             c = per_shot.setdefault(r.get('shot'), collections.Counter())
             c[f"{'fill ' if kind == '.fill' else ''}{r.get('status')}"] += 1
             c.update(k for k in ('code_killed', 'code_skipped', 'code_filled') if k in r)
+            if 'ifile_rebuild_s' in r:                                  # summed: status gives the mean
+                c.update(ifile_rebuilt=1, ifile_rebuild_s=r['ifile_rebuild_s'])
             if r.get('status') not in ('ok', 'running'):
                 s = sigs.setdefault((r.get('error') or {}).get('signature', r.get('status')), [0, p])
                 s[0] += 1
@@ -1139,7 +1145,10 @@ def cmd_status(a):
         print(f"  item failures {v['n']:4d} x {sig}  (e.g. {v['units'][0]})")
     per_shot, sigs = draw_status(a.study, code_check=a.code_check)
     tot = sum(per_shot.values(), collections.Counter())
+    rebuild_s = tot.pop('ifile_rebuild_s', 0.0)
     print('draws: ' + ', '.join(f'{k} {v}' for k, v in sorted(tot.items(), key=str)))
+    if tot['ifile_rebuilt']:
+        print(f"  i-files rebuilt {tot['ifile_rebuilt']}: mean {rebuild_s / tot['ifile_rebuilt']:.2f} s")
     for sig, (n, ex) in sorted(sigs.items(), key=lambda kv: -kv[1][0]):
         print(f'  draw failures {n:4d} x {sig}  (e.g. {ex})')
     if a.verbose:

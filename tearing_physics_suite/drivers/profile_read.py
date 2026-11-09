@@ -1,6 +1,8 @@
 # Set of modular functions that take a filename as input, read the file, and generate kinetic spline inputs for drivers/pipeline.py
 
+import functools
 import os
+import time
 import warnings
 
 import numpy as np
@@ -274,7 +276,8 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
         Read only these draws (by count), whatever their selection flag. -1 is the scan's baseline.
     ifile_dir : str or None
         With eq_source 'ifile': where the i-file of a draw whose archive no longer stores it (dropped once its shot is
-        done) is read instead, as <archive stem>_<scan key>_<count>.ifile (rebuilt from its TokaMaker state).
+        done) is read instead, as <archive stem>_<scan key>_<count>.ifile; else it is rebuilt from the draw's archived
+        TokaMaker state (bouquet DrawView.rebuild_ifile), its wall time in IFILE_REBUILT.
 
     Φ_N archives (profile_coord 'phi_n') are mapped to ψ_N per draw with the q of the equilibrium file it unpacks (g-file or i-file).
     Profile dicts carry shot_id / bq_unit_id / bq_variant when the archive's root attrs have them.
@@ -326,10 +329,12 @@ def read_bouquet_archive(path, scan_keys=None, selection="selected", eqdsk_out_d
             if eq_bytes is None and eq_source == 'ifile' and ifile_dir and os.path.exists(rebuilt):
                 with open(rebuilt, 'rb') as fh:
                     eq_bytes = fh.read()
+            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{count}.{eq_source}")
+            if eq_bytes is None and eq_source == 'ifile' and cfg is not None and d.tokamaker_state_bytes is not None:
+                eq_bytes = _rebuild_ifile(d, cfg.solver, eq_path)
             if eq_bytes is None:
                 raise KeyError(f"Bouquet draw {key}/{count} has no stored {eq_source} "
                                f"(i-files need a bouquet run with write_ifile=True).")
-            eq_path = os.path.join(eqdsk_out_dir, f"{header}_{key}_{count}.{eq_source}")
             with open(eq_path, 'wb') as fh:
                 fh.write(eq_bytes)
             coord = attrs.get('profile_coord', 'psi_n')
@@ -424,6 +429,37 @@ def _phi_n_to_psi_n(prof, psi, q):
     return out
 
 
+IFILE_REBUILT = {}   # i-file path -> {'s': rebuild wall time, 'oft': OFT dir}, for the draw records
+
+
+def _rebuild_ifile(d, solver, path):
+    """The i-file of draw view d, rebuilt to path from its archived TokaMaker state; noted in IFILE_REBUILT."""
+    mygs = _tokamaker(solver.mesh_path, solver.order)
+    import OpenFUSIONToolkit
+    t = time.perf_counter()
+    d.rebuild_ifile(path, mygs=mygs)
+    IFILE_REBUILT[path] = dict(s=round(time.perf_counter() - t, 2), oft=os.path.dirname(OpenFUSIONToolkit.__file__))
+    with open(path, 'rb') as fh:
+        return fh.read()
+
+
+@functools.lru_cache(maxsize=None)
+def _tokamaker(mesh_path, order):
+    """One TokaMaker per process and mesh (bouquet tokamaker_on_mesh; set up in ~10 s), from the OFT that
+    bouquet.paths.add_oft_to_path finds (OFT_PYTHONPATH first)."""
+    from bouquet.paths import add_oft_to_path
+    from bouquet.utils import tokamaker_on_mesh
+    add_oft_to_path()
+    return tokamaker_on_mesh(_mapped(mesh_path), order)
+
+
+def _mapped(path):
+    """path, or for one written on the other cluster and missing here, its copy under this cluster's root
+    (TPS_PATH_MAP '<other root>=<this root>')."""
+    old, _, new = os.environ.get('TPS_PATH_MAP', '').partition('=')
+    return new + path[len(old):] if old and not os.path.exists(path) and path.startswith(old + '/') else path
+
+
 def _bouquet_scan_config(bq, path, key):
     """BouquetConfig for one scan key, or None for archives without stored config."""
     try:
@@ -495,9 +531,7 @@ def _bouquet_ida_extras(cfg, key, ida_path, ida_extra_keys, tol_ms, verbose):
                     or getattr(getattr(cfg, 'uncertainty', None), 'ida_path', None))
     if ida_path is None:
         return {}
-    old, _, new = os.environ.get('TPS_PATH_MAP', '').partition('=')     # <other cluster's root>=<this cluster's>
-    if old and not os.path.exists(ida_path) and ida_path.startswith(old + '/'):   # an archive written there
-        ida_path = new + ida_path[len(old):]
+    ida_path = _mapped(ida_path)
     if not os.path.exists(ida_path):
         warnings.warn(f"IDA file {ida_path} not found; skipping IDA extras for scan {key}.", stacklevel=2)
         return {}

@@ -133,3 +133,29 @@ def test_ida_extras_from_another_clusters_path(tmp_path, monkeypatch):
     monkeypatch.setenv('TPS_PATH_MAP', f'/other/cluster={tmp_path}')
     got = _bouquet_ida_extras(None, '1500', other, None, 1.0, False)
     assert opened == [str(tmp_path / 'ida_lite' / 'IDA_100_.cdf')] and got['IDA_time'] == 1500.0 and got['tau_e_basic'] == 0.2
+
+
+def test_dropped_ifile_rebuilt(tmp_path, monkeypatch):
+    """A draw whose archive dropped its i-file gets it rebuilt from its TokaMaker state, on the mesh mapped to this
+    cluster; the rebuild's wall time and OFT go to IFILE_REBUILT for the draw record."""
+    import sys
+    import types
+
+    from tearing_physics_suite.drivers import profile_read
+    meshes = []
+    bq_utils = types.SimpleNamespace(tokamaker_on_mesh=lambda mesh, order: meshes.append((mesh, order)) or 'mygs')
+    monkeypatch.setitem(sys.modules, 'bouquet.utils', bq_utils)
+    monkeypatch.setitem(sys.modules, 'bouquet.paths', types.SimpleNamespace(add_oft_to_path=lambda: None))
+    monkeypatch.setitem(sys.modules, 'OpenFUSIONToolkit', types.SimpleNamespace(__file__='/oft/python/OpenFUSIONToolkit/__init__.py'))
+    monkeypatch.setenv('TPS_PATH_MAP', f'/other/cluster={tmp_path}')
+    (tmp_path / 'mesh.h5').touch()
+
+    class Draw:
+        def rebuild_ifile(self, path, mygs):
+            assert mygs == 'mygs'
+            open(path, 'wb').write(b'ifile')
+    solver = types.SimpleNamespace(mesh_path='/other/cluster/mesh.h5', order=2)
+    path = str(tmp_path / 'd.ifile')
+    assert profile_read._rebuild_ifile(Draw(), solver, path) == b'ifile'
+    assert meshes == [(str(tmp_path / 'mesh.h5'), 2)]
+    assert profile_read.IFILE_REBUILT[path]['oft'] == '/oft/python/OpenFUSIONToolkit' and profile_read.IFILE_REBUILT[path]['s'] >= 0

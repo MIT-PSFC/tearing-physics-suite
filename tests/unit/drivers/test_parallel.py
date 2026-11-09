@@ -49,8 +49,10 @@ def test_feed(study):
     assert items[f'{uid}.c2']['draws'] == [4]
     assert items[f'{uid}.base']['draws'] == [-1]
     assert st.feed(study) == 0
-    _record(study, 102, 900, selected=(1,))
+    uid2 = _record(study, 102, 900, selected=(1,))
     assert st.feed(study) == 2
+    assert fq.Queue(st.qroot(study)).order() == [f'{uid}.base', f'{uid}.c0', f'{uid}.c1', f'{uid}.c2',
+                                                 f'{uid2}.base', f'{uid2}.c0']   # a unit's items claimed together
 
 
 def test_feed_adds_draws_appended_to_a_fed_unit(study):

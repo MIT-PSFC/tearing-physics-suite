@@ -49,6 +49,7 @@ once instead of running the other codes first. A STRIDE-only study sets `run_jgp
 
 **Units of work.** A bouquet unit `<shot>_<t_ms>_<variant>` (one archive) is cut into items `<unit_id>.c<k>`
 of `draws_per_item` draws; a worker claims an item and runs it in a child process. The draw is the restart unit.
+Items are claimed in feed order, a unit's items together, so shots finish (and can be compiled and cleaned) during the run.
 
 **Layout.**
 ```

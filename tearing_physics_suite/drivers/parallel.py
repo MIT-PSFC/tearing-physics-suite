@@ -309,9 +309,11 @@ def feed(study, cfg=None):
     """Add work items for bouquet units recorded 'done' and not yet fed; returns how many were added.
 
     The baseline is its own item (<unit>.base), so it also reaches units fed before it was enabled. Draws added to a fed
-    unit's archive later (a bouquet fill-up) get items <unit>.d<first count>.
+    unit's archive later (a bouquet fill-up) get items <unit>.d<first count>. Every item has the same est, so workers
+    claim in manifest order: a unit's items run together and its shot can be compiled and cleaned during the run.
     """
     cfg = cfg or load_config(study)
+    n = int(cfg['draws_per_item'])
     q = fq.Queue(qroot(study))
     units = q.units(refresh=True)
     fed = {}
@@ -326,16 +328,15 @@ def feed(study, cfg=None):
         archive = os.path.join(os.path.dirname(rec_path), r['archive'])
         if cfg.get('baseline', True) and f'{uid}.base' not in units:
             items.append(dict(id=f'{uid}.base', unit_id=uid, shot=r['shot'], t_ms=r['t_ms'], variant=r['variant'],
-                              archive=archive, draws=[-1], est=1))
+                              archive=archive, draws=[-1], est=n))
         counts = r.get('selected_counts' if cfg['selection'] == 'selected' else 'all_counts')
         if counts is None:
             counts = _archive_counts(archive, cfg['selection'])
         new = [c for c in counts if c not in fed.get(uid, ())]
-        n = int(cfg['draws_per_item'])
         for k in range(0, len(new), n):
             items.append(dict(id=f'{uid}.d{new[k]}' if uid in fed else f'{uid}.c{k // n}', unit_id=uid,
                               shot=r['shot'], t_ms=r['t_ms'], variant=r['variant'], archive=archive,
-                              draws=new[k:k + n], est=len(new[k:k + n])))
+                              draws=new[k:k + n], est=n))
         if not counts and uid not in fed:
             print(f'feed: {uid} has no {cfg["selection"]} draws', flush=True)
     n_new = q.add_units(items)

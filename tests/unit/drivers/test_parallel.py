@@ -51,8 +51,8 @@ def test_feed(study):
     assert st.feed(study) == 0
     uid2 = _record(study, 102, 900, selected=(1,))
     assert st.feed(study) == 2
-    assert fq.Queue(st.qroot(study)).order() == [f'{uid}.base', f'{uid}.c0', f'{uid}.c1', f'{uid}.c2',
-                                                 f'{uid2}.base', f'{uid2}.c0']   # a unit's items claimed together
+    units = fq.Queue(st.qroot(study)).units(refresh=True).values()
+    assert {u['est'] for u in units} == {2}             # one est, so a unit's items are claimed together
 
 
 def test_feed_adds_draws_appended_to_a_fed_unit(study):

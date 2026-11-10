@@ -213,21 +213,30 @@ def add_to_zarr_store(  # noqa: PLR0912
 
 
 def truncate_zarr_store(zarr_path: os.PathLike, episode_dim: str, n: int) -> None:
-    """Cut every array of the store back to n entries along episode_dim (undoing a killed append), and reconsolidate.
+    """Cut every array of the store back to n entries along episode_dim (undoing a killed append), and along each other
+    dim to its shortest array (undoing a killed extend_zarr_along_dim), and reconsolidate.
 
     n == 0 removes the store (a killed creation)."""
     if n == 0:
         shutil.rmtree(zarr_path)
         return
     group = zarr.open_group(zarr_path, mode="r+", use_consolidated=False)
+    arrays = [(arr, list(arr.metadata.dimension_names or ())) for _, arr in group.arrays()]
+    arrays = [(arr, dims) for arr, dims in arrays if len(dims) == arr.ndim]    # unnamed dims: left as they are
+    size = {}
+    for arr, dims in arrays:
+        for d, k in zip(dims, arr.shape):
+            size[d] = min(size.get(d, k), k)
+    size[episode_dim] = n
     n_cut = 0
-    for _, arr in group.arrays():
-        dims = list(arr.metadata.dimension_names or ())
-        if episode_dim in dims and arr.shape[dims.index(episode_dim)] > n:
-            arr.resize(tuple(n if d == episode_dim else k for d, k in zip(dims, arr.shape)))
+    for arr, dims in arrays:
+        shape = tuple(min(k, size[d]) for d, k in zip(dims, arr.shape))
+        if shape != arr.shape:
+            arr.resize(shape)
             n_cut += 1
     if n_cut:
-        loguru.logger.warning(f"{zarr_path}: {n_cut} arrays cut back to {n} entries along {episode_dim} (interrupted append).")
+        loguru.logger.warning(f"{zarr_path}: {n_cut} arrays cut back to {n} entries along {episode_dim} and to the "
+                              f"shortest along the other dims (interrupted append or extend).")
     zarr.consolidate_metadata(zarr_path)
 
 

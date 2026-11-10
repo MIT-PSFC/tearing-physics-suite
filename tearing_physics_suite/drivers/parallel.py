@@ -937,9 +937,15 @@ def _fit_optional(dsets, zpath):
     return [ds.assign({v: ds[v].transpose(*d) if v in ds else nan(ds, d) for v, d in want.items()}) for ds in dsets]
 
 
+def _still_holds(q, lease, owner):
+    """Raise before a store write if the lease was taken over (its owner stalled past STALE_S, e.g. on NFS)."""
+    if not q.owns('leases', lease, owner):
+        raise RuntimeError(f'{lease}: lease taken over by another compile; stopped before writing')
+
+
 def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=32, code_check=False):
     """Append the shot's new 'ok' draws to <study>/<shot>/tps/<shot>.zarr (code checks: to <shot>_codes.zarr) (single
-    writer, under a lease).
+    writer, under a lease checked before each write).
 
     Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
     whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. With
@@ -958,8 +964,8 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     from tearing_physics_suite.physics.global_quantities import delta_prime_variability
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study, code_check))
-    lease = f'compile_{shot}'
-    while not q.acquire('leases', lease, socket.gethostname()):
+    lease, owner = f'compile_{shot}', f'{socket.gethostname()}:{os.getpid()}'
+    while not q.acquire('leases', lease, owner):
         if not finalize:
             print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
             return None
@@ -1005,16 +1011,21 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                         keys.append(key)
                         dsets.append(bare_episode(ds.assign(case_key=np.array(key, dtype=object))))
                 if dsets:
+                    _still_holds(q, lease, owner)
                     dsets = _fit_optional(dsets, zpath)
                     add_to_zarr_store(stack_episodes(dsets, 'run_idx'), zpath, episode_dim='run_idx')
                     state['compiled'] += keys
+                _still_holds(q, lease, owner)
                 fq.write_json(spath, state)
             if state['compiled']:
+                _still_holds(q, lease, owner)
                 _write_inputs(zpath, state['compiled'], draws, load_builds(study, cfg))
             if finalize and new and os.path.exists(zpath):
+                _still_holds(q, lease, owner)
                 rechunk_store(zpath, 'run_idx', mb_per_chunk)
     finally:
-        q.drop('leases', lease)
+        if q.owns('leases', lease, owner):
+            q.drop('leases', lease)
     print(f'compile: shot {shot}: {len(new)} new draw(s), {len(state["compiled"])} in the store, '
           f'{len(state["broken"])} broken, {len(held)} awaiting a code-check fill', flush=True)
     return state

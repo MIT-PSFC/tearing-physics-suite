@@ -266,6 +266,24 @@ def test_compile_finalize_waits_for_a_dead_lease(study, monkeypatch):
     assert st.compile_shot(study, 100, finalize=True)['compiled'] == [f'{uid}_0']
 
 
+def test_compile_stops_when_its_lease_is_taken_over(study, monkeypatch):
+    """A compile whose lease was taken over (it stalled past STALE_S) writes nothing and leaves the new owner's lease."""
+    from tearing_physics_suite.physics import global_quantities as gq
+    uid = _record(study, 100, 1500, selected=(0,))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    st.run_item(study, f'{uid}.c0')
+    q, dpv = fq.Queue(st.qroot(study)), gq.delta_prime_variability
+
+    def taken_over(ds):                                     # while the compile reads its draws
+        fq.write_json(os.path.join(q.path('leases', 'compile_100'), 'owner.json'), dict(owner='other job'))
+        return dpv(ds)
+    monkeypatch.setattr(gq, 'delta_prime_variability', taken_over)
+    with pytest.raises(RuntimeError, match='taken over'):
+        st.compile_shot(study, 100)
+    assert not os.path.exists(st.shot_store(study, 100)) and q.owns('leases', 'compile_100', 'other job')
+
+
 def test_open_study_reads_published_zip(tmp_path):
     """A shot published as one <shot>.zarr.zip (directory store removed) reads like the directory store."""
     ds = xr.Dataset({'Delta_prime': ('run_idx', [1.0, 2.0]), 'shot_id': ('run_idx', [100, 100]),

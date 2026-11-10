@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+import zarr
 from scipy.interpolate import Akima1DInterpolator, CubicSpline
 
 from tearing_physics_suite.drivers.multi_run import DROP_KEYS, meta_dict_to_dataset, rechunk_store
@@ -63,6 +64,7 @@ def test_truncate_zarr_store(tmp_path):
     z = tmp_path / 's.zarr'
     for i in range(3):
         add_to_zarr_store(_run([1.0 + i, 2.0], i), z, 'run_idx')
+    zarr.open_group(z, mode='r+')['w_marg_surf'].resize((3, 3))     # a killed extend along r: one array longer
     truncate_zarr_store(z, 'run_idx', 2)
     ds = xr.open_zarr(z).load()
     np.testing.assert_array_equal(ds.qlim.values, [3.0, 4.0])

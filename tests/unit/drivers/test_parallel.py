@@ -1,6 +1,7 @@
 """Study mode (drivers/parallel.py) without Fortran: feed, run_item with a fake pipeline, compile, the breaker."""
 import json
 import os
+import re
 import shutil
 import zipfile
 
@@ -188,7 +189,15 @@ def test_compile_incremental(study, monkeypatch):
     assert dp.sel(code='rdcon').values[1] == 1.0 and np.isnan(dp.sel(code='stride').values[1])
     inputs = xr.open_dataset(st.shot_store(study, 100).removesuffix('.zarr') + '_inputs.nc')
     assert list(inputs.case_key.values) == list(ds.case_key.values) and set(inputs.vac_flag.values) == {'t'}
-    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # nothing new
+    spath = os.path.join(os.path.dirname(st.shot_store(study, 100)), 'compile_state.json')
+    t = os.stat(spath).st_mtime_ns
+    open(os.path.join(study, '100', 'tps', uid, 'draws', 'touched'), 'w').close()   # a dir change, no new draw
+    st.compile_shot(study, 100)
+    assert os.stat(spath).st_mtime_ns == t                                # read again; the state left as it was
+    os.makedirs(builds := st.builds_dir(study, st.load_config(study)), exist_ok=True)
+    fq.write_json(os.path.join(builds, '999.json'), {})                 # another job's build record, e.g. a check job's
+    monkeypatch.setattr(st, '_shot_draws', lambda *a: pytest.fail('an unchanged shot read again'))
+    assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']   # nothing new: not read
     assert st.open_study(study).sizes['run_idx'] == 3
 
 
@@ -253,17 +262,16 @@ def test_compile_repairs_an_interrupted_append(study, monkeypatch):
     np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0])
 
 
-def test_compile_finalize_waits_for_a_dead_lease(study, monkeypatch):
-    uid = _record(study, 100, 1500, selected=(0,))
+def test_compile_finalize_takes_free_shots_first_then_a_dead_lease(study, monkeypatch, capsys):
+    uids = [_record(study, shot, 1500, selected=(0,)) for shot in (100, 101)]
     st.feed(study)
     _fake_pipeline(monkeypatch, {})
-    st.run_item(study, f'{uid}.c0')
-    qcfg = os.path.join(st.qroot(study), 'config.json')
-    fq.write_json(qcfg, dict(STALE_S=60, HEARTBEAT_S=0.1))
+    for uid in uids:
+        st.run_item(study, f'{uid}.c0')
+    fq.write_json(os.path.join(st.qroot(study), 'config.json'), dict(STALE_S=1, HEARTBEAT_S=0.1))
     assert fq.Queue(st.qroot(study)).acquire('leases', 'compile_100', 'killed job')   # never beats again
-    assert st.compile_shot(study, 100) is None
-    fq.write_json(qcfg, dict(STALE_S=0.3, HEARTBEAT_S=0.1))
-    assert st.compile_shot(study, 100, finalize=True)['compiled'] == [f'{uid}_0']
+    st.main(['compile', '--study', study, '--finalize'])
+    assert re.findall(r'compile: shot (\d+): 1 new', capsys.readouterr().out) == ['101', '100']
 
 
 def test_compile_stops_when_its_lease_is_taken_over(study, monkeypatch):

@@ -937,6 +937,15 @@ def _fit_optional(dsets, zpath):
     return [ds.assign({v: ds[v].transpose(*d) if v in ds else nan(ds, d) for v, d in want.items()}) for ds in dsets]
 
 
+def _fingerprint(study, cfg, shot, jobs):
+    """The mtimes of the shot's draws dirs and of its jobs' build records: a draw's status, .nc or fill written, or one
+    of those build records, changes one."""
+    paths = sorted(glob.glob(os.path.join(out_root(study, cfg), str(shot), 'tps', '*', 'draws')))
+    paths += [os.path.join(builds_dir(study, cfg), f'{j}.json') for j in jobs]
+    stamps = [(p, os.stat(p).st_mtime_ns) for p in paths if os.path.exists(p)]
+    return hashlib.sha1(repr(stamps).encode()).hexdigest()
+
+
 def _still_holds(q, lease, owner):
     """Raise before a store write if the lease was taken over (its owner stalled past STALE_S, e.g. on NFS)."""
     if not q.owns('leases', lease, owner):
@@ -948,9 +957,10 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     writer, under a lease checked before each write).
 
     Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
-    whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. With
-    ``finalize``, a lease held elsewhere is waited for (a dead one is stolen once stale) instead of skipped. With a code
-    check, a draw with a killed code waits until its check has filled it or is final (see _check_case)."""
+    whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. A
+    shot leased elsewhere is skipped (None), and one unchanged since its last compile (_fingerprint) is not read again.
+    With ``finalize``, new draws are rechunked. With a code check, a draw with a killed code waits until its check has
+    filled it or is final (see _check_case)."""
     import xarray as xr
 
     from tearing_physics_suite.drivers.multi_run import (
@@ -965,16 +975,19 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     cfg = cfg or load_config(study)
     q = fq.Queue(qroot(study, code_check))
     lease, owner = f'compile_{shot}', f'{socket.gethostname()}:{os.getpid()}'
-    while not q.acquire('leases', lease, owner):
-        if not finalize:
-            print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
-            return None
-        time.sleep(q.HEARTBEAT_S)
+    if not q.acquire('leases', lease, owner):
+        print(f'compile: shot {shot} is being compiled elsewhere', flush=True)
+        return None
     zpath = shot_store(study, shot, code_check)
     spath = os.path.join(os.path.dirname(zpath), 'compile_state_codes.json' if code_check else 'compile_state.json')
+    fpath = spath.replace('compile_state', 'compile_fingerprint')    # apart: a pass that adds nothing leaves the state
     try:
         with fq.Heartbeat(q, lease, kind='leases'):
             state = fq.read_json(spath) or dict(compiled=[], broken=[], signature=None)
+            last = fq.read_json(fpath) or {}
+            fingerprint = _fingerprint(study, cfg, shot, last.get('jobs', []))      # before any record is read
+            if last.get('fingerprint') == fingerprint and os.path.exists(zpath):
+                return state
             if state['compiled'] and not os.path.exists(zpath):
                 state = dict(compiled=[], broken=[], signature=None)
             elif os.path.exists(zpath):
@@ -1017,12 +1030,14 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
                     state['compiled'] += keys
                 _still_holds(q, lease, owner)
                 fq.write_json(spath, state)
-            if state['compiled']:
-                _still_holds(q, lease, owner)
-                _write_inputs(zpath, state['compiled'], draws, load_builds(study, cfg))
             if finalize and new and os.path.exists(zpath):
                 _still_holds(q, lease, owner)
                 rechunk_store(zpath, 'run_idx', mb_per_chunk)
+            if state['compiled']:
+                _still_holds(q, lease, owner)
+                _write_inputs(zpath, state['compiled'], draws, load_builds(study, cfg))
+                jobs = sorted({draws[k][1].get('slurm_job') or 'local' for k in state['compiled'] if k in draws})
+                fq.write_json(fpath, dict(jobs=jobs, fingerprint=fingerprint))
     finally:
         if q.owns('leases', lease, owner):
             q.drop('leases', lease)
@@ -1086,9 +1101,15 @@ def study_shots(study):
 
 
 def cmd_compile(a):
+    """Every shot, those leased elsewhere (another worker's) last: with --finalize they are retried until compiled
+    (a dead lease is stolen once stale)."""
     cfg = load_config(a.study)
-    for shot in (a.shots or study_shots(a.study)):
-        compile_shot(a.study, shot, cfg, finalize=a.finalize, code_check=a.code_check)
+    left = list(a.shots or study_shots(a.study))
+    while True:
+        left = [s for s in left if compile_shot(a.study, s, cfg, finalize=a.finalize, code_check=a.code_check) is None]
+        if not (a.finalize and left):
+            return
+        time.sleep(fq.Queue(qroot(a.study, a.code_check)).HEARTBEAT_S)
 
 
 def cmd_join_n(a):

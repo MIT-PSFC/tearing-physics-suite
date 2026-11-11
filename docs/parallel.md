@@ -59,11 +59,11 @@ Items are claimed in feed order, a unit's items together, so shots finish (and c
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.spot/    spot-checks of a picked draw (spot_check)
 <out_root>/<shot>/tps/<unit_id>/logs/<item>.log
 <out_root>/_builds/<slurm job>.json                  a job's code versions and dirs (record_build)
-<study>/<shot>/tps/<shot>.zarr, <shot>_inputs.nc, compile_state.json
+<study>/<shot>/tps/<shot>.zarr, <shot>_inputs.nc, compile_state.json, compile_fingerprint.json
 <study>/_queue/tps_codes/                            code checks (code_check): items <unit_id>.d<count>, fills .f<count>
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.codes.nc, .codes.json   a draw filled with the check's codes, its status
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.fill.json              status of a fill of the draw's lost STRIDE n
-<study>/<shot>/tps/<shot>_codes.zarr, <shot>_codes_inputs.nc, compile_state_codes.json
+<study>/<shot>/tps/<shot>_codes.zarr, <shot>_codes_inputs.nc, compile_state_codes.json, compile_fingerprint_codes.json
 <study>/_queue/tps_ideal/                            ideal pass (drivers/ideal_pass.py, settings ideal.json): items <unit_id>.i<count>
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.ideal.nc, .ideal.json   a draw's ideal-stability verdicts, its status
 <study>/<shot>/tps/<shot>_ideal.zarr
@@ -95,7 +95,9 @@ finished item is never marked failed), but logged ("lease was taken over").
 **Stores.** `compile` appends by position along ragged dims (NaN-padded), as `multi_compile_zarr` does; `open_study`
 pads and concatenates the shot stores the same way. A draw whose variables differ from the store's is `broken`, except
 for `parallel.OPTIONAL_VARS` (STRIDE's `nzero`, from `calc_nzero` 't'): NaN in the runs without it, added to a store
-compiled before it.
+compiled before it. Concurrent `compile` processes take different shots (one leased elsewhere comes last; `--finalize`
+retries it until compiled), and a shot whose draws dirs and its jobs' build records are unchanged since its last compile
+is not read again.
 
 **Cost (omega, one CPU, production settings: n = 1-4, RDCON + STRIDE + jGPEC Galerkin, DIII-D wall).** About
 24 min per draw (RDCON ~7.5, STRIDE ~6.5, jGPEC Galerkin ~9 including ~1.5 min of JIT per item) and a peak of

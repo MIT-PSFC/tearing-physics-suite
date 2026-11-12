@@ -57,24 +57,26 @@ def blank_duplicates(ds, table=None):
     out = {}
     have = list(ds['code'].values) if 'code' in ds.dims else []
     for j, v in enumerate(names):
-        if 'rdcon' not in have or v not in ds or 'code' not in ds[v].dims or ds[v].dtype.kind != 'f':
+        x = ds.variables.get(v)                     # Variables and numpy, not a DataArray per slice (compile speed)
+        if 'rdcon' not in have or x is None or 'code' not in x.dims or x.dtype.kind != 'f':
             continue
-        da = ds[v]
-        ref = da.sel(code='rdcon')
+        ax, vals = x.dims.index('code'), x.values
+        ref = np.take(vals, have.index('rdcon'), axis=ax)
         for i, c in enumerate(codes):
             if c not in table[v] or c not in have:
                 continue
-            other = da.sel(code=c)
-            both = np.isfinite(ref.values) & np.isfinite(other.values)
+            other = np.take(vals, have.index(c), axis=ax)
+            both = np.isfinite(ref) & np.isfinite(other)
             if not both.any():
                 continue
-            a, b = ref.values[both], other.values[both]
+            a, b = ref[both], other[both]
             diff[i, j] = np.max(np.abs(b - a) / np.maximum(np.abs(a), np.finfo(float).tiny))
             if np.all(np.isclose(b, a, rtol=table[v][c], atol=0)):
-                da = da.where(da['code'] != c)
+                vals = vals.copy()
+                vals[(slice(None),) * ax + (have.index(c),)] = np.nan
             else:
                 warnings.warn(f'{v}: {c} differs from rdcon (max rel diff {diff[i, j]:.3g}); kept', stacklevel=2)
-        out[v] = da
+        out[v] = x.copy(data=vals)
     ds = ds.assign(out)
     return ds.assign(dup_maxreldiff=xr.DataArray(diff, dims=('dup_code', 'dup_var'),
                                                  coords={'dup_code': codes, 'dup_var': names}))
@@ -99,8 +101,8 @@ def keep_least_stable_eigenvectors(ds, k=EIGVEC_MODES):
 
 def to_float32(ds, keep=KEEP_FLOAT64):
     """float64 data variables as float32, except keep (P7). Coordinates are unchanged."""
-    return ds.assign({v: ds[v].astype(np.float32) for v in ds.data_vars
-                      if ds[v].dtype == np.float64 and v not in keep})
+    return ds.assign({v: x.astype(np.float32) for v, x in ds.data_vars.variables.items()
+                      if x.dtype == np.float64 and v not in keep})
 
 
 def bitround(a, keepbits):
@@ -114,8 +116,8 @@ def bitround(a, keepbits):
 
 def round_profiles(ds, keepbits=PROFILE_KEEPBITS):
     """float32 data variables on psi_n bit-rounded to keepbits mantissa bits."""
-    return ds.assign({v: ds[v].copy(data=bitround(ds[v].values, keepbits)) for v in ds.data_vars
-                      if 'psi_n' in ds[v].dims and ds[v].dtype == np.float32})
+    return ds.assign({v: x.copy(data=bitround(x.values, keepbits)) for v, x in ds.data_vars.variables.items()
+                      if 'psi_n' in x.dims and x.dtype == np.float32})
 
 
 def prepare_for_store(ds, store_float32=True, drop_duplicates=True):

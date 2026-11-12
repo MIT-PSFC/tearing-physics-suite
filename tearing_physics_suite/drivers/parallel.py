@@ -1128,8 +1128,8 @@ def _vlen_strings(ds):
         vals = [x.decode() if isinstance(x, bytes) else x if isinstance(x, str) else ''
                 for x in np.asarray(v.values).ravel()]
         return v.copy(data=np.array(vals, dtype=object).reshape(v.shape))
-    return ds.assign_coords({k: conv(v) for k, v in ds.coords.items() if is_str(v)}).assign(
-        {k: conv(v) for k, v in ds.data_vars.items() if is_str(v)})
+    return ds.assign_coords({k: conv(v) for k, v in ds.coords.variables.items() if is_str(v)}).assign(
+        {k: conv(v) for k, v in ds.data_vars.variables.items() if is_str(v)})
 
 
 def _write_inputs(zpath, keys, draws, builds):

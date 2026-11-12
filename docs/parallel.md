@@ -61,6 +61,7 @@ Items are claimed in feed order, a unit's items together, so shots finish (and c
 <out_root>/_builds/<slurm job>.json                  a job's code versions and dirs (record_build)
 <study>/<shot>/tps/<shot>.zarr, <shot>_inputs.nc, compile_state.json, compile_fingerprint.json
 <study>/_queue/tps_codes/                            code checks (code_check): items <unit_id>.d<count>, fills .f<count>
+<study>/_queue/tps_codes/feed_facts.json            what the feed knows of each draws dir, read again when its mtime changes
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.codes.nc, .codes.json   a draw filled with the check's codes, its status
 <out_root>/<shot>/tps/<unit_id>/draws/<count>.fill.json              status of a fill of the draw's lost STRIDE n
 <study>/<shot>/tps/<shot>_codes.zarr, <shot>_codes_inputs.nc, compile_state_codes.json, compile_fingerprint_codes.json

@@ -621,10 +621,11 @@ def _ok_draw(study, uid, c, **rec):
     return os.path.join(d, f'{c}.nc')
 
 
-def test_code_check_feed_order(study):
+def test_code_check_feed_order(study, monkeypatch):
     """Flagged draws first; the coin's picks once no flagged one waits for a worker; then, from the work feeder,
     its worker count of further draws in the coin's order, whenever nothing more urgent waits. Draws whose check is
-    to come are pending (their files stay); cleaned draws are not fed."""
+    to come are pending (their files stay); cleaned draws are not fed. A feed reads only the draws dirs changed since
+    the last one."""
     uid = '100_1500_base'
     nc = [_ok_draw(study, uid, c, stride_flagged_n=[2] if c == 1 else []) for c in range(7)]
     os.remove(nc[6])                                            # cleaned before it was picked
@@ -636,7 +637,10 @@ def test_code_check_feed_order(study):
     assert st.code_check_pending(study, 100) == [nc[1]]       # flagged, not queued yet
     assert st.feed_codes(study, extra=2) == 1 and reasons() == {f'{uid}.d1': 'flagged'}
     assert q.units()[f'{uid}.d1']['flagged_n'] == [2]           # the check can run at the flagged n only
+    read, real = [], fq.read_json
+    monkeypatch.setattr(fq, 'read_json', lambda p, *a: (read.append(p), real(p, *a))[1])
     assert st.feed_codes(study, extra=2) == 0                   # the flagged draw waits
+    assert not [p for p in read if os.sep + 'draws' + os.sep in p]   # no draw changed: no status read again
     q.finish(f'{uid}.d1')
     assert st.code_check_pending(study, 100) == []
     assert st.feed_codes(study) == 0 and st.feed_codes(study, extra=2) == 2

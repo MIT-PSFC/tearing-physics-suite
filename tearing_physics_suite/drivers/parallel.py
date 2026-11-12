@@ -21,6 +21,7 @@ for its session) first gets a fill from the same queue: STRIDE alone at those n,
 """
 import argparse
 import collections
+import concurrent.futures
 import functools
 import glob
 import hashlib
@@ -405,6 +406,45 @@ def _mem_class(need_gib, classes):
     return next((c for c in classes if fits_memory(need_gib, c)), classes[-1]) if classes else None
 
 
+def _dir_facts(d, cached):
+    """[mtime_ns, unit, {count: [fill_n, flagged_n]}] of the 'ok' draws with their .nc in draws dir d (unit: the item
+    keys of their records; fill_n: the lost STRIDE n of a draw still awaiting its fill); cached if d's mtime is the
+    same (no status, .nc or fill written since); None without d."""
+    try:
+        m = os.stat(d).st_mtime_ns                                  # before its records are read
+    except OSError:
+        return None
+    if cached and cached[0] == m:
+        return cached
+    names, unit, facts = set(os.listdir(d)), {}, {}
+    for n in sorted(names):                                         # _records' order
+        c = n[:-len('.json')]
+        if not re.fullmatch(r'-?\d+\.json', n) or c + '.nc' not in names:                           # cleaned
+            continue
+        r = fq.read_json(os.path.join(d, n)) or {}
+        if r.get('status') != 'ok':
+            continue
+        unit = {k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')}
+        fill = ('code_killed' in r and 'code_filled' not in r
+                and not _draw_state(os.path.join(d, c + '.fill.json'))[0])
+        facts[c] = [sorted({k for ns in r['code_killed'].values() for k in ns}) if fill else None,
+                    r.get('stride_flagged_n')]
+    return [m, unit, facts]
+
+
+def _feed_facts(study, cfg, q):
+    """{draws dir: _dir_facts} of the study's units, kept in the code-check queue (feed_facts.json) so a feed reads only
+    the dirs changed since the last; 16 dirs at a time (NFS metadata calls are slow)."""
+    path = q.path('feed_facts.json')
+    old = fq.read_json(path) or {}
+    dirs = sorted(os.path.join(u, 'draws') for u in glob.glob(os.path.join(out_root(study, cfg), '*', 'tps', '*')))
+    with concurrent.futures.ThreadPoolExecutor(16) as ex:
+        out = {d: f for d, f in zip(dirs, ex.map(lambda d: _dir_facts(d, old.get(d)), dirs)) if f is not None}
+    if out != old:
+        fq.write_json(path, out)
+    return out
+
+
 def feed_codes(study, cfg=None, extra=0, mem_gib=None):
     """Add code-check items for 'ok' draws not yet fed, each with its predicted peak (need_gib, _item_need_gib), by
     priority within each memory class (code_check.mem_classes; the smallest that fits need_gib):
@@ -414,7 +454,7 @@ def feed_codes(study, cfg=None, extra=0, mem_gib=None):
     - then the picked shots' or draws' ('random', 'flagged+random');
     - once nothing a session of mem_gib could take waits, ``extra`` further draws (that fit it) in the coin's order
       ('extra': the work feeder passes its worker count and memory, so the check sessions keep going).
-    Returns how many were added."""
+    Only the draws dirs changed since the last feed are read (_feed_facts). Returns how many were added."""
     cfg = cfg or load_config(study)
     check = code_check_config(cfg)
     if check is None:
@@ -433,26 +473,24 @@ def feed_codes(study, cfg=None, extra=0, mem_gib=None):
     classes = check['mem_classes']
     waiting = {(tier(it), _mem_class(it.get('need_gib', 0.0), classes)) for it in open_}
     new, extras = collections.defaultdict(list), []
-    for p in _records(study, cfg):
-        r = fq.read_json(p) or {}
-        base = p[:-len('.json')]
-        if r.get('status') != 'ok' or not os.path.exists(base + '.nc'):                        # cleaned
-            continue
-        item = dict(**{k: r[k] for k in ('unit_id', 'shot', 't_ms', 'variant', 'archive')}, draws=[r['draw']], est=1)
-        if 'code_killed' in r and 'code_filled' not in r and not _draw_state(base + '.fill.json')[0]:
-            uid = f"{r['unit_id']}.f{r['draw']}"
-            if uid not in units:
-                item.update(id=uid, reason='killed', fill_n=sorted({k for ns in r['code_killed'].values() for k in ns}))
-                new['killed'].append((0.0, uid, item))
-            continue
-        uid = f"{r['unit_id']}.d{r['draw']}"
-        if uid in units:
-            continue
-        u, reason = _pick(check, r)
-        item.update(id=uid, reason=reason)
-        if r.get('stride_flagged_n'):
-            item['flagged_n'] = r['stride_flagged_n']
-        (extras if reason == 'extra' else new[reason.split('+')[0]]).append((u, uid, item))
+    for _, unit, facts in _feed_facts(study, cfg, q).values():
+        for c, (fill_n, flagged_n) in facts.items():
+            item = dict(unit, draws=[int(c)], est=1)
+            if fill_n is not None:
+                uid = f"{unit['unit_id']}.f{c}"
+                if uid not in units:
+                    item.update(id=uid, reason='killed', fill_n=fill_n)
+                    new['killed'].append((0.0, uid, item))
+                continue
+            uid = f"{unit['unit_id']}.d{c}"
+            if uid in units:
+                continue
+            u, reason = _pick(check, dict(shot=unit['shot'], case_key=f"{unit['unit_id']}_{c}",
+                                          stride_flagged_n=flagged_n))
+            item.update(id=uid, reason=reason)
+            if flagged_n:
+                item['flagged_n'] = flagged_n
+            (extras if reason == 'extra' else new[reason.split('+')[0]]).append((u, uid, item))
     items = []
     for cls in classes or [None]:
         for t in ('killed', 'flagged', 'random'):

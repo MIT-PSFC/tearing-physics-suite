@@ -42,11 +42,16 @@ def test_rechunk_store_one_shard_per_variable(tmp_path):
     for i in range(7):
         add_to_zarr_store(_run([1.0 + i, 2.0, 3.0], i), z, 'run_idx')
     before = xr.open_zarr(z).load()
-    rechunk_store(z, 'run_idx', mb_per_chunk=2.5*before.isel(run_idx=0).nbytes/2**20)    # 2 runs per chunk
+    mb = 2.5 * before.isel(run_idx=0).nbytes / 2**20                                      # 2 runs per chunk
+    rechunk_store(z, 'run_idx', mb_per_chunk=mb)
     xr.testing.assert_identical(xr.open_zarr(z).load(), before)
     a = zarr.open_group(z)['w_marg_surf']
     assert a.chunks == (2, 3) and a.shards == (8, 3)
     assert os.listdir(os.path.join(z, 'w_marg_surf', 'c')) == ['0']        # one shard file, not 4 chunk files
+    rechunk_store(z, 'run_idx', mb_per_chunk=mb, max_shard=5)                # shards of at most 5 runs: 2 chunks
+    xr.testing.assert_identical(xr.open_zarr(z).load(), before)
+    assert zarr.open_group(z)['w_marg_surf'].shards == (4, 3)
+    assert sorted(os.listdir(os.path.join(z, 'w_marg_surf', 'c'))) == ['0', '1']
 
 
 def test_stack_episodes_matches_one_by_one(tmp_path):

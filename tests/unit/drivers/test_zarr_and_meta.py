@@ -13,11 +13,14 @@ def _run(r_vals, idx):
                       coords={'r': r, 'run_idx': idx})
 
 
-def test_add_to_zarr_store_pads_ragged_dim(tmp_path):
+def test_add_to_zarr_store_pads_ragged_dim(tmp_path, monkeypatch):
     z = tmp_path / 's.zarr'
     add_to_zarr_store(_run([1.0, 2.0, 3.0], 0), z, 'run_idx')
     add_to_zarr_store(_run([4.0, 5.0], 1), z, 'run_idx')
+    computed, compute = [], xr.Dataset.compute
+    monkeypatch.setattr(xr.Dataset, 'compute', lambda self, **k: computed.append(set(self.data_vars)) or compute(self, **k))
     add_to_zarr_store(_run([6.0, 7.0, 8.0, 9.0], 2), z, 'run_idx')
+    assert computed == [{'w_marg_surf'}]                # the extend along r reads only the variables along r
     ds = xr.open_zarr(z).load()
     assert ds.sizes['run_idx'] == 3 and ds.sizes['r'] == 4
     np.testing.assert_array_equal(ds.w_marg_surf.isel(run_idx=1).values[:2], [4.0, 5.0])

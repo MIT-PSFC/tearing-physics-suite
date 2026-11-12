@@ -134,6 +134,9 @@ def build_tensorized_dataset(  # noqa: PLR0912
 def extend_zarr_along_dim(zarr_path: os.PathLike, dim: str, n_extend: int) -> None:
     """Extend an existing zarr store along a specified dimension by padding it with nans."""
     ds = xr.open_zarr(zarr_path, consolidated=True)
+    # only the variables along dim: mode a- appends nothing else, and computing them read the whole store (8.8 GB peak
+    # on a 4160-run store)
+    ds = ds.drop_vars([v for v, x in ds.data_vars.variables.items() if dim not in x.dims])
     ds = ds.pad({dim: (0, n_extend)})
     ds_padding = ds.isel({dim: slice(-n_extend, None)})
     ds_padding = ds_padding.compute()  # Pull dataset into memory to avoid dask/chunking issues

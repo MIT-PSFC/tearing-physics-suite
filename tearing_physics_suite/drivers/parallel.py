@@ -445,6 +445,22 @@ def _feed_facts(study, cfg, q):
     return out
 
 
+def _prefetch_need(study, cfg, q, items, need):
+    """need(it) of items, 16 at a time; each draw's .nc is read once: its RDCON sizes (_SIZES) are kept in the
+    code-check queue (feed_sizes.json, the items' draws only), saved every 4096 so a feed that is killed keeps them."""
+    path = q.path('feed_sizes.json')
+    for p, s in (fq.read_json(path) or {}).items():
+        _SIZES.setdefault(p, {int(k): tuple(v) for k, v in s.items()})
+    ncs = [os.path.join(unit_dir(study, cfg, it['shot'], it['unit_id']), 'draws', f"{it['draws'][0]}.nc")
+           for it in items]
+    with concurrent.futures.ThreadPoolExecutor(16) as ex:
+        for i in range(0, len(items), 4096):
+            n = len(_SIZES)
+            list(ex.map(need, items[i:i + 4096]))
+            if len(_SIZES) > n:
+                fq.write_json(path, {p: _SIZES[p] for p in ncs if p in _SIZES})
+
+
 def feed_codes(study, cfg=None, extra=0, mem_gib=None):
     """Add code-check items for 'ok' draws not yet fed, each with its predicted peak (need_gib, _item_need_gib), by
     priority within each memory class (code_check.mem_classes; the smallest that fits need_gib):
@@ -454,7 +470,8 @@ def feed_codes(study, cfg=None, extra=0, mem_gib=None):
     - then the picked shots' or draws' ('random', 'flagged+random');
     - once nothing a session of mem_gib could take waits, ``extra`` further draws (that fit it) in the coin's order
       ('extra': the work feeder passes its worker count and memory, so the check sessions keep going).
-    Only the draws dirs changed since the last feed are read (_feed_facts). Returns how many were added."""
+    Only the draws dirs changed since the last feed are read (_feed_facts), and each draw's .nc once (_prefetch_need).
+    Returns how many were added."""
     cfg = cfg or load_config(study)
     check = code_check_config(cfg)
     if check is None:
@@ -491,6 +508,8 @@ def feed_codes(study, cfg=None, extra=0, mem_gib=None):
             if flagged_n:
                 item['flagged_n'] = flagged_n
             (extras if reason == 'extra' else new[reason.split('+')[0]]).append((u, uid, item))
+    if classes:
+        _prefetch_need(study, cfg, q, [it for t in new.values() for _, _, it in t], need)
     items = []
     for cls in classes or [None]:
         for t in ('killed', 'flagged', 'random'):

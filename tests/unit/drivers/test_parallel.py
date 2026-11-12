@@ -773,6 +773,8 @@ def test_memory_classes(study, monkeypatch):
     _sized_draw(study, uid, 5, 65, 38)                    # picked, class 35: behind the waiting flagged d2
     _sized_draw(study, uid, 6, 30, 10)                    # picked, class 9 too
     assert st.feed_codes(study) == 0
+    st._SIZES.clear()                                     # a new feed process: the sizes are kept, no .nc is read
+    monkeypatch.setattr(xr, 'open_dataset', lambda *a, **k: pytest.fail('a .nc was read again'))
     q.finish(f'{uid}.f0')
     assert st.feed_codes(study) == 2 and {f'{uid}.d4', f'{uid}.d6'} <= set(q.units(refresh=True))
     assert [st._fits_session(study, 16, q.units()[f'{uid}.{k}']) for k in ('d1', 'd2', 'd3')] == [True, False, False]

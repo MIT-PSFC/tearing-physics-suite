@@ -964,8 +964,8 @@ def rechunk_store(zarr_path, episode_dim="run_idx", mb_per_chunk=10, codes=None,
     """Rewrite a store chunked along episode_dim (about mb_per_chunk MB per chunk) and consolidate it.
 
     Each variable along episode_dim is in zarr v3 shards of at most max_shard runs (whole chunks), so the store has
-    a few files per variable whatever the number of runs; the rewrite holds one shard at a time (single-threaded),
-    not whole variables (4276 runs: peak 4.2 -> 1.1 GB). codes: keep only these entries of the 'code' dim."""
+    a few files per variable whatever the number of runs, and the rewrite holds one shard at a time (single-threaded),
+    not whole variables. codes: keep only these entries of the 'code' dim."""
     ds_store = xr.open_zarr(zarr_path, consolidated=True)
     if codes is not None and 'code' in ds_store.dims:
         ds_store = ds_store.sel(code=codes)

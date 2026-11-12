@@ -18,7 +18,8 @@ def test_add_to_zarr_store_pads_ragged_dim(tmp_path, monkeypatch):
     add_to_zarr_store(_run([1.0, 2.0, 3.0], 0), z, 'run_idx')
     add_to_zarr_store(_run([4.0, 5.0], 1), z, 'run_idx')
     computed, compute = [], xr.Dataset.compute
-    monkeypatch.setattr(xr.Dataset, 'compute', lambda self, **k: computed.append(set(self.data_vars)) or compute(self, **k))
+    monkeypatch.setattr(xr.Dataset, 'compute',
+                        lambda self, **k: computed.append(set(self.data_vars)) or compute(self, **k))
     add_to_zarr_store(_run([6.0, 7.0, 8.0, 9.0], 2), z, 'run_idx')
     assert computed == [{'w_marg_surf'}]                # the extend along r reads only the variables along r
     ds = xr.open_zarr(z).load()

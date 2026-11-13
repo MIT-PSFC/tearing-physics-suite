@@ -36,6 +36,7 @@ import sys
 import tempfile
 import time
 import traceback
+import zipfile
 import zlib
 
 import numpy as np
@@ -129,6 +130,15 @@ def open_store(path):
     import zarr
     zp = path + '.zip'
     return xr.open_zarr(zarr.storage.ZipStore(zp, mode='r') if os.path.exists(zp) else path, consolidated=True)
+
+
+def unzip_store(path):
+    """The directory store at path again, from its published `<path>.zip` (by a temporary dir and a rename)."""
+    tmp = path + '.unzip'
+    shutil.rmtree(tmp, ignore_errors=True)
+    with zipfile.ZipFile(path + '.zip') as z:
+        z.extractall(tmp)
+    os.rename(tmp, path)
 
 
 def _describe(path):
@@ -1015,8 +1025,9 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
 
     Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
     whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first,
-    and a rechunk killed in its swap completed (finish_rechunk). A shot leased elsewhere is skipped (None), and one
-    unchanged since its last compile (_fingerprint) is not read again.
+    and a rechunk killed in its swap completed (finish_rechunk). A store removed once published (eq_stab tps_compile)
+    holds the draws of its zip `<store>.zip`, unzipped when new draws come. A shot leased elsewhere is skipped (None),
+    and one unchanged since its last compile (_fingerprint) is not read again.
     With ``finalize``, new draws are rechunked. With a code check, a draw with a killed code waits until its check has
     filled it or is final (see _check_case)."""
     import xarray as xr
@@ -1040,18 +1051,22 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     zpath = shot_store(study, shot, code_check)
     spath = os.path.join(os.path.dirname(zpath), 'compile_state_codes.json' if code_check else 'compile_state.json')
     fpath = spath.replace('compile_state', 'compile_fingerprint')    # apart: a pass that adds nothing leaves the state
+    published = zpath + '.zip'
     try:
         with fq.Heartbeat(q, lease, kind='leases'):
             finish_rechunk(zpath)
             state = fq.read_json(spath) or dict(compiled=[], broken=[], signature=None)
             last = fq.read_json(fpath) or {}
             fingerprint = _fingerprint(study, cfg, shot, last.get('jobs', []))      # before any record is read
-            if last.get('fingerprint') == fingerprint and os.path.exists(zpath):
+            if last.get('fingerprint') == fingerprint and (os.path.exists(zpath) or os.path.exists(published)):
                 return state
-            if state['compiled'] and not os.path.exists(zpath):
-                state = dict(compiled=[], broken=[], signature=None)
-            elif os.path.exists(zpath):
+            if os.path.exists(zpath):
                 truncate_zarr_store(zpath, 'run_idx', len(state['compiled']))
+            elif os.path.exists(published):
+                with open_store(zpath) as ds:
+                    state['compiled'] = [str(k) for k in ds.case_key.values]
+            elif state['compiled']:
+                state = dict(compiled=[], broken=[], signature=None)
             seen = set(state['compiled']) | set(state['broken'])
             draws = _shot_draws(study, cfg, shot, code_check)
             check = code_check_config(cfg)
@@ -1060,6 +1075,8 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
             flag = not code_check and (check or {}).get('flag')
             held = [] if code_check or not check else [k for k in draws if k not in seen and _awaits_fill(*draws[k])]
             new = sorted(k for k in draws if k not in seen and k not in held)
+            if new and not os.path.exists(zpath) and os.path.exists(published):
+                unzip_store(zpath)
             for i in range(0, len(new), batch):
                 keys, dsets = [], []
                 for key in new[i:i + batch]:

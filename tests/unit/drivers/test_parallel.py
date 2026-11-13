@@ -321,20 +321,50 @@ def test_compile_stops_when_its_lease_is_taken_over(study, monkeypatch):
     assert not os.path.exists(st.shot_store(study, 100)) and q.owns('leases', 'compile_100', 'other job')
 
 
+def _publish(z):
+    """The store z as one <store>.zip, the directory removed (eq_stab tps_compile publish)."""
+    with zipfile.ZipFile(z + '.zip', 'w') as f:
+        for root, _, files in os.walk(z):
+            for name in files:
+                f.write(os.path.join(root, name), os.path.relpath(os.path.join(root, name), z))
+    shutil.rmtree(z)
+
+
 def test_open_study_reads_published_zip(tmp_path):
     """A shot published as one <shot>.zarr.zip (directory store removed) reads like the directory store."""
     ds = xr.Dataset({'Delta_prime': ('run_idx', [1.0, 2.0]), 'shot_id': ('run_idx', [100, 100]),
                      't_ms': ('run_idx', [1500, 1600])})
     z = st.shot_store(str(tmp_path), 100)
     ds.to_zarr(z, consolidated=True)
-    with zipfile.ZipFile(z + '.zip', 'w') as f:
-        for root, _, files in os.walk(z):
-            for name in files:
-                f.write(os.path.join(root, name), os.path.relpath(os.path.join(root, name), z))
-    shutil.rmtree(z)
+    _publish(z)
     xr.testing.assert_equal(st.open_study(str(tmp_path)).load(), ds)
     np.testing.assert_array_equal(open_shot(str(tmp_path), 100)['Delta_prime'].values, [1.0, 2.0])
     np.testing.assert_array_equal(open_shot(z + '.zip', 100)['t_ms'].values, [1500, 1600])
+
+
+def test_compile_starts_from_the_published_zip(study, monkeypatch, tmp_path):
+    """A store removed once published, its draws' .nc dropped (CGP 1449 E, F): a compile with nothing new leaves it so,
+    one with new draws adds them to the zip's; the store equals one compiled from scratch."""
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    z, draws = st.shot_store(study, 100), os.path.join(study, '100', 'tps', uid, 'draws')
+    st.run_item(study, f'{uid}.c0')
+    st.compile_shot(study, 100, finalize=True)
+    _publish(z)
+    for c in (0, 1):
+        shutil.move(os.path.join(draws, f'{c}.nc'), tmp_path)
+    st.compile_shot(study, 100, finalize=True)
+    assert not os.path.exists(z)
+    st.run_item(study, f'{uid}.c1')
+    assert len(st.compile_shot(study, 100, finalize=True)['compiled']) == 4
+    from_zip = xr.open_zarr(z).load()
+    for c in (0, 1):
+        shutil.move(tmp_path / f'{c}.nc', draws)
+    for p in ('100.zarr', '100.zarr.zip', 'compile_state.json', 'compile_fingerprint.json'):
+        shutil.rmtree(p) if os.path.isdir(p := os.path.join(study, '100', 'tps', p)) else os.remove(p)
+    st.compile_shot(study, 100, finalize=True)
+    xr.testing.assert_identical(from_zip, xr.open_zarr(z).load())
 
 
 def _n_store(study, keys, nn, codes, r):

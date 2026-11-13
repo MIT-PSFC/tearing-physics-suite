@@ -985,9 +985,20 @@ def rechunk_store(zarr_path, episode_dim="run_idx", mb_per_chunk=10, codes=None,
     tmp_path = zarr_path + ".tmp"
     with dask.config.set(scheduler="synchronous"):
         ds_store.to_zarr(tmp_path, mode="w", consolidated=True)
-    shutil.rmtree(zarr_path)
+    os.rename(zarr_path, zarr_path + ".old")      # renames first: finish_rechunk completes a swap killed anywhere
     os.rename(tmp_path, zarr_path)
     zarr.consolidate_metadata(zarr_path)
+    shutil.rmtree(zarr_path + ".old")
+
+
+def finish_rechunk(zarr_path):
+    """Complete a rechunk_store killed in its swap: the rewritten store renamed in if the old one was moved aside, then
+    the old one removed. A rewrite killed before the swap is left to the next rechunk, which writes it again."""
+    old = zarr_path + ".old"
+    if os.path.exists(old):
+        if not os.path.exists(zarr_path):
+            os.rename(zarr_path + ".tmp", zarr_path)
+        shutil.rmtree(old)
 
 
 def _zeff_on_psi_n_Zeff(ds):

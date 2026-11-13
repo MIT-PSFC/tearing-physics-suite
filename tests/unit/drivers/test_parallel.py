@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import zipfile
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -260,6 +261,34 @@ def test_compile_repairs_an_interrupted_append(study, monkeypatch):
     assert st.compile_shot(study, 100)['compiled'] == [f'{uid}_0', f'{uid}_1', f'{uid}_2']
     ds = xr.open_zarr(z).load()
     np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0])
+
+
+def test_compile_completes_a_rechunk_killed_in_its_swap(study, monkeypatch):
+    """A compile killed in rechunk_store's swap (W4 idle rule, OOM): while the old store is removed (it left a store
+    without zarr.json, GroupNotFoundError in the next compile), or between the renames. The next compile completes it."""
+    uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    z, rename = st.shot_store(study, 100), os.rename
+
+    def kill_rmtree(path):                                  # killed once the old store's metadata is gone
+        os.remove(os.path.join(path, 'zarr.json'))
+        raise RuntimeError('killed')
+
+    def kill_rename(src, dst):                              # killed before the rewritten store is renamed in
+        if str(src).endswith('.zarr.tmp'):
+            raise RuntimeError('killed')
+        rename(src, dst)
+    for item, kill in ((f'{uid}.c0', (multi_run, 'shutil', SimpleNamespace(rmtree=kill_rmtree))),
+                       (f'{uid}.c1', (os, 'rename', kill_rename))):
+        st.run_item(study, item)
+        with monkeypatch.context() as m, pytest.raises(RuntimeError, match='killed'):
+            m.setattr(*kill)
+            st.compile_shot(study, 100, finalize=True)
+    assert len(st.compile_shot(study, 100)['compiled']) == 4
+    ds = xr.open_zarr(z).load()
+    np.testing.assert_array_equal(ds.Delta_prime.isel(nn=0, code=0, r=0).values, [0.0, 1.0, 2.0, 3.0])
+    assert not os.path.exists(z + '.old') and not os.path.exists(z + '.tmp')
 
 
 def test_compile_finalize_takes_free_shots_first_then_a_dead_lease(study, monkeypatch, capsys):

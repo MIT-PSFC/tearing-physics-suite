@@ -1014,8 +1014,9 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     writer, under a lease checked before each write).
 
     Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
-    whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first. A
-    shot leased elsewhere is skipped (None), and one unchanged since its last compile (_fingerprint) is not read again.
+    whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first,
+    and a rechunk killed in its swap completed (finish_rechunk). A shot leased elsewhere is skipped (None), and one
+    unchanged since its last compile (_fingerprint) is not read again.
     With ``finalize``, new draws are rechunked. With a code check, a draw with a killed code waits until its check has
     filled it or is final (see _check_case)."""
     import xarray as xr
@@ -1024,6 +1025,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
         _zarr_signature,
         align_codes,
         bare_episode,
+        finish_rechunk,
         rechunk_store,
         store_ready,
     )
@@ -1040,6 +1042,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     fpath = spath.replace('compile_state', 'compile_fingerprint')    # apart: a pass that adds nothing leaves the state
     try:
         with fq.Heartbeat(q, lease, kind='leases'):
+            finish_rechunk(zpath)
             state = fq.read_json(spath) or dict(compiled=[], broken=[], signature=None)
             last = fq.read_json(fpath) or {}
             fingerprint = _fingerprint(study, cfg, shot, last.get('jobs', []))      # before any record is read

@@ -132,6 +132,18 @@ def open_store(path):
     return xr.open_zarr(zarr.storage.ZipStore(zp, mode='r') if os.path.exists(zp) else path, consolidated=True)
 
 
+def published_keys(path):
+    """The case_key of the store's published `<path>.zip`; None without one, or one that does not open (zipped from a
+    store killed in a write, before eq_stab tps_compile zipped only whole stores)."""
+    if not os.path.exists(path + '.zip'):
+        return None
+    try:
+        with open_store(path) as ds:
+            return [str(k) for k in ds.case_key.values]
+    except (ValueError, zipfile.BadZipFile):
+        return None
+
+
 def unzip_store(path):
     """The directory store at path again, from its published `<path>.zip` (by a temporary dir and a rename)."""
     tmp = path + '.unzip'
@@ -1026,8 +1038,9 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
     Draws go in ``batch`` at a time, one store write each: a write costs a few file operations per variable,
     whatever the number of draws. A store left longer than compile_state.json by a killed compile is cut back first,
     and a rechunk killed in its swap completed (finish_rechunk). A store removed once published (eq_stab tps_compile)
-    holds the draws of its zip `<store>.zip`, unzipped when new draws come. A shot leased elsewhere is skipped (None),
-    and one unchanged since its last compile (_fingerprint) is not read again.
+    holds the draws of its zip `<store>.zip`, unzipped when new draws come (a zip that does not open: the shot compiled
+    again from the .nc). A shot leased elsewhere is skipped (None), and one unchanged since its last compile
+    (_fingerprint) is not read again.
     With ``finalize``, new draws are rechunked. With a code check, a draw with a killed code waits until its check has
     filled it or is final (see _check_case)."""
     import xarray as xr
@@ -1060,11 +1073,11 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
             fingerprint = _fingerprint(study, cfg, shot, last.get('jobs', []))      # before any record is read
             if last.get('fingerprint') == fingerprint and (os.path.exists(zpath) or os.path.exists(published)):
                 return state
+            zipped = None if os.path.exists(zpath) else published_keys(zpath)
             if os.path.exists(zpath):
                 truncate_zarr_store(zpath, 'run_idx', len(state['compiled']))
-            elif os.path.exists(published):
-                with open_store(zpath) as ds:
-                    state['compiled'] = [str(k) for k in ds.case_key.values]
+            elif zipped is not None:
+                state['compiled'] = zipped
             elif state['compiled']:
                 state = dict(compiled=[], broken=[], signature=None)
             seen = set(state['compiled']) | set(state['broken'])
@@ -1075,7 +1088,7 @@ def compile_shot(study, shot, cfg=None, finalize=False, mb_per_chunk=10, batch=3
             flag = not code_check and (check or {}).get('flag')
             held = [] if code_check or not check else [k for k in draws if k not in seen and _awaits_fill(*draws[k])]
             new = sorted(k for k in draws if k not in seen and k not in held)
-            if new and not os.path.exists(zpath) and os.path.exists(published):
+            if new and zipped is not None:
                 unzip_store(zpath)
             for i in range(0, len(new), batch):
                 keys, dsets = [], []

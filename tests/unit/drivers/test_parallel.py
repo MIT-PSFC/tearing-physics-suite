@@ -367,6 +367,27 @@ def test_compile_starts_from_the_published_zip(study, monkeypatch, tmp_path):
     xr.testing.assert_identical(from_zip, xr.open_zarr(z).load())
 
 
+def test_compile_takes_a_published_zip_that_does_not_open_as_absent(study, monkeypatch):
+    """A store removed once published whose zip does not open (zipped from a store killed in an append, before eq_stab
+    tps_compile zipped only whole stores; CGP 11-14): the shot is compiled again from its draws' .nc."""
+    uid = _record(study, 100, 1500, selected=(0, 1))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+    z = st.shot_store(study, 100)
+    st.run_item(study, f'{uid}.c0')
+    st.compile_shot(study, 100, finalize=True)
+    whole = xr.open_zarr(z).load()
+    with open(os.path.join(z, 'zarr.json')) as f:
+        meta = json.load(f)
+    meta.pop('consolidated_metadata')
+    with open(os.path.join(z, 'zarr.json'), 'w') as f:
+        json.dump(meta, f)
+    _publish(z)
+    os.remove(os.path.join(study, '100', 'tps', 'compile_fingerprint.json'))    # as eq_stab links the zip anew
+    st.compile_shot(study, 100, finalize=True)
+    xr.testing.assert_identical(whole, xr.open_zarr(z).load())
+
+
 def _n_store(study, keys, nn, codes, r):
     """A shot store of these runs at these n and codes, with r rational surfaces."""
     k, n, c = len(keys), len(nn), len(codes)

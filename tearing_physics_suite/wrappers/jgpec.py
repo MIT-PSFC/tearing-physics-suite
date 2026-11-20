@@ -109,11 +109,15 @@ def gpec_toml_sections(eq_filename, nn, solver, inputs, **jgpec_kwargs):
               mpsi=int(inputs['mpsi']), mtheta=int(inputs['mtheta']), newq0=float(inputs['newq0']),
               etol=float(inputs['etol']), profile_source=profile_source, force_termination=False)
     a_wall, ishape = float(inputs.get('a_wall', 0.0)), int(inputs.get('ishape', 6))
-    if vac and ishape not in (6, 8):
-        raise NotImplementedError(f"jGPEC wall for ishape={ishape}: only conformal (6) and DIII-D (8) walls are mapped.")
+    wall_geo = inputs.get('wall_geo') if ishape == 41 and a_wall == 1 else None
+    if vac and ishape not in (6, 8) and wall_geo is None:
+        raise NotImplementedError(f"jGPEC wall for ishape={ishape}: only conformal (6), DIII-D (8) and "
+                                  "wall_geo (41, a_wall 1) walls are mapped.")
     # a >= 10: no wall in VACUUM. 'd3d': run_jgpec_solvers writes the DIII-D wall file (wrappers/d3d_wall.py).
+    # wall_geo: jGPEC reads its R, Z columns as they are (VACUUM scales them by a_wall about wcentr, hence a_wall 1).
     wall = dict(shape='nowall') if not vac or a_wall >= 10 else \
-        dict(shape='conformal', a=a_wall) if ishape == 6 else dict(shape='d3d', equal_arc_wall=True)
+        dict(shape='conformal', a=a_wall) if ishape == 6 else \
+        dict(shape='d3d', equal_arc_wall=True) if ishape == 8 else dict(shape=wall_geo, equal_arc_wall=True)
     ffs = dict(vac_flag=vac, qlow=float(inputs['qlow']), qhigh=float(inputs['qhigh']), sing_start=int(inputs['sing_start']),
                nn_low=int(nn), nn_high=int(nn), delta_mlow=int(inputs['delta_mlow']), delta_mhigh=int(inputs['delta_mhigh']),
                mthvac=int(inputs['mthvac']), singfac_min=float(inputs['singfac_min']), ucrit=float(inputs['ucrit']),

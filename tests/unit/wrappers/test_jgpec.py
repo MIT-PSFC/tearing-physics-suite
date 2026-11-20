@@ -31,12 +31,17 @@ def inputs(tmp_path_factory):
 
 
 # ---- inputs ----
-def test_toml_sections_walls(inputs):
+def test_toml_sections_walls(inputs, tmp_path):
     sec = lambda solver='galerkin', **kw: jgpec.gpec_toml_sections(EQ.name, 1, solver, inputs(**kw))  # noqa: E731
     assert sec(vac_flag='t', a_wall=21)['Wall'] == {'shape': 'nowall'}
     assert sec(vac_flag='t', a_wall=0.3)['Wall'] == {'shape': 'conformal', 'a': 0.3}
     assert sec(vac_flag='t', a_wall=1, ishape=8)['Wall']['shape'] == 'd3d'
     assert sec(vac_flag='t', a_wall=21, ishape=8)['Wall'] == {'shape': 'nowall'}
+    geo = tmp_path / 'wall_geo.in'
+    geo.write_text('3\n1.6\ntheta R Z\n0 2.4 0\n2 1.2 1\n4 1.2 -1\n')
+    assert sec(vac_flag='t', a_wall=1, ishape=41, wall_geo=str(geo))['Wall'] == {'shape': str(geo), 'equal_arc_wall': True}
+    with pytest.raises(NotImplementedError):
+        sec(vac_flag='t', a_wall=0.5, ishape=41, wall_geo=str(geo))
     assert sec(vac_flag='f')['ForceFreeStates']['vac_flag'] is False
     with pytest.raises(ValueError, match='Riccati'):
         sec('riccati', vac_flag='f')

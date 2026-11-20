@@ -1,6 +1,7 @@
 # Python functions to write input files for RDCON and STRIDE
 
 import os
+import shutil
 
 import numpy as np
 
@@ -54,7 +55,8 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         dump_flag='f',      #Binary dump of basic equilibrium data and 2D rzphi spline
         out_ahg2msc='f',    #Output deprecated ahg2msc.out files (used to communicate with vacuum, now done through memory)
         a_wall=21,          #Controls ideal conformal shell distance if ishape=6. See vac.in description below.
-        ishape=6,           #ishape==6 -> conformal shell, ishape==8 -> DIII-D wall, ishape==42 -> wall shape read from wall_geo.in
+        ishape=6,           #ishape==6 -> conformal shell, ishape==8 -> DIII-D wall, ishape==41/42 -> wall shape read from wall_geo.in
+        wall_geo=None,      #Absolute path of the wall_geo.in that ishape 41/42 read; copied into working_dir
         ):
     """Write the equil.in input file for GPEC equilibrium processing.
 
@@ -107,6 +109,11 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
     f.write('/'+'\n')
 
     f.close()
+
+    if (wall_geo is not None) != (ishape in (41, 42)):
+        raise ValueError(f'ishape 41 and 42 (and only they) read wall_geo: ishape {ishape}, wall_geo {wall_geo}.')
+    if wall_geo is not None:
+        shutil.copyfile(wall_geo, working_dir+'/wall_geo.in')
 
     #writing vac.in: Glasser didn't suggest modifying this in the DCON readme, outside of a (here a_wall), which is the distance of the conformal ideal wall
     #from the plasma in units of minor radius. a>20 is infinite vacuum. a=0 is close fitting ideal wall. small a>0 is ill-advised as the wall can clip the plasma.
@@ -241,6 +248,8 @@ def write_equil_in(working_dir,eq_filename,write_equil_filename='/equil.in',
         'a_wall': a_wall,
         'ishape': ishape
     }
+    if wall_geo is not None:
+        return_dict['wall_geo'] = wall_geo
 
     return return_dict
 

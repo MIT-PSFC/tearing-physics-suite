@@ -45,6 +45,19 @@ def test_zeff_profile_and_limits():
         zeff_dict('abc')
 
 
+def test_wall_geo_copied_for_a_wall_from_file(tmp_path):
+    wall = tmp_path / 'wall.in'
+    wall.write_text('2\n1.8\ntheta R Z\n0 2.6 0\n6.283185 2.6 0\n')
+    run = tmp_path / 'run'
+    run.mkdir()
+    out = write_rdcon_stride_inputs(str(run), EQ, verbose=False, ishape=41, a_wall=1.0, wall_geo=str(wall))
+    assert (run / 'wall_geo.in').read_text() == wall.read_text() and out['wall_geo'] == str(wall)
+    assert 'ishape = 41' in (run / 'vac.in').read_text()
+    for bad in (dict(ishape=8, wall_geo=str(wall)), dict(ishape=41)):
+        with pytest.raises(ValueError, match='wall_geo'):
+            write_rdcon_stride_inputs(str(run), EQ, verbose=False, **bad)
+
+
 def _write(cfg, d):
     """Write the namelists and the returned input dict (as input_dict.json) into d."""
     d.mkdir(parents=True, exist_ok=True)

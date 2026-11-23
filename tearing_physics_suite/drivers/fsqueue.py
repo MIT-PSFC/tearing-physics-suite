@@ -461,7 +461,8 @@ def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=
     """Worker loop: claim -> ``run(uid, unit)`` -> finish, until no work, STOP, the deadline (epoch, or a callable
     returning it, e.g. JobDeadline) or
     MAX_CONSECUTIVE_FAILURES failures in a row. ``run`` returning means done; raising means a failure.
-    ``Requeue`` gives the unit back uncounted and ends the loop; ``Broken`` records one failure and ends it.
+    ``Requeue`` gives the unit back uncounted and ends the loop; ``Broken`` records one failure and ends it;
+    ``UnitFailed`` records one failure that does not count toward the row.
     ``on_idle()`` (e.g. a feeder) runs when a pass finds nothing; True means it added work. ``accept(unit)`` (picklable)
     limits the units this worker claims (e.g. to those that fit its memory). While others hold
     claims, an idle worker stays at least STALE_S + poll_s, so a dead job's claims become stealable before it quits.
@@ -517,7 +518,8 @@ def work(q, worker, run, deadline=None, idle_exit_s=600.0, poll_s=30.0, on_idle=
             return done('broken')
         except Exception as e:
             last = q.record_failure(uid, worker, e)
-            n_bad += 1
+            if not isinstance(e, UnitFailed):              # a unit's own failure says nothing about this worker
+                n_bad += 1
             log(f'[{worker}] {uid}: FAILED ({last}); {n_bad} in a row')
             if q.n_failures(uid) >= q.MAX_FAILURES:
                 q.finish(uid, 'failed', owner=worker, reason='max_failures', signature=last)
@@ -539,6 +541,10 @@ class Requeue(Exception):
 
 class Broken(Exception):
     """Raised by a runner when this worker's environment is broken: one failure is recorded, the worker exits."""
+
+
+class UnitFailed(Exception):
+    """Raised by a runner when the unit itself failed (e.g. timed out): one failure is recorded, the worker goes on."""
 
 
 # --- running units in child processes, and the per-node launcher ---------------------------

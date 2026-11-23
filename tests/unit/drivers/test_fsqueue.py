@@ -97,6 +97,17 @@ def test_worker_claims_only_what_it_accepts(tmp_path):
     assert seen == ['u0', 'u2'] and q.done_ids() == {'u0', 'u2'}
 
 
+def test_unit_failures_do_not_break_the_worker(tmp_path):
+    """UnitFailed (a unit's own failure, e.g. its timeout) is recorded but does not count toward the row."""
+    q = fq.Queue(tmp_path, **FAST)
+    q.add_units([dict(u, est=1) for u in _units(5)])
+
+    def run(uid, u):
+        raise fq.UnitFailed('draw timeout(s), to retry: 3')
+    assert fq.work(q, 'w', run, idle_exit_s=0, poll_s=0.01, log=lambda *a: None) != 'broken'
+    assert all(q.n_failures(u['id']) >= 1 for u in _units(5))
+
+
 def test_live_deadline_is_reread(tmp_path, monkeypatch):
     """A --time-min job's limit is raised after it starts: workers follow squeue's end, and a failed query keeps the
     last good end instead of SLURM_JOB_END_TIME's first, short one (eq_stab 179bf09, 4741ba4)."""

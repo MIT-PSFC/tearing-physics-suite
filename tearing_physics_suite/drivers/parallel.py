@@ -87,6 +87,10 @@ INFRA = (ImportError, MemoryError)
 INFRA_ERRNO = {28, 30, 122}     # ENOSPC, EROFS, EDQUOT
 
 
+class DrawTimeout(RuntimeError):
+    """An item's draws timed out (retried later): the item's own failure, not its worker's (fq.UnitFailed)."""
+
+
 # --- paths and config -------------------------------------------------------------------------
 
 def qroot(study, code_check=False):
@@ -659,8 +663,8 @@ def run_item(study, item_id, code_check=False):
         kwargs['energy_confinement_time'] = tau_e_lookup(cfg['tau_e'])(it['shot'], it['t_ms'] / 1e3)
     out['draws'] = run_draws(cfg, it, ddir, states, todo, kwargs, case, spot, sfx, None if code_check else flag)
     if not code_check and any(d['status'] in ('timeout',) for d in out['draws']):
-        raise RuntimeError('draw timeout(s), to retry: ' + ', '.join(str(d['draw']) for d in out['draws']
-                                                                   if d['status'] == 'timeout'))
+        raise DrawTimeout('draw timeout(s), to retry: ' + ', '.join(str(d['draw']) for d in out['draws']
+                                                                  if d['status'] == 'timeout'))
     return out
 
 
@@ -885,9 +889,14 @@ class Runner:
                 argv.append('--code-check')
             try:
                 res = fq.run_child(argv, log, timeout=self.timeout, result_path=res_path)
-            except RuntimeError:
-                if (fq.read_json(res_path) or {}).get('error', {}).get('infra'):
-                    raise fq.Broken((fq.read_json(res_path) or {})['error']['signature']) from None
+            except TimeoutError as e:                                       # the item's own wall limit
+                raise fq.UnitFailed(str(e)) from None
+            except RuntimeError as e:
+                err = (fq.read_json(res_path) or {}).get('error', {})
+                if err.get('infra'):
+                    raise fq.Broken(err['signature']) from None
+                if err.get('type') == DrawTimeout.__name__:
+                    raise fq.UnitFailed(str(e)) from None
                 raise
             for d in res.get('draws', []):
                 if d['status'] == 'ok':

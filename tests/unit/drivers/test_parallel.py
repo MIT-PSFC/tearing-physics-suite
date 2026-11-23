@@ -435,6 +435,27 @@ def test_runner_breaker(study, monkeypatch):
         run('b.c0', dict(item, unit_id='b'))
 
 
+def test_runner_timeouts_are_the_items_own(study, monkeypatch):
+    """The item's wall limit and its draw timeouts raise UnitFailed (not counted toward a broken worker)."""
+    a = type('A', (), dict(study=study, item_timeout=1, min_left=0, allow_build_drift=False, no_compile=True))
+    run = st.Runner(a)(fq.Queue(st.qroot(study)), 'w')
+    item = dict(shot=100, unit_id='a')
+
+    def timed_out(*a, **k):
+        raise TimeoutError('unit exceeded 1 s')
+    monkeypatch.setattr(fq, 'run_child', timed_out)
+    with pytest.raises(fq.UnitFailed, match='unit exceeded'):
+        run('a.c0', item)
+
+    def draw_timeout(argv, log, timeout=None, result_path=None):
+        os.makedirs(os.path.dirname(result_path), exist_ok=True)
+        fq.write_json(result_path, dict(error=dict(type='DrawTimeout', signature='DrawTimeout: draw timeout(s)')))
+        raise RuntimeError('DrawTimeout: draw timeout(s), to retry: 3')
+    monkeypatch.setattr(fq, 'run_child', draw_timeout)
+    with pytest.raises(fq.UnitFailed, match='draw timeout'):
+        run('a.c1', item)
+
+
 def test_build_drift(study, monkeypatch):
     cfg = st.load_config(study)
     st.check_build(cfg)

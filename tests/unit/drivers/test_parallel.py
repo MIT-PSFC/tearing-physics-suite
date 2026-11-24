@@ -485,12 +485,31 @@ def test_run_provenance(study, monkeypatch):
     assert inputs.gpec_version.values.tolist()[:2] == ['/x/gpec'] * 2
 
 
+def test_tau_e_without_netcdf4(tmp_path):
+    """tau_e_lookup reads netCDF4 (HDF5) and netCDF3 I2 files without importing netCDF4, whose HDF5 breaks the later
+    h5netcdf IDA reads in the same process (AUG: H5DSget_num_scales)."""
+    import subprocess
+    import sys
+    code = f"""
+import sys, numpy as np, xarray as xr
+from tearing_physics_suite.drivers.parallel import tau_e_lookup
+ds = xr.Dataset({{'tau_e': (('shot', 'time_idx'), [[0.07, 0.08]]), 'time': ('time_idx', [1.4, 1.5])}},
+                coords={{'shot': [100]}})
+ds.to_netcdf('{tmp_path}/h5.nc', engine='h5netcdf')
+ds.to_netcdf('{tmp_path}/nc3.nc', engine='scipy')
+for f in ('h5', 'nc3'):
+    assert tau_e_lookup(dict(path='{tmp_path}/' + f + '.nc', variable='tau_e'))(100, 1.5) == 0.08
+assert 'netCDF4' not in sys.modules
+"""
+    subprocess.run([sys.executable, '-c', code], check=True)
+
+
 def test_tau_e_from_i2(study, monkeypatch, tmp_path):
     import xarray as xr
     tau = np.full((2, 4), np.nan)
     tau[0] = [0.07, 0.08, 0.09, np.nan]
     xr.Dataset({'tau_e': (('shot', 'time_idx'), tau), 'time': ('time_idx', [1.4, 1.5, 1.6, 1.7])},
-               coords={'shot': [100, 101]}).to_netcdf(tmp_path / 'i2.nc')
+               coords={'shot': [100, 101]}).to_netcdf(tmp_path / 'i2.nc', engine='scipy')   # HDF5: own process
     look = st.tau_e_lookup(dict(path=str(tmp_path / 'i*.nc'), variable='tau_e'))
     assert (look(100, 1.52), look(100, 1.64), look(100, 1.7), look(101, 1.5), look(102, 1.5)) == \
         (0.08, 0.09, None, None, None)   # 1.7: its sample is NaN, the next is 100 ms away

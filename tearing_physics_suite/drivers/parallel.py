@@ -602,8 +602,10 @@ def tau_e_lookup(spec):
 
     I2 (bouquet_prep_omega.sh): dims (shot, <base>_idx). The time base is spec['time'], else the variable named
     '*time*' on that index ('time' for time_idx, 'eqdsk_time_efit01' for eqdsk_idx_efit01); 'ms' units are read from
-    its attrs (else s). Samples further than spec['tol_ms'] (default 50) from t give None.
+    its attrs (else s). Samples further than spec['tol_ms'] (default 50) from t give None. Read with h5netcdf (scipy for
+    netCDF3), never netCDF4: its HDF5 library breaks the later h5netcdf IDA reads in the same process.
     """
+    import h5py
     import xarray as xr
     paths = sorted(p for pat in os.path.expandvars(spec['path']).split(':') for p in glob.glob(pat))
     if not paths:
@@ -611,7 +613,7 @@ def tau_e_lookup(spec):
     var, tol = spec['variable'], spec.get('tol_ms', 50) / 1e3
     files = {}
     for p in paths:
-        ds = xr.open_dataset(p)
+        ds = xr.open_dataset(p, engine='h5netcdf' if h5py.is_hdf5(p) else 'scipy')
         if var not in ds:
             raise KeyError(f"tau_e: no variable {var!r} in {p}")
         base = next(d for d in ds[var].dims if d != 'shot')

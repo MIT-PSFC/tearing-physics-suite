@@ -23,13 +23,16 @@ def _store(n_runs=1, **over):
 
 
 def test_timescales_by_hand():
-    """Seeding times from tau_A, tau_R; resistive diffusion across w_marg; beam-ion times NaN without a beam
-    energy, finite with one."""
+    """Seeding times from tau_A, tau_R; the seed pressure time (3/2) w^2/(chi G)/(1 + (w/w_d)^4), its perpendicular
+    limit; beam-ion times NaN without a beam energy, finite with one."""
     one = lambda da: float(da.squeeze())  # noqa: E731
     ts = surface_timescales(_store())
     assert np.isclose(one(ts.tau_SP_surf), 1e-6 ** 0.5 * 10 ** 0.5, rtol=1e-6)
     assert np.isclose(one(ts.tau_AS13_surf), 1e-4 * 10 ** (1 / 3), rtol=1e-6)
+    assert np.isclose(one(ts.tau_p_seed_surf), 1.5 * 1e-4 / 4 / (1 + 1 / 16), rtol=1e-6)
     assert np.isclose(one(ts.tau_eta_wmarg_surf), 0.1, rtol=1e-6)
+    narrow = surface_timescales(_store(w_marg_surf=1e-4))
+    assert np.isclose(one(narrow.tau_p_seed_surf), 1.5 * 1e-8 / 4, rtol=1e-6)
     assert np.isnan(one(ts.tau_th_fast_surf)) and np.isfinite(one(ts.tau_s_fast_surf))
     beam = surface_timescales(_store(), xr.DataArray([80.0], dims='run_idx'))
     assert 0 < one(beam.tau_th_fast_surf) < one(beam.tau_s_fast_surf) and np.isfinite(one(beam.tau_perp_fast_surf))

@@ -1,5 +1,6 @@
-"""One shot's TPS results as one Dataset along run_idx, with t_ms and draw (baseline: -1) per run, and the ideal
-pass's verdicts (<shot>_ideal.zarr, drivers/ideal_pass.py) where the shot has them."""
+"""One shot's TPS results as one Dataset along run_idx, with t_ms and draw (baseline: -1) per run, the ideal
+pass's verdicts (<shot>_ideal.zarr, drivers/ideal_pass.py) and the timescales (<shot>_timescales.zarr,
+drivers/timescales_pass.py) where the shot has them."""
 import glob
 import json
 import os
@@ -14,9 +15,9 @@ from tearing_physics_suite.physics.global_quantities import global_mre_quantitie
 def open_shot(source, shot, variables=None, more_n=()):
     """source: a study dir (<study>/<shot>/tps/<shot>.zarr, or its published <shot>.zarr.zip), a zarr store
     (study or multi_compile_zarr, directory or .zip), or a glob of run dirs holding rdcon_xr.nc + meta.json
-    (E7 layout). variables: keep only these. A study's shot gets its ideal-pass variables (nzero, ideal_*) by
-    case_key, and eps_surf (see _with_eps_surf). more_n: sources of the same draws at further n (e.g. a later
-    STRIDE-only study at nvec [4] on the same bouquets), joined by case_key (see _with_n)."""
+    (E7 layout). variables: keep only these. A study's shot gets its ideal-pass variables (nzero, ideal_*) and its
+    timescales pass's by case_key, and eps_surf (see _with_eps_surf). more_n: sources of the same draws at further
+    n (e.g. a later STRIDE-only study at nvec [4] on the same bouquets), joined by case_key (see _with_n)."""
     study = os.path.join(source, str(shot), 'tps', f'{shot}.zarr')
     study = study + '.zip' if os.path.exists(study + '.zip') else study
     if os.path.exists(study) or source.rstrip('/').endswith(('.zarr', '.zarr.zip')):
@@ -29,7 +30,10 @@ def open_shot(source, shot, variables=None, more_n=()):
         if 'shot_id' in ds:
             ds = ds.isel(run_idx=np.flatnonzero(ds['shot_id'].values.astype(int) == shot))
         if path == study:
-            ds = _with_ideal(ds, os.path.join(source, str(shot), 'tps', f'{shot}_ideal.zarr'))
+            tps = os.path.join(source, str(shot), 'tps')
+            ds = _with_store(ds, os.path.join(tps, f'{shot}_ideal.zarr'),
+                             lambda v: v == 'nzero' or v.startswith('ideal_'))
+            ds = _with_store(ds, os.path.join(tps, f'{shot}_timescales.zarr'), lambda v: v != 'case_key')
         for other in more_n:
             ds = _with_n(ds, open_shot(other, shot))
         return _keep(_with_eps_surf(ds), variables)
@@ -50,21 +54,22 @@ def write_shot(source, shot, out, more_n=()):
     os.rename(path + '.tmp', path)
 
 
-def _with_ideal(ds, path):
-    """ds with the ideal store's variables at path (or its .zip), matched by case_key: NaN, -1 (int flags) or ''
-    for runs without a verdict, or ds's own value (the main pass's STRIDE nzero); ds unchanged without the store."""
+def _with_store(ds, path, accept):
+    """ds with the variables of the pass store at path (or its .zip) that accept(name) takes, matched by case_key:
+    NaN, -1 (int flags) or '' for runs the pass has not, or ds's own value (the main pass's STRIDE nzero); ds
+    unchanged without the store."""
     path = path + '.zip' if os.path.exists(path + '.zip') else path
     if not os.path.exists(path) or 'case_key' not in ds:
         return ds
-    ideal = xr.open_zarr(zarr.storage.ZipStore(path, mode='r') if path.endswith('.zip') else path).load()
-    keep = [v for v in ideal.data_vars if v == 'nzero' or v.startswith('ideal_')]
-    text = [v for v in keep if ideal[v].dtype.kind in 'OTU']                    # zarr's StringDType: as objects
-    fill = {v: _fill(ideal[v]) for v in keep}
-    keys = ideal['case_key'].values.astype(object)
-    ideal = ideal[keep].assign({v: ideal[v].astype(object) for v in text}).assign_coords(run_idx=keys)
-    ideal = ideal.reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
-    ideal = ideal.drop_vars('run_idx')
-    return ds.assign({v: ideal[v].combine_first(ds[v]) if v in ds else ideal[v] for v in keep})   # on ds's nn, code
+    store = xr.open_zarr(zarr.storage.ZipStore(path, mode='r') if path.endswith('.zip') else path).load()
+    keep = [v for v in store.data_vars if accept(v)]
+    text = [v for v in keep if store[v].dtype.kind in 'OTU']                    # zarr's StringDType: as objects
+    fill = {v: _fill(store[v]) for v in keep}
+    keys = store['case_key'].values.astype(object)
+    store = store[keep].assign({v: store[v].astype(object) for v in text}).assign_coords(run_idx=keys)
+    store = store.reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
+    store = store.drop_vars('run_idx')
+    return ds.assign({v: store[v].combine_first(ds[v]) if v in ds else store[v] for v in keep})   # on ds's nn, code
 
 
 MRE_GLOBALS = ('min_w_marg_allsurf', 'max_dwdtau_allsurf', 'min_w_marg_rank', 'max_dwdtau_rank')   # global_mre_quantities
@@ -81,7 +86,7 @@ def _with_n(ds, other):
     keys = other['case_key'].values.astype(object)
     other = other[[v for v in on_nn if v in other and 'nn' in other[v].dims]].load()
     ds, other = (x.assign({v: x[v].compute().astype(object) for v in x.data_vars if x[v].dtype.kind in 'OTU'})
-                 for x in (ds, other))                                       # text as objects, as _with_ideal
+                 for x in (ds, other))                                       # text as objects, as _with_store
     fill = {v: _fill(ds[v]) for v in on_nn}
     other = other.assign_coords(run_idx=keys).reindex(run_idx=ds['case_key'].values.astype(object), fill_value=fill)
     other = other.drop_vars('run_idx').reindex(code=ds.code.values, fill_value=fill) if 'code' in other.dims else other

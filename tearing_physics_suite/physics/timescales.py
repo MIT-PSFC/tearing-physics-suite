@@ -1,5 +1,5 @@
 """Collision, seed-island and beam-ion timescales at the rational surfaces, from a TPS store's variables (no code
-reruns). Sources: eq_stab claude_findings/fast_ion_times (fast_ion_times.md, tps_timescales_plan.md); tau_p_seed_surf:
+reruns). Sources: eq_stab claude_findings/fast_ion_times (fast_ion_times.md, tps_timescales_plan.md); tau_p_seed_*_surf:
 meta_plan derivations/TPS__seed-pressure-time.md. Times in s; the surface inputs are the store's (SI, T_e in keV,
 widths in psi_N). The electron bootstrap response is the store's taue_surf (García-Perciante et al. 2005, Eq. 41).
 """
@@ -30,7 +30,9 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
     nus_i = eps ** -1.5 * s['avg_R_surf'] * q / (s['v_ti_surf'] * taui)
     mu_e = 2.3 * eps ** 0.5 / taue / ((1 + 1.07 * nus_e ** 0.5 + 1.02 * nus_e) * (1 + 1.07 * nus_e * eps ** 1.5))
     mu_i = 0.66 * eps ** 0.5 / taui / ((1 + 1.03 * nus_i ** 0.5 + 0.31 * nus_i) * (1 + 0.66 * nus_i * eps ** 1.5))
-    # Seed pressure settling time (TPS__seed-pressure-time.md); G = <B^2>/<B^2/|grad psi_N|^2> [psi_N^2/m^2]
+    # Seed pressure settling time (TPS__seed-pressure-time.md); G = <B^2>/<B^2/|grad psi_N|^2> [psi_N^2/m^2]. Two
+    # conventions for the island scales: Schlutt & Hegna 2012 (k_perp = 1/w; parallel/perpendicular = (w/w_d)^4) and
+    # Fitzpatrick 2023 (k_perp = 4/w, Eq. 8.84; ratio (w/W_T)^4 with W_T = sqrt(8) w_d, Eq. 14.203)
     w, wd = s['w_marg_surf'], s['wd_at_marg_surf']
     chi_G = s['chi_perp_surf'] * s['avg_Bsq_surf'] / s['avg_Bsq_on_nabla_psisq_surf']
     # Beam ions: Stix slowing down, critical energy, thermalisation (as IMAS.jl physics/fast.jl); NRL Formulary p. 32
@@ -50,7 +52,8 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
         nustar_e_surf=nus_e, nustar_i_surf=nus_i,
         inv_mu_e_banana_surf=taue / s['mu_e_on_nu_e_surf'], inv_mu_e_surf=1 / mu_e, inv_mu_i_surf=1 / mu_i,
         tau_eta_wmarg_surf=w ** 2 / s['eta_star_surf'],
-        tau_p_seed_surf=1.5 * w ** 2 / chi_G / (1 + (w / wd) ** 4),
+        tau_p_seed_SH_surf=1.5 * w ** 2 / chi_G / (1 + (w / wd) ** 4),
+        tau_p_seed_Fitz_surf=1.5 * (w / 4) ** 2 / chi_G / (1 + (w / wd) ** 4 / 64),
         tau_s_fast_surf=tau_s, E_c_surf=e_c / 1e3,
         tau_th_fast_surf=tau_s / 3 * np.log1p((e_b / e_c) ** 1.5), tau_perp_fast_surf=1 / nu_perp,
         e_beam_keV=e_b / 1e3)

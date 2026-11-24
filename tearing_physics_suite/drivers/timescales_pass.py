@@ -2,6 +2,7 @@
 (physics/timescales.py; no code reruns), joined by analysis.shot_data.open_shot by case_key.
 
     python -m tearing_physics_suite.drivers.timescales_pass --study S [--shots ...] [--e-beam TABLE] [--force]
+                                                            [--workers W]
 
 TABLE: one JSON line per shot {shot, t_s, E_b_keV} (eq_stab claude_findings/fast_ion_times/scripts/e_beam_table.py:
 the beam injection energy per FUSE slice). Each run takes the value at its t_ms, linear between slices; NaN outside
@@ -9,7 +10,9 @@ them or without a table. A store is written whole (a new one replaces the old) a
 --force.
 """
 import argparse
+import functools
 import json
+import multiprocessing
 import os
 import shutil
 
@@ -66,11 +69,19 @@ def main(argv=None):
     ap.add_argument('--shots', type=int, nargs='*')
     ap.add_argument('--e-beam', default=None, help='beam-energy table (JSON lines)')
     ap.add_argument('--force', action='store_true', help='rewrite stores that exist')
+    ap.add_argument('--workers', type=int, default=int(os.environ.get('SLURM_CPUS_PER_TASK', 1)),
+                    help='shots written at once (~1.5 GB each for a 5700-run shot)')
     a = ap.parse_args(argv)
     table = read_e_beam(a.e_beam) if a.e_beam else None
-    for shot in a.shots or parallel.study_shots(a.study):
-        n = write_shot(a.study, shot, table, a.force)
-        print(f'timescales: shot {shot}: ' + ('skipped' if n is None else f'{n} run(s)'), flush=True)
+    shots = a.shots or parallel.study_shots(a.study)
+    with multiprocessing.Pool(a.workers) as pool:
+        work = functools.partial(_write, a.study, table=table, force=a.force)
+        for shot, n in pool.imap_unordered(work, shots):
+            print(f'timescales: shot {shot}: ' + ('skipped' if n is None else f'{n} run(s)'), flush=True)
+
+
+def _write(study, shot, table=None, force=False):
+    return shot, write_shot(study, shot, table, force)
 
 
 if __name__ == '__main__':

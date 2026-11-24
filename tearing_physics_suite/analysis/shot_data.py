@@ -1,6 +1,7 @@
 """One shot's TPS results as one Dataset along run_idx, with t_ms and draw (baseline: -1) per run, the ideal
-pass's verdicts (<shot>_ideal.zarr, drivers/ideal_pass.py) and the timescales (<shot>_timescales.zarr,
-drivers/timescales_pass.py) where the shot has them."""
+pass's verdicts (<shot>_ideal.zarr, drivers/ideal_pass.py), the timescales (<shot>_timescales.zarr,
+drivers/timescales_pass.py) and the core pressure drive (<shot>_core_drive.zarr, eq_stab
+claude_findings/qmin_analysis/core_pressure/core_drive.py) where the shot has them."""
 import glob
 import json
 import os
@@ -15,8 +16,8 @@ from tearing_physics_suite.physics.global_quantities import global_mre_quantitie
 def open_shot(source, shot, variables=None, more_n=()):
     """source: a study dir (<study>/<shot>/tps/<shot>.zarr, or its published <shot>.zarr.zip), a zarr store
     (study or multi_compile_zarr, directory or .zip), or a glob of run dirs holding rdcon_xr.nc + meta.json
-    (E7 layout). variables: keep only these. A study's shot gets its ideal-pass variables (nzero, ideal_*) and its
-    timescales pass's by case_key, and eps_surf (see _with_eps_surf). more_n: sources of the same draws at further
+    (E7 layout). variables: keep only these. A study's shot gets its ideal-pass variables (nzero, ideal_*), its
+    timescales pass's and its core-drive scan's by case_key, and eps_surf (see _with_eps_surf). more_n: sources of the same draws at further
     n (e.g. a later STRIDE-only study at nvec [4] on the same bouquets), joined by case_key (see _with_n)."""
     study = os.path.join(source, str(shot), 'tps', f'{shot}.zarr')
     study = study + '.zip' if os.path.exists(study + '.zip') else study
@@ -34,6 +35,7 @@ def open_shot(source, shot, variables=None, more_n=()):
             ds = _with_store(ds, os.path.join(tps, f'{shot}_ideal.zarr'),
                              lambda v: v == 'nzero' or v.startswith('ideal_'))
             ds = _with_store(ds, os.path.join(tps, f'{shot}_timescales.zarr'), lambda v: v != 'case_key')
+            ds = _with_store(ds, os.path.join(tps, f'{shot}_core_drive.zarr'), lambda v: v != 'case_key')
         for other in more_n:
             ds = _with_n(ds, open_shot(other, shot))
         return _keep(_with_eps_surf(ds), variables)

@@ -117,7 +117,7 @@ def test_feed_run_compile(study, monkeypatch):
 def test_open_shot_joins_the_ideal_store(tmp_path):
     """A study shot read with open_shot gets the ideal pass's variables by case_key; runs without a verdict get
     NaN, -1 or '' (nzero: the main store's); the pass's n are matched to the store's; eps_surf is ideal_eps at the
-    run's rational surfaces."""
+    run's rational surfaces; the core-drive scan's side store is joined the same way."""
     from tearing_physics_suite.analysis.shot_data import open_shot
     keys = np.array(['u_0', 'u_1', 'u_2'], dtype=object)
     main = xr.Dataset({'Delta_prime': ('run_idx', [1.0, 2.0, 3.0]), 'shot_id': ('run_idx', [100] * 3),
@@ -147,3 +147,6 @@ def test_open_shot_joins_the_ideal_store(tmp_path):
                                                                                    mode='w', consolidated=True)
     np.testing.assert_allclose(open_shot(str(tmp_path), 100).eps_surf.sel(nn=1, code='rdcon').values,
                                [[0.125, 0.3, np.nan]] * 3)
+    xr.Dataset({'Lambda': ('run_idx', [0.7]), 'case_key': ('run_idx', keys[[1]])}).to_zarr(
+        st.shot_store(str(tmp_path), 100).replace('100.zarr', '100_core_drive.zarr'), consolidated=True)
+    np.testing.assert_array_equal(open_shot(str(tmp_path), 100).Lambda.values, [np.nan, 0.7, np.nan])

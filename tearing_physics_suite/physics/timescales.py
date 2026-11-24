@@ -1,7 +1,8 @@
 """Collision, seed-island and beam-ion timescales at the rational surfaces, from a TPS store's variables (no code
 reruns). Sources: eq_stab claude_findings/fast_ion_times (fast_ion_times.md, tps_timescales_plan.md); tau_p_seed_*_surf:
 meta_plan derivations/TPS__seed-pressure-time.md; collisions: derivations/TPS__collision-times-callen.md. Times in s;
-the surface inputs are the store's (SI, T_e in keV, widths in psi_N). The electron bootstrap response is ~1/nu_e
+the surface inputs are the store's (SI, T_e in keV, widths in psi_N), and eps_surf the geometric inverse aspect ratio
+(R_max - R_min)/(R_max + R_min) of analysis.shot_data.open_shot. The electron bootstrap response is ~1/nu_e
 (inv_nu_e_surf; García-Perciante et al. 2005, Eq. 41).
 """
 import numpy as np
@@ -11,22 +12,24 @@ from scipy.special import gamma
 FKR = (np.pi * gamma(0.75) / gamma(0.25)) ** 0.8    # Hegna, Callen & La Haye 1999, Eq. 27
 BEAM_Z = 1.0                                         # D beams (FUSE nbi species z_n)
 AMU_EV = 931.494e6                                   # m_u c^2 [eV]
+K_B0 = 2 ** 0.5 - np.log(1 + 2 ** 0.5)               # Callen 2010 Table I: K^B_00 = (Z + K_B0)/(nu tau), K_B0 ~ 0.533
 
 SURFACE_INPUTS = ('taua_surf', 'taur_surf', 'taue_surf', 'taui_surf', 'ftr_surf', 'fc_surf', 'Zeff_surf', 'm_rational',
-                  'avg_R_surf', 'avg_r_surf', 'v_te_surf', 'v_ti_main_surf', 'te_keV_surf', 'ne_m3_surf', 'ni_m3_surf',
+                  'avg_R_surf', 'eps_surf', 'v_te_surf', 'v_ti_main_surf', 'te_keV_surf', 'ne_m3_surf', 'ni_m3_surf',
                   'nimp_m3_surf', 'lnLamb_ei_surf', 'chi_perp_surf', 'avg_Bsq_surf', 'avg_Bsq_on_nabla_psisq_surf',
                   'eta_star_surf', 'w_marg_surf', 'wd_at_marg_surf')
 INPUTS = SURFACE_INPUTS + ('main_ion_mass', 'impurity_Z', 'impurity_mass')
 
 
-def callen_mu(nu, nus, ft_on_fc, z, nu_tau, eps):
-    """Poloidal-flow damping frequency of one species (Callen 2010, UW-CPTC 09-6R, Eqs. B13-B14 with Table I; B17 and
-    B19 are its sqrt(eps) << 1 forms): nu its collision frequency, nus its collisionality, z = Z_eff (electrons) or
-    Z* (hydrogenic ions), nu_tau = nu tau_ss (Z_eff or Z* + 1/sqrt(2))."""
-    kb = (z + 0.533) / nu_tau                                                   # nu tau K^B_00
-    d = 2.4 * z ** 2 + 5.32 * z + 2.225
-    return (nu * ft_on_fc * kb / (1 + nus ** 0.5 + 1.65 * kb * nus)
-            / (1 + 1.18 * d / (nu_tau * (4.25 * z + 3.02)) * eps ** 1.5 * nus))
+def callen_mu(nu, nus, ft_on_fc, z, nu_tau, wt):
+    """Poloidal-flow damping rate [1/s] of one species, mu_s/tau_ss of Callen 2010 (UW-CPTC 09-6R) Eqs. B13-B14 with
+    Table I's coefficients (B17 and B19 are its sqrt(eps) << 1 forms): nu its collision frequency, nus its general
+    collisionality (B12), wt its transit frequency v_T/(R q) (B10), z = Z_eff (electrons) or Z* (hydrogenic ions),
+    nu_tau = nu tau_ss (Z_eff or Z* + 1/sqrt(2))."""
+    kb = (z + K_B0) / nu_tau                                                    # K^B_00
+    kp = np.pi ** 0.5                                                           # K^P_00
+    kps = (17 * z / 4 + 205 / (48 * 2 ** 0.5)) / (1.2 * (2 * z ** 2 + 301 * z / (48 * 2 ** 0.5) + 89 / 48))  # K^PS_00
+    return nu * ft_on_fc * kb / ((1 + nus ** 0.5 + 2.92 * nus * kb / kp) * (1 + 2 * kp * nu / (3 * wt * nu_tau * kps)))
 
 
 def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
@@ -36,15 +39,19 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
     s = {v: ds[v].astype('f8') for v in INPUTS}
     taua, taur, taue, taui = s['taua_surf'], s['taur_surf'], s['taue_surf'], s['taui_surf']
     q = s['m_rational'] / ds['nn']
-    eps = s['avg_r_surf'] / s['avg_R_surf']
-    # Callen 2010: nu_e = Z_eff/tau_ee (A9; taue_surf is tau_ee), nu_i (A14; taui_surf's field density is Z_eff n_e),
-    # nu* = nu R q/(eps^3/2 v_T) with v_T = sqrt(2T/m) (B7)
+    eps, rq = s['eps_surf'], s['avg_R_surf'] * q
+    # Callen 2010: nu_e = Z_eff/tau_ee (A9; taue_surf is tau_ee), nu_i (A14; taui_surf's field density is Z_eff n_e).
+    # nustar_*: the regime parameter nu R q/(eps^3/2 v_T), v_T = sqrt(2T/m) (B7). mu: the general nu* (B12) with the
+    # same f_t/f_c as mu's numerator, so that it cancels in the plateau and Pfirsch-Schlueter limits, and
+    # <(b.grad B)^2>/<B^2> = eps^2/(2 R^2 q^2) (Callen p. 19)
     zeff, zstar = s['Zeff_surf'], s['impurity_Z'] ** 2 * s['nimp_m3_surf'] / s['ni_m3_surf']
     nu_e = zeff / taue
     nu_i = (s['ni_m3_surf'] + 2 ** 0.5 * s['impurity_Z'] ** 2 * s['nimp_m3_surf']) / (zeff * s['ne_m3_surf'] * taui)
-    nus_e = eps ** -1.5 * s['avg_R_surf'] * q * nu_e / s['v_te_surf']
-    nus_i = eps ** -1.5 * s['avg_R_surf'] * q * nu_i / s['v_ti_main_surf']
+    v_te, v_ti = s['v_te_surf'], s['v_ti_main_surf']
     ft_on_fc = s['ftr_surf'] / s['fc_surf']
+    bgradb = eps ** 2 / (2 * rq ** 2)                                          # <(b.grad B)^2>/<B^2>
+    def nus_b12(nu, v_t):
+        return ft_on_fc / 2.92 * nu / (v_t * rq) / bgradb
     # Seed pressure settling time (TPS__seed-pressure-time.md); G = <B^2>/<B^2/|grad psi_N|^2> [psi_N^2/m^2]. Two
     # conventions for the island scales: Schlutt & Hegna 2012 (k_perp = 1/w; parallel/perpendicular = (w/w_d)^4) and
     # Fitzpatrick 2023 (k_perp = 4/w, Eq. 8.84; ratio (w/W_T)^4 with W_T = sqrt(8) w_d, Eq. 14.203)
@@ -69,10 +76,11 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
         tau_AS13_surf=taua ** (2 / 3) * taur ** (1 / 3),             # Hegna et al., defined between Eqs. 21 and 22
         tau_SP_surf=(taua * taur) ** 0.5,                             # Hegna et al., defined below Eq. 23
         tau_FKR_surf=taur ** 0.6 * taua ** 0.4 * s['m_rational'] ** -1.2 * FKR,  # Hegna et al. Eq. 27
-        nustar_e_surf=nus_e, nustar_i_surf=nus_i, inv_nu_e_surf=1 / nu_e,
-        inv_mu_e_banana_surf=1 / (nu_e * ft_on_fc * (1 + 0.533 / zeff)),
-        inv_mu_e_surf=1 / callen_mu(nu_e, nus_e, ft_on_fc, zeff, zeff, eps),
-        inv_mu_i_surf=1 / callen_mu(nu_i, nus_i, ft_on_fc, zstar, zstar + 2 ** -0.5, eps),
+        nustar_e_surf=eps ** -1.5 * rq * nu_e / v_te, nustar_i_surf=eps ** -1.5 * rq * nu_i / v_ti,
+        inv_nu_e_surf=1 / nu_e,
+        inv_mu_e_banana_surf=1 / (nu_e * ft_on_fc * (1 + K_B0 / zeff)),
+        inv_mu_e_surf=1 / callen_mu(nu_e, nus_b12(nu_e, v_te), ft_on_fc, zeff, zeff, v_te / rq),
+        inv_mu_i_surf=1 / callen_mu(nu_i, nus_b12(nu_i, v_ti), ft_on_fc, zstar, zstar + 2 ** -0.5, v_ti / rq),
         tau_eta_wmarg_surf=w ** 2 / s['eta_star_surf'],
         tau_p_seed_SH_surf=1.5 * w ** 2 / chi_G / (1 + (w / wd) ** 4),
         tau_p_seed_Fitz_surf=1.5 * (w / 4) ** 2 / chi_G / (1 + (w / wd) ** 4 / 64),

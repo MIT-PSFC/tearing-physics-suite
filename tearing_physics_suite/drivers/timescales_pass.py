@@ -1,5 +1,6 @@
-"""Timescales pass of a study: <shot>_timescales.zarr beside each shot's store, from the store's variables
-(physics/timescales.py; no code reruns), joined by analysis.shot_data.open_shot by case_key.
+"""Timescales pass of a study: <shot>_timescales.zarr beside each shot's store, from the store's variables and the
+geometric inverse aspect ratio eps_surf (physics/timescales.py; no code reruns), both read through
+analysis.shot_data.open_shot, which joins the result back by case_key.
 
     python -m tearing_physics_suite.drivers.timescales_pass --study S [--shots ...] [--e-beam TABLE] [--force]
                                                             [--workers W]
@@ -17,7 +18,9 @@ import os
 import shutil
 
 import numpy as np
+import xarray as xr
 
+from tearing_physics_suite.analysis.shot_data import open_shot
 from tearing_physics_suite.drivers import parallel
 from tearing_physics_suite.physics.timescales import INPUTS, surface_timescales
 
@@ -52,8 +55,9 @@ def write_shot(study, shot, table=None, force=False):
     path, main = shot_store(study, shot), parallel.shot_store(study, shot)
     if not (os.path.exists(main) or os.path.exists(main + '.zip')) or (os.path.exists(path) and not force):
         return None
-    ds = parallel.open_store(main)
-    ds = ds[list(INPUTS) + ['case_key', 't_ms']].load()
+    ds = open_shot(study, shot, variables=list(INPUTS) + ['case_key']).load()
+    if 'eps_surf' not in ds:                        # no i-file eps in the main or ideal store: NaN nu* and mu
+        ds = ds.assign(eps_surf=xr.full_like(ds['avg_R_surf'], np.nan))
     e_b = ds['t_ms'].copy(data=e_beam_at(table or {}, shot, ds['t_ms'].values))
     out = surface_timescales(ds, e_b).assign(case_key=ds['case_key'])
     tmp = f'{path}.tmp.{os.getpid()}'

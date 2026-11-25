@@ -14,7 +14,7 @@ def _store(n_runs=1, **over):
     val = dict(taua_surf=1e-6, taur_surf=10.0, taue_surf=2e-5, taui_surf=1e-3, ftr_surf=0.6, fc_surf=0.4, Zeff_surf=2.0,
                m_rational=3, avg_R_surf=1.7, eps_surf=0.25, v_te_surf=2.6e7, v_ti_main_surf=4e5, te_keV_surf=2.0,
                ne_m3_surf=5e19, ni_m3_surf=4e19, nimp_m3_surf=1e18, lnLamb_ei_surf=17.0, chi_perp_surf=1.0,
-               avg_Bsq_surf=4.0, avg_Bsq_on_nabla_psisq_surf=1.0, eta_star_surf=1e-3, w_marg_surf=0.01,
+               avg_Bsq_surf=4.0, avg_dpsisq_surf=8.0, eta_star_surf=1e-3, w_marg_surf=0.01,
                wd_at_marg_surf=0.02, main_ion_mass=2.0, impurity_Z=6.0, impurity_mass=12.0) | over
     surf = {v: (('run_idx', 'nn', 'r'), np.full((n_runs, 1, 1), val[v])) for v in INPUTS if v.endswith('_surf')
             or v == 'm_rational'}
@@ -23,16 +23,13 @@ def _store(n_runs=1, **over):
 
 
 def test_timescales_by_hand():
-    """Seeding times from tau_A, tau_R; Callen's nu_e = Z_eff/tau_e, the banana electron damping time and its
-    low-collisionality limit, the ion damping time (B19 written out, at f_t/f_c = 1.46 sqrt(eps), where B12's nu* is
-    B7's); the seed pressure time in both conventions,
-    (3/2) w^2/(chi G)/(1 + (w/w_d)^4) and (3/32) w^2/(chi G)/(1 + (w/w_d)^4/64), and their perpendicular limits;
+    """Callen's banana electron damping time and its low-collisionality limit, the ion damping time (B19 written out,
+    at f_t/f_c = 1.46 sqrt(eps), where B12's nu* is B7's); the seed pressure time in both conventions, with
+    g2 = <|grad psi_N|^2> (not G = <B^2>/<B^2/|grad psi_N|^2>, here 4): (3/2) w^2/(chi g2)/(1 + (w/w_d)^4) and
+    (3/32) w^2/(chi g2)/(1 + (w/w_d)^4/64), and their perpendicular limits;
     beam-ion times NaN without a beam energy, finite with one."""
     one = lambda da: float(da.squeeze())  # noqa: E731
     ts = surface_timescales(_store())
-    assert np.isclose(one(ts.tau_SP_surf), 1e-6 ** 0.5 * 10 ** 0.5, rtol=1e-6)
-    assert np.isclose(one(ts.tau_AS13_surf), 1e-4 * 10 ** (1 / 3), rtol=1e-6)
-    assert np.isclose(one(ts.inv_nu_e_surf), 1e-5, rtol=1e-6)
     assert np.isclose(one(ts.inv_mu_e_banana_surf), 1e-5 / (1.5 * (1 + 0.533 / 2)), rtol=1e-4)
     rare = surface_timescales(_store(taue_surf=1e3))
     assert np.isclose(one(rare.inv_mu_e_surf), one(rare.inv_mu_e_banana_surf), rtol=1e-3)
@@ -45,12 +42,12 @@ def test_timescales_by_hand():
             / (1 + 1.18 * (2.4 * zs ** 2 + 5.32 * zs + 2.225) / ((zs + 0.707) * (4.25 * zs + 3.02)) * eps ** 1.5 * nus))
     assert np.isclose(one(b19.inv_mu_i_surf), 1 / mu_i, rtol=2e-3)              # B19 rounds Table I's coefficients
     assert np.isclose(one(b19.nustar_i_surf), nus, rtol=1e-6)
-    assert np.isclose(one(ts.tau_p_seed_SH_surf), 1.5 * 1e-4 / 4 / (1 + 1 / 16), rtol=1e-6)
-    assert np.isclose(one(ts.tau_p_seed_Fitz_surf), 1.5 / 16 * 1e-4 / 4 / (1 + 1 / 16 / 64), rtol=1e-6)
+    assert np.isclose(one(ts.tau_p_seed_SH_surf), 1.5 * 1e-4 / 8 / (1 + 1 / 16), rtol=1e-6)
+    assert np.isclose(one(ts.tau_p_seed_Fitz_surf), 1.5 / 16 * 1e-4 / 8 / (1 + 1 / 16 / 64), rtol=1e-6)
     assert np.isclose(one(ts.tau_eta_wmarg_surf), 0.1, rtol=1e-6)
     narrow = surface_timescales(_store(w_marg_surf=1e-4))
-    assert np.isclose(one(narrow.tau_p_seed_SH_surf), 1.5 * 1e-8 / 4, rtol=1e-6)
-    assert np.isclose(one(narrow.tau_p_seed_Fitz_surf), 1.5 / 16 * 1e-8 / 4, rtol=1e-6)
+    assert np.isclose(one(narrow.tau_p_seed_SH_surf), 1.5 * 1e-8 / 8, rtol=1e-6)
+    assert np.isclose(one(narrow.tau_p_seed_Fitz_surf), 1.5 / 16 * 1e-8 / 8, rtol=1e-6)
     assert np.isnan(one(ts.tau_th_fast_surf)) and np.isfinite(one(ts.tau_s_fast_surf))
     beam = surface_timescales(_store(), xr.DataArray([80.0], dims='run_idx'))
     assert 0 < one(beam.tau_th_fast_surf) < one(beam.tau_s_fast_surf) and np.isfinite(one(beam.tau_perp_fast_surf))

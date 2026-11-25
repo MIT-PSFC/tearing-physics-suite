@@ -2,8 +2,8 @@
 reruns). Sources: eq_stab claude_findings/fast_ion_times (fast_ion_times.md, tps_timescales_plan.md); tau_p_seed_*_surf:
 meta_plan derivations/TPS__seed-pressure-time.md; collisions: derivations/TPS__collision-times-callen.md. Times in s;
 the surface inputs are the store's (SI, T_e in keV, widths in psi_N), and eps_surf the geometric inverse aspect ratio
-(R_max - R_min)/(R_max + R_min) of analysis.shot_data.open_shot. The electron bootstrap response is ~1/nu_e
-(inv_nu_e_surf; García-Perciante et al. 2005, Eq. 41).
+(R_max - R_min)/(R_max + R_min) of analysis.shot_data.open_shot. The electron bootstrap response is ~tau_e (the store's
+taue_surf; García-Perciante et al. 2005, Eqs. 37, 41, 47: their nu_e = 1/tau_e).
 """
 import numpy as np
 import xarray as xr
@@ -16,7 +16,7 @@ K_B0 = 2 ** 0.5 - np.log(1 + 2 ** 0.5)               # Callen 2010 Table I: K^B_
 
 SURFACE_INPUTS = ('taua_surf', 'taur_surf', 'taue_surf', 'taui_surf', 'ftr_surf', 'fc_surf', 'Zeff_surf', 'm_rational',
                   'avg_R_surf', 'eps_surf', 'v_te_surf', 'v_ti_main_surf', 'te_keV_surf', 'ne_m3_surf', 'ni_m3_surf',
-                  'nimp_m3_surf', 'lnLamb_ei_surf', 'chi_perp_surf', 'avg_Bsq_surf', 'avg_Bsq_on_nabla_psisq_surf',
+                  'nimp_m3_surf', 'lnLamb_ei_surf', 'chi_perp_surf', 'avg_Bsq_surf', 'avg_dpsisq_surf',
                   'eta_star_surf', 'w_marg_surf', 'wd_at_marg_surf')
 INPUTS = SURFACE_INPUTS + ('main_ion_mass', 'impurity_Z', 'impurity_mass')
 OPTIONAL_INPUTS = ('avg_bdotgradB_sq_surf',)      # RDCON's <(b.grad B)^2> (GPEC 355b87c8); Callen's form where absent
@@ -55,11 +55,12 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
         bgradb = (ds['avg_bdotgradB_sq_surf'].astype('f8') / s['avg_Bsq_surf']).fillna(bgradb)
     def nus_b12(nu, v_t):
         return ft_on_fc / 2.92 * nu / (v_t * rq) / bgradb
-    # Seed pressure settling time (TPS__seed-pressure-time.md); G = <B^2>/<B^2/|grad psi_N|^2> [psi_N^2/m^2]. Two
+    # Seed pressure settling time (TPS__seed-pressure-time.md), with <|grad psi_N|^2> [1/m^2], the flux-surface average of
+    # the cross-field heat flux q.grad psi_N = -n chi |grad psi_N|^2 dT/dpsi_N (as Schlutt & Hegna's operator). Two
     # conventions for the island scales: Schlutt & Hegna 2012 (k_perp = 1/w; parallel/perpendicular = (w/w_d)^4) and
     # Fitzpatrick 2023 (k_perp = 4/w, Eq. 8.84; ratio (w/W_T)^4 with W_T = sqrt(8) w_d, Eq. 14.203)
     w, wd = s['w_marg_surf'], s['wd_at_marg_surf']
-    chi_G = s['chi_perp_surf'] * s['avg_Bsq_surf'] / s['avg_Bsq_on_nabla_psisq_surf']
+    chi_g2 = s['chi_perp_surf'] * s['avg_dpsisq_surf']
     # Beam ions: Stix slowing down, critical energy, thermalisation (as IMAS.jl physics/fast.jl); NRL Formulary p. 32
     # 90-degree scattering (fast on ions, slow on electrons), with the p. 35 beam-ion Coulomb logarithm
     # (counterstreaming ions, T_i/m_i < v_b^2 < T_e/m_e). T_e and energies in eV, densities in cm^-3.
@@ -76,17 +77,14 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
     nu_perp = (1.8e-7 * BEAM_Z ** 2 * beam_mass ** -0.5 * e_b ** -1.5 * z2n_lam
                + 3.2e-9 * BEAM_Z ** 2 / beam_mass * te ** -0.5 / e_b * ne * lnl)
     out = dict(
-        tau_AS13_surf=taua ** (2 / 3) * taur ** (1 / 3),             # Hegna et al., defined between Eqs. 21 and 22
-        tau_SP_surf=(taua * taur) ** 0.5,                             # Hegna et al., defined below Eq. 23
         tau_FKR_surf=taur ** 0.6 * taua ** 0.4 * s['m_rational'] ** -1.2 * FKR,  # Hegna et al. Eq. 27
         nustar_e_surf=eps ** -1.5 * rq * nu_e / v_te, nustar_i_surf=eps ** -1.5 * rq * nu_i / v_ti,
-        inv_nu_e_surf=1 / nu_e,
         inv_mu_e_banana_surf=1 / (nu_e * ft_on_fc * (1 + K_B0 / zeff)),
         inv_mu_e_surf=1 / callen_mu(nu_e, nus_b12(nu_e, v_te), ft_on_fc, zeff, zeff, v_te / rq),
         inv_mu_i_surf=1 / callen_mu(nu_i, nus_b12(nu_i, v_ti), ft_on_fc, zstar, zstar + 2 ** -0.5, v_ti / rq),
         tau_eta_wmarg_surf=w ** 2 / s['eta_star_surf'],
-        tau_p_seed_SH_surf=1.5 * w ** 2 / chi_G / (1 + (w / wd) ** 4),
-        tau_p_seed_Fitz_surf=1.5 * (w / 4) ** 2 / chi_G / (1 + (w / wd) ** 4 / 64),
+        tau_p_seed_SH_surf=1.5 * w ** 2 / chi_g2 / (1 + (w / wd) ** 4),
+        tau_p_seed_Fitz_surf=1.5 * (w / 4) ** 2 / chi_g2 / (1 + (w / wd) ** 4 / 64),
         tau_s_fast_surf=tau_s, E_c_surf=e_c / 1e3,
         tau_th_fast_surf=tau_s / 3 * np.log1p((e_b / e_c) ** 1.5), tau_perp_fast_surf=1 / nu_perp,
         e_beam_keV=e_b / 1e3)

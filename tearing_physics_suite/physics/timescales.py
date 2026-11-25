@@ -35,7 +35,8 @@ def callen_mu(nu, nus, ft_on_fc, z, nu_tau, wt):
 
 
 def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
-    """The timescales on ds's surface grid (run_idx, nn, r; w_marg's dims for the width-dependent ones).
+    """The timescales on ds's surface grid (run_idx, nn, r; Delta_prime_surf's or w_marg's dims for the ones that
+    depend on them).
     e_beam_keV: the beam injection energy per run (on run_idx, NaN where unknown); None gives NaN beam-ion
     thermalisation and scattering times. beam_mass: beam ion mass in amu."""
     s = {v: ds[v].astype('f8') for v in INPUTS}
@@ -69,7 +70,7 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
     x0 = (taua / taur) ** (1 / 3)
     p1 = np.sqrt(-s['Di_surf'])
     a = 2 * p1 - 1
-    dp = abs(s['Delta_prime_surf'].sel(code='stride', Delta_prime_type='single helicity'))
+    dp = abs(s['Delta_prime_surf'])                                            # every code and Delta' type, as w_marg
     q_fkr = (C_FKR * dp * 2 * p1 * x0 * (x0 / 2) ** a) ** (4 / (5 - a))
     q_fkr_proxy = (C_FKR * 2 * s['m_rational'] / (s['avg_r_surf'] * s['avg_nabla_psi_surf']) * x0) ** 0.8
     # Beam ions: Stix slowing down, critical energy, thermalisation (as IMAS.jl physics/fast.jl); NRL Formulary p. 32

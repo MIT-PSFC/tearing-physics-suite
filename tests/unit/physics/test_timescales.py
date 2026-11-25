@@ -20,9 +20,10 @@ def _store(n_runs=1, **over):
     surf = {v: (('run_idx', 'nn', 'r'), np.full((n_runs, 1, 1), val[v])) for v in INPUTS if v.endswith('_surf')
             or v == 'm_rational'}
     surf['Delta_prime_surf'] = (('run_idx', 'nn', 'Delta_prime_type', 'code', 'r'),
-                                np.full((n_runs, 1, 1, 1, 1), val['Delta_prime_surf']))
+                                np.full((n_runs, 1, 2, 2, 1), val['Delta_prime_surf']))
     runs = {v: ('run_idx', np.full(n_runs, val[v])) for v in INPUTS if v not in surf}
-    return xr.Dataset(surf | runs, coords=dict(nn=[2], Delta_prime_type=['single helicity'], code=['stride']))
+    return xr.Dataset(surf | runs, coords=dict(nn=[2], Delta_prime_type=['single helicity', 'coupled'],
+                                               code=['stride', 'rdcon']))
 
 
 def test_timescales_by_hand():
@@ -76,10 +77,11 @@ def test_fkr_time_ggj_layer():
     c, taua, taur = gamma(0.25) / (2 * np.pi * gamma(0.75)), 1e-6, 10.0
     fkr = lambda dp: taua ** 0.4 * taur ** 0.6 / (c * dp) ** 0.8  # noqa: E731
     ts = surface_timescales(_store())
-    assert np.isclose(one(ts.tau_FKR_surf), fkr(6.0), rtol=1e-6)
+    assert ts.tau_FKR_surf.sizes['code'] == 2 and ts.tau_FKR_surf.sizes['Delta_prime_type'] == 2   # per code, as w_marg
+    assert np.allclose(ts.tau_FKR_surf, fkr(6.0), rtol=1e-6)
     assert np.isclose(one(ts.tau_FKR_proxy_surf), fkr(10.0), rtol=1e-6)
     p1, x0 = 0.2 ** 0.5, (taua / taur) ** (1 / 3)
-    q = taua / (x0 * one(surface_timescales(_store(Di_surf=-0.2)).tau_FKR_surf))
+    q = taua / (x0 * float(surface_timescales(_store(Di_surf=-0.2)).tau_FKR_surf.max()))
     assert np.isclose(6.0 * (x0 * q ** 0.25 / 2) ** (2 * p1 - 1) * 2 * p1 * x0, q ** 1.25 / c, rtol=1e-6)
 
 

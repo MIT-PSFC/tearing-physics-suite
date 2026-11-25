@@ -15,11 +15,14 @@ def _store(n_runs=1, **over):
                m_rational=3, avg_R_surf=1.7, eps_surf=0.25, v_te_surf=2.6e7, v_ti_main_surf=4e5, te_keV_surf=2.0,
                ne_m3_surf=5e19, ni_m3_surf=4e19, nimp_m3_surf=1e18, lnLamb_ei_surf=17.0, chi_perp_surf=1.0,
                avg_Bsq_surf=4.0, avg_dpsisq_surf=8.0, eta_star_surf=1e-3, w_marg_surf=0.01,
-               wd_at_marg_surf=0.02, main_ion_mass=2.0, impurity_Z=6.0, impurity_mass=12.0) | over
+               wd_at_marg_surf=0.02, Delta_prime_surf=-6.0, Di_surf=-0.25, avg_r_surf=0.3, avg_nabla_psi_surf=2.0,
+               main_ion_mass=2.0, impurity_Z=6.0, impurity_mass=12.0) | over
     surf = {v: (('run_idx', 'nn', 'r'), np.full((n_runs, 1, 1), val[v])) for v in INPUTS if v.endswith('_surf')
             or v == 'm_rational'}
+    surf['Delta_prime_surf'] = (('run_idx', 'nn', 'Delta_prime_type', 'code', 'r'),
+                                np.full((n_runs, 1, 1, 1, 1), val['Delta_prime_surf']))
     runs = {v: ('run_idx', np.full(n_runs, val[v])) for v in INPUTS if v not in surf}
-    return xr.Dataset(surf | runs, coords=dict(nn=[2]))
+    return xr.Dataset(surf | runs, coords=dict(nn=[2], Delta_prime_type=['single helicity'], code=['stride']))
 
 
 def test_timescales_by_hand():
@@ -30,6 +33,7 @@ def test_timescales_by_hand():
     beam-ion times NaN without a beam energy, finite with one."""
     one = lambda da: float(da.squeeze())  # noqa: E731
     ts = surface_timescales(_store())
+    assert np.isclose(one(ts.inv_nubar_e_surf), 2e-5 / (2 + 0.53284), rtol=1e-4)
     assert np.isclose(one(ts.inv_mu_e_banana_surf), 1e-5 / (1.5 * (1 + 0.533 / 2)), rtol=1e-4)
     rare = surface_timescales(_store(taue_surf=1e3))
     assert np.isclose(one(rare.inv_mu_e_surf), one(rare.inv_mu_e_banana_surf), rtol=1e-3)
@@ -60,6 +64,23 @@ def test_mu_plateau_limit_independent_of_trapped_fraction():
     mu = [1 / float(surface_timescales(_store(eps_surf=1e-4, taue_surf=2 / 150, ftr_surf=f, fc_surf=1 - f))
                     .inv_mu_e_surf.squeeze()) for f in (0.5, 2 / 3)]
     np.testing.assert_allclose(mu, np.pi ** 0.5 * 2.6e7 * 1e-8 / (2 * 1.7 * 1.5), rtol=0.02)
+
+
+def test_fkr_time_ggj_layer():
+    """At D_I = -1/4 the FKR time is tau_A^(2/5) tau_R^(3/5) (2 pi Gamma(3/4)/(Gamma(1/4) |Delta'|))^(4/5); Hegna's
+    proxy |Delta'| = 2m/(r_s <|grad psi_N|>) (here 10) gives the same with that Delta'. At D_I = -0.2 GPEC's Delta'
+    is taken at the layer width X0 Q^(1/4), so with Q from the self-consistent solve, Delta' (w/2)^(2 p1 - 1) 2 p1 X0
+    = Q^(5/4)/C."""
+    from scipy.special import gamma
+    one = lambda da: float(da.squeeze())  # noqa: E731
+    c, taua, taur = gamma(0.25) / (2 * np.pi * gamma(0.75)), 1e-6, 10.0
+    fkr = lambda dp: taua ** 0.4 * taur ** 0.6 / (c * dp) ** 0.8  # noqa: E731
+    ts = surface_timescales(_store())
+    assert np.isclose(one(ts.tau_FKR_surf), fkr(6.0), rtol=1e-6)
+    assert np.isclose(one(ts.tau_FKR_proxy_surf), fkr(10.0), rtol=1e-6)
+    p1, x0 = 0.2 ** 0.5, (taua / taur) ** (1 / 3)
+    q = taua / (x0 * one(surface_timescales(_store(Di_surf=-0.2)).tau_FKR_surf))
+    assert np.isclose(6.0 * (x0 * q ** 0.25 / 2) ** (2 * p1 - 1) * 2 * p1 * x0, q ** 1.25 / c, rtol=1e-6)
 
 
 def test_mu_uses_rdcon_bdotgradb_where_present():

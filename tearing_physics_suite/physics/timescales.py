@@ -19,6 +19,7 @@ SURFACE_INPUTS = ('taua_surf', 'taur_surf', 'taue_surf', 'taui_surf', 'ftr_surf'
                   'nimp_m3_surf', 'lnLamb_ei_surf', 'chi_perp_surf', 'avg_Bsq_surf', 'avg_Bsq_on_nabla_psisq_surf',
                   'eta_star_surf', 'w_marg_surf', 'wd_at_marg_surf')
 INPUTS = SURFACE_INPUTS + ('main_ion_mass', 'impurity_Z', 'impurity_mass')
+OPTIONAL_INPUTS = ('avg_bdotgradB_sq_surf',)      # RDCON's <(b.grad B)^2> (GPEC 355b87c8); Callen's form where absent
 
 
 def callen_mu(nu, nus, ft_on_fc, z, nu_tau, wt):
@@ -42,14 +43,16 @@ def surface_timescales(ds, e_beam_keV=None, beam_mass=2.0):
     eps, rq = s['eps_surf'], s['avg_R_surf'] * q
     # Callen 2010: nu_e = Z_eff/tau_ee (A9; taue_surf is tau_ee), nu_i (A14; taui_surf's field density is Z_eff n_e).
     # nustar_*: the regime parameter nu R q/(eps^3/2 v_T), v_T = sqrt(2T/m) (B7). mu: the general nu* (B12) with the
-    # same f_t/f_c as mu's numerator, so that it cancels in the plateau and Pfirsch-Schlueter limits, and
-    # <(b.grad B)^2>/<B^2> = eps^2/(2 R^2 q^2) (Callen p. 19)
+    # same f_t/f_c as mu's numerator, so that it cancels in the plateau and Pfirsch-Schlueter limits, and RDCON's
+    # <(b.grad B)^2>/<B^2>, else Callen's eps^2/(2 R^2 q^2) (p. 19)
     zeff, zstar = s['Zeff_surf'], s['impurity_Z'] ** 2 * s['nimp_m3_surf'] / s['ni_m3_surf']
     nu_e = zeff / taue
     nu_i = (s['ni_m3_surf'] + 2 ** 0.5 * s['impurity_Z'] ** 2 * s['nimp_m3_surf']) / (zeff * s['ne_m3_surf'] * taui)
     v_te, v_ti = s['v_te_surf'], s['v_ti_main_surf']
     ft_on_fc = s['ftr_surf'] / s['fc_surf']
     bgradb = eps ** 2 / (2 * rq ** 2)                                          # <(b.grad B)^2>/<B^2>
+    if 'avg_bdotgradB_sq_surf' in ds:
+        bgradb = (ds['avg_bdotgradB_sq_surf'].astype('f8') / s['avg_Bsq_surf']).fillna(bgradb)
     def nus_b12(nu, v_t):
         return ft_on_fc / 2.92 * nu / (v_t * rq) / bgradb
     # Seed pressure settling time (TPS__seed-pressure-time.md); G = <B^2>/<B^2/|grad psi_N|^2> [psi_N^2/m^2]. Two

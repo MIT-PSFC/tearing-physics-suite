@@ -21,6 +21,8 @@ _RAW_TO_SURF = {
     'avg_Rsq': 'avg_Rsq_surf', 'avg_1': 'avg_Bsq_on_nabla_psisq_surf', 'avg_5': 'avg_Bsq_surf',
     'avg_7': 'avg_dpsisq_surf',
 }
+# written only by newer RDCON builds (GPEC 355b87c8): on the surfaces when present
+_RAW_TO_SURF_OPTIONAL = {'avg_bdotgradB_sq': 'avg_bdotgradB_sq_surf'}
 
 
 def mre_raw_interp(rdcon_xarray):
@@ -43,13 +45,14 @@ def mre_raw_interp(rdcon_xarray):
     #########################################################################################################
     # Put mre terms onto surfaces:
     #########################################################################################################
-    surf = interp_to_surfaces(rdcon_xarray, _RAW_TO_SURF)
+    names = _RAW_TO_SURF | {k: v for k, v in _RAW_TO_SURF_OPTIONAL.items() if k in rdcon_xarray}
+    surf = interp_to_surfaces(rdcon_xarray, names)
     # Zeff gets special treatment:
     Zeff_surf = zeff_spline(rdcon_xarray)(rdcon_xarray['psi_n_rational'].values)
     #########################################################################################################
     # Load these surface values into the xarray:
     #########################################################################################################
-    rdcon_xarray = rdcon_xarray.assign(**{_RAW_TO_SURF[k]: v for k, v in surf.items()},
+    rdcon_xarray = rdcon_xarray.assign(**{names[k]: v for k, v in surf.items()},
                                        Zeff_surf=like(Zeff_surf, rdcon_xarray['psi_n_rational']))
     rdcon_xarray = rdcon_xarray.assign(fc_surf = 1-rdcon_xarray['ftr_surf'])
     return rdcon_xarray

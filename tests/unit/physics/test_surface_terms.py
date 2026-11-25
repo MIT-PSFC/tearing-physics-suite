@@ -137,3 +137,12 @@ def test_decorrelation_labelled_surfaces_and_axis(rdcon_surface_terms):
     np.testing.assert_array_equal(t.sel(psi_surf_of_interest='0.0'), ref['omega_i_tdecorr_psisurf'].sel(psi_surf_of_interest=lo))
     assert t.sel(psi_surf_of_interest='psi_n_sawtooth').isnull().all()
     np.testing.assert_array_equal(out.psi_n_of_interest, [lo, np.nan])
+
+
+def test_bdotgradb_on_surfaces_only_when_rdcon_writes_it(code_fixture):
+    """avg_bdotgradB_sq (newer RDCON) reaches the surfaces; older RDCON outputs go through without it."""
+    from tearing_physics_suite.physics.surface_terms import mre_raw_interp
+    raw = code_fixture('rdcon')
+    assert 'avg_bdotgradB_sq_surf' not in mre_raw_interp(raw)
+    surf = mre_raw_interp(raw.assign(avg_bdotgradB_sq=raw['avg_5'] * 0 + 2.0))['avg_bdotgradB_sq_surf']
+    np.testing.assert_allclose(surf.values[np.isfinite(surf.values)], 2.0, rtol=1e-12)

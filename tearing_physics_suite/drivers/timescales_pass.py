@@ -22,7 +22,7 @@ import xarray as xr
 
 from tearing_physics_suite.analysis.shot_data import open_shot
 from tearing_physics_suite.drivers import parallel
-from tearing_physics_suite.physics.timescales import INPUTS, surface_timescales
+from tearing_physics_suite.physics.timescales import INPUTS, OPTIONAL_INPUTS, surface_timescales
 
 
 def shot_store(study, shot):
@@ -55,7 +55,7 @@ def write_shot(study, shot, table=None, force=False):
     path, main = shot_store(study, shot), parallel.shot_store(study, shot)
     if not (os.path.exists(main) or os.path.exists(main + '.zip')) or (os.path.exists(path) and not force):
         return None
-    ds = open_shot(study, shot, variables=list(INPUTS) + ['case_key']).load()
+    ds = open_shot(study, shot, variables=list(INPUTS + OPTIONAL_INPUTS) + ['case_key']).load()
     if 'eps_surf' not in ds:                        # no i-file eps in the main or ideal store: NaN nu* and mu
         ds = ds.assign(eps_surf=xr.full_like(ds['avg_R_surf'], np.nan))
     e_b = ds['t_ms'].copy(data=e_beam_at(table or {}, shot, ds['t_ms'].values))

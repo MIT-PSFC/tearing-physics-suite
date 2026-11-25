@@ -65,6 +65,18 @@ def test_mu_plateau_limit_independent_of_trapped_fraction():
     np.testing.assert_allclose(mu, np.pi ** 0.5 * 2.6e7 * 1e-8 / (2 * 1.7 * 1.5), rtol=0.02)
 
 
+def test_mu_uses_rdcon_bdotgradb_where_present():
+    """RDCON's <(b.grad B)^2> replaces Callen's eps^2/(2 R^2 q^2) inside mu: at Callen's value, or NaN, mu is
+    unchanged; doubled, the plateau mu_e doubles."""
+    plateau = dict(eps_surf=1e-4, taue_surf=2 / 150)
+    callen = 4.0 * 1e-8 / (2 * (1.7 * 1.5) ** 2)                                # <B^2> eps^2/(2 R^2 q^2)
+    mu = lambda bgb: 1 / float(surface_timescales(_store(**plateau).assign(  # noqa: E731
+        avg_bdotgradB_sq_surf=(('run_idx', 'nn', 'r'), [[[bgb]]]))).inv_mu_e_surf.squeeze())
+    ref = 1 / float(surface_timescales(_store(**plateau)).inv_mu_e_surf.squeeze())
+    np.testing.assert_allclose([mu(callen), mu(np.nan)], ref, rtol=1e-12)
+    np.testing.assert_allclose(mu(2 * callen), 2 * ref, rtol=0.03)
+
+
 def test_pass_store_joined_by_open_shot(tmp_path):
     """The pass writes <shot>_timescales.zarr with each run's beam energy at its t_ms (NaN off the table) and eps
     from the study's i-file eps at the rational surfaces; open_shot joins it by case_key; a present store is skipped

@@ -49,6 +49,19 @@ def test_rdcon_only_variables_have_no_code_dim(monkeypatch, code_fixture, kin_fi
     assert all('code' not in no_stride[v].dims for v in moved)  # fixed by name: the same when STRIDE fails
 
 
+def test_rdcon_off_keeps_its_surface_pass(monkeypatch):
+    """run_rdcon=False means no RDCON Delta': RDCON still runs its fast surface pass, which the MRE needs."""
+    seen = {}
+
+    def fake_run(eq, nn, **kwargs):
+        seen.update(kwargs)
+        raise _Stop
+    monkeypatch.setattr(pl, 'run_resistive_calculation', fake_run)
+    with pytest.raises(_Stop):
+        pl.analyse_with_mre('eq', 1, 'ni', 'ne', 'te', 'ti', energy_confinement_time=0.1, run_rdcon=False)
+    assert seen['run_rdcon'] is True and seen['rdcon_delta_prime'] is False
+
+
 def test_nonlinear_forwards_resistivity_settings(monkeypatch):
     seen = {}
 

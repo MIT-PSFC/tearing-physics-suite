@@ -53,7 +53,8 @@ from tearing_physics_suite.utils import (
 )
 
 DEFAULTS = dict(
-    tps_kwargs={},              # nonlinear_resistive_calculation kwargs (nvec, run_stride, run_jgpec, vac_flag, ...)
+    tps_kwargs={},              # nonlinear_resistive_calculation kwargs (nvec, run_stride, run_jgpec, vac_flag, ...);
+                                # run_rdcon false = no RDCON Delta' (its surface pass for the MRE always runs)
     variants=['base'],          # bouquet variants to run
     selection='selected',       # 'selected' | 'all' draws of each archive
     eq_source='geqdsk',         # 'geqdsk' | 'ifile'
@@ -217,6 +218,8 @@ def cmd_init(a):
         raise SystemExit(f'unknown config keys {sorted(unknown)}')
     if cfg['tau_e']:
         tau_e_lookup(cfg['tau_e'])                       # fail now, not in every work item
+    if not study_codes(cfg['tps_kwargs']):
+        raise SystemExit("tps_kwargs: no code computes Delta' (run_rdcon, run_stride, run_pest3, run_jgpec all off)")
     spot_config(cfg)
     code_check_config(cfg)
     cfg['hash'] = hashlib.sha256(json.dumps(cfg, sort_keys=True, default=str).encode()).hexdigest()[:12]
@@ -230,9 +233,13 @@ def cmd_init(a):
 
 
 def check_build(cfg, allow_drift=False):
-    """Refuse to run on a build other than the one the study was initialised with; returns the build's versions."""
+    """Refuse to run on a build other than the one the study was initialised with (jGPEC only when the study runs
+    it); returns the build's versions."""
     now, then = versions(), cfg.get('versions', {})
-    drift = {k: (then.get(k), v) for k, v in now.items() if v and then.get(k) and v != then.get(k)}
+    from tearing_physics_suite.physics.combine import JGPEC_CODES
+    julia = set(JGPEC_CODES) & set(study_codes(cfg['tps_kwargs'], (cfg.get('code_check') or {}).get('codes', ())))
+    drift = {k: (then.get(k), v) for k, v in now.items()
+             if v and then.get(k) and v != then.get(k) and (julia or k != 'jgpec')}
     if drift and not allow_drift:
         raise fq.Broken(f'build differs from the study config: {drift} (--allow-build-drift to run anyway)')
     return now
@@ -703,6 +710,20 @@ def run_draws(cfg, it, ddir, states, todo, kwargs, case, spot=None, sfx='', flag
         shutil.rmtree(wd, ignore_errors=True)
 
 
+def _keep_outputs(wd, kept):
+    """Move the code outputs (.nc, .h5) under wd to kept, a draw that failed after some codes finished; returns their
+    paths relative to kept."""
+    out = []
+    for root, _, files in os.walk(wd):
+        for f in files:
+            if f.endswith(('.nc', '.h5')):
+                rel = os.path.relpath(os.path.join(root, f), wd)
+                os.makedirs(os.path.dirname(os.path.join(kept, rel)), exist_ok=True)
+                shutil.move(os.path.join(root, f), os.path.join(kept, rel))
+                out.append(rel)
+    return sorted(out)
+
+
 def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None, sfx='', flag=None):
     c = prof['bq_count']
     key = f"{it['unit_id']}_{c}"
@@ -746,6 +767,11 @@ def _run_draw(it, cfg, kwargs, ddir, eq, prof, attempt, wd, run_case, spot=None,
             raise
         rec.update(status='error', error=_err(e))
     finally:
+        kept = os.path.join(ddir, f'{c}{sfx}.kept')
+        if rec.get('status') in ('error', 'timeout') and (out := _keep_outputs(wd, kept)):   # finished codes' output
+            rec['kept'] = out
+        elif rec.get('status') == 'ok':
+            shutil.rmtree(kept, ignore_errors=True)
         for f in os.listdir(wd):
             p = os.path.join(wd, f)
             shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else os.remove(p)

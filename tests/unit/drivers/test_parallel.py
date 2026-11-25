@@ -463,6 +463,38 @@ def test_build_drift(study, monkeypatch):
     with pytest.raises(fq.Broken, match='build differs'):
         st.check_build(cfg)
     st.check_build(cfg, allow_drift=True)
+    monkeypatch.setattr(st, 'versions', lambda: dict(tps='v1', gpec=None, jgpec='j2'))
+    st.check_build(dict(cfg, versions=dict(tps='v1', jgpec='j1')))          # Julia not run: its build is not checked
+    with pytest.raises(fq.Broken, match='jgpec'):
+        st.check_build(dict(cfg, versions=dict(tps='v1', jgpec='j1'), tps_kwargs=dict(run_jgpec=True)))
+
+
+def test_init_refuses_a_config_without_delta_prime(tmp_path):
+    """A study must compute Delta' with some code; run_rdcon false alone is fine (STRIDE's Delta', RDCON's surface
+    pass)."""
+    cfg = tmp_path / 'c.json'
+    cfg.write_text(json.dumps(dict(tps_kwargs=dict(run_rdcon=False, run_stride=False, run_pest3=False))))
+    with pytest.raises(SystemExit, match="no code computes Delta'"):
+        st.main(['init', '--study', str(tmp_path / 's1'), '--config', str(cfg)])
+    cfg.write_text(json.dumps(dict(tps_kwargs=dict(run_rdcon=False, run_pest3=False))))
+    st.main(['init', '--study', str(tmp_path / 's2'), '--config', str(cfg)])
+
+
+def test_failed_draw_keeps_finished_code_output(study, monkeypatch):
+    """A draw that errors after a code finished keeps that code's output in draws/<count>.kept."""
+    uid = _record(study, 100, 1500, selected=(0, 1))
+    st.feed(study)
+    _fake_pipeline(monkeypatch, {})
+
+    def run_case(eq, prof, kwargs, wd, nc_path, **kw):
+        os.makedirs(os.path.join(wd, 'stride'), exist_ok=True)
+        xr.Dataset({'Delta_prime': ((), 1.0)}).to_netcdf(os.path.join(wd, 'stride', 'stride_output_n1.nc'))
+        raise RuntimeError('RDCON did not run for n=1')
+    monkeypatch.setattr(multi_run, 'run_case', run_case)
+    st.run_item(study, f'{uid}.c0')
+    rec = _status(study, uid, 0)
+    assert rec['status'] == 'error' and rec['kept'] == ['stride/stride_output_n1.nc']
+    assert os.path.isfile(os.path.join(study, '100', 'tps', uid, 'draws', '0.kept', 'stride', 'stride_output_n1.nc'))
 
 
 def test_run_provenance(study, monkeypatch):

@@ -486,6 +486,8 @@ def analyse_with_mre(eq_filename, nn, ni_spline, ne_spline, te_keV_spline, ti_ke
     #########################################################################################################
     # Run resistive delta prime calculation:
     #########################################################################################################
+    if not kwargs.get('run_rdcon', True):        # no RDCON Delta' (e.g. STRIDE only): its fast surface pass still runs
+        kwargs = dict(kwargs, run_rdcon=True, rdcon_delta_prime=False)
     res = run_resistive_calculation(eq_filename,nn,**kwargs)
     rdcon_xr = res.rdcon_xr
     if rdcon_xr is None:

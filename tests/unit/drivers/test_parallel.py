@@ -929,6 +929,16 @@ def test_work_feed_extra(study, monkeypatch):
     assert seen == [1, 25]
 
 
+def test_random_only_work(study, monkeypatch):
+    """work --random-only: a code-check session that claims feed --random-only's items alone and feeds nothing."""
+    seen = {}
+    monkeypatch.setattr(st.fq, 'launch', lambda root, *a, accept=None, on_idle=None, **k: seen.update(
+        root=root, accept=accept, on_idle=on_idle) or {})
+    st.main(['work', '--study', study, '--random-only', '--workers', '1', '--no-compile'])
+    assert seen['root'] == st.qroot(study, code_check=True) and seen['on_idle'] is None
+    assert seen['accept'](dict(random_only=True)) and not seen['accept'](dict(reason='flagged'))
+
+
 def test_memory_classes(study, monkeypatch):
     """Each item carries its predicted peak (a fill: STRIDE at its lost n; a check: RDCON's Delta' at its n) and is
     fed by priority within its memory class; a session takes only the items that fit it, and refuses a run that

@@ -996,17 +996,25 @@ def _fits_session(study, mem_gib, it):
     return _mem_class(need, classes) <= mem_gib if classes else fits_memory(need, mem_gib)
 
 
+def _session_accept(study, mem_gib, random_only, it):
+    """fsqueue accept for a code-check session: with random_only, feed --random-only's items alone; with mem_gib, those
+    that fit it (_fits_session)."""
+    return (not random_only or it.get('random_only', False)) and (not mem_gib or _fits_session(study, mem_gib, it))
+
+
 def cmd_work(a):
     d = fq.JobDeadline(a.margin)              # re-read: Slurm raises a --time-min job's limit after it starts
     print(f'work: {a.workers} worker(s) on {socket.gethostname()}, deadline now {time.ctime(d()) if d() else "none"}',
           flush=True)
     if a.mem_gib:                             # the codes' memory check (utils.fits_memory), in the workers' children
         os.environ['TPS_MEM_GIB'] = str(a.mem_gib)
-    accept = functools.partial(_fits_session, a.study, a.mem_gib) if a.code_check and a.mem_gib else None
+    a.code_check = a.code_check or a.random_only       # random_only items are code checks
+    accept = functools.partial(_session_accept, a.study, a.mem_gib, a.random_only) \
+        if a.code_check and (a.mem_gib or a.random_only) else None
     out = fq.launch(qroot(a.study, a.code_check), a.workers, Runner(a), deadline=d, idle_exit_s=a.idle_exit,
                     accept=accept,
                     on_idle=Feeder(a.study, a.feed_every, a.code_check, a.feed_extra or a.workers, a.mem_gib)
-                    if a.feed_every else None)
+                    if a.feed_every and not a.random_only else None)
     for w, why in sorted(out.items()):
         print(f'  {w}: {why}', flush=True)
     if not a.no_compile:          # catch draws that finished while their shot was being compiled
@@ -1392,6 +1400,8 @@ def main(argv=None):
     p.add_argument('--feed-every', type=float, default=300, help='s; 0: no feeding from workers')
     p.add_argument('--feed-extra', type=int, help="code checks: extra draws a feed adds (default --workers); one feed "
                    "reads every draw's status, so with many 1-worker sessions a feed should serve them all")
+    p.add_argument('--random-only', action='store_true', help="code checks: claim feed --random-only's items alone and "
+                   "feed nothing, so the workers stop (--idle-exit) when none is left")
     p.add_argument('--allow-build-drift', action='store_true')
     p.add_argument('--no-compile', action='store_true', help="don't compile a shot's store when its items finish")
     p.add_argument('--mem-gib', type=float, default=float(os.environ.get('TPS_MEM_GIB') or 0) or None,

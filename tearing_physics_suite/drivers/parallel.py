@@ -1079,8 +1079,9 @@ def _awaits_fill(nc_path, rec):
             and not _draw_state(nc_path[:-len('.nc')] + '.fill.json')[0])
 
 
-# Variables only some draws carry, NaN in the others: STRIDE's zero-crossing count (calc_nzero 't', ledger C-12)
-OPTIONAL_VARS = {'nzero': ('nn', 'code')}
+# Variables only some draws carry, NaN in the others: STRIDE's zero-crossing count (calc_nzero 't', ledger C-12) and
+# RDCON's <(b.grad B)^2> on psi_n and the surfaces (GPEC 67924e91 on)
+OPTIONAL_VARS = {'nzero': ('nn', 'code'), 'avg_bdotgradB_sq': ('nn', 'psi_n'), 'avg_bdotgradB_sq_surf': ('nn', 'r')}
 
 
 def _fit_optional(dsets, zpath):

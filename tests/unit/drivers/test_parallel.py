@@ -101,8 +101,9 @@ def _fake_pipeline(monkeypatch, behaviour):
         ds = _run_dataset(prof['bq_count'])
         if prof['bq_count'] == 1:                         # a draw where STRIDE did not run
             ds = ds.sel(code=['rdcon'])
-        if b == 'nzero':                                  # STRIDE run with calc_nzero
+        if b == 'nzero':                                  # STRIDE run with calc_nzero, RDCON with <(b.grad B)^2>
             ds['nzero'] = (('code', 'nn'), [[np.nan], [2.0]])
+            ds['avg_bdotgradB_sq_surf'] = (('nn', 'r'), np.full((ds.sizes['nn'], ds.sizes['r']), 3.0))
         if b in ('killed', 'skipped'):
             for lost in (CODE_KILLED, CODE_SKIPPED) if b == 'skipped' else (CODE_KILLED,):
                 lost['stride'] = [1]
@@ -233,7 +234,8 @@ def test_run_case_eps(tmp_path, monkeypatch):
 
 
 def test_compile_optional_nzero(study, monkeypatch):
-    """Draws with STRIDE's nzero join a store compiled without it (C-12): NaN for the runs without, none broken."""
+    """Draws with STRIDE's nzero (C-12) or RDCON's <(b.grad B)^2> join a store compiled without them: NaN for the runs
+    without, none broken."""
     uid = _record(study, 100, 1500, selected=(0, 1, 2, 3))
     st.feed(study)
     _fake_pipeline(monkeypatch, {2: 'nzero'})
@@ -245,6 +247,7 @@ def test_compile_optional_nzero(study, monkeypatch):
     ds = xr.open_zarr(st.shot_store(study, 100)).load()
     np.testing.assert_array_equal(ds.nzero.sel(nn=1, code='stride').values, [np.nan, np.nan, 2, np.nan])
     assert ds.nzero.dims == ('run_idx', 'nn', 'code')
+    np.testing.assert_array_equal(ds.avg_bdotgradB_sq_surf.isel(nn=0, r=0).values, [np.nan, np.nan, 3, np.nan])
 
 
 def test_compile_repairs_an_interrupted_append(study, monkeypatch):

@@ -99,8 +99,8 @@ def test_mu_uses_rdcon_bdotgradb_where_present():
 
 def test_pass_store_joined_by_open_shot(tmp_path):
     """The pass writes <shot>_timescales.zarr with each run's beam energy at its t_ms (NaN off the table) and eps
-    from the study's i-file eps at the rational surfaces; open_shot joins it by case_key; a present store is skipped
-    unless forced."""
+    from the study's i-file eps at the rational surfaces; open_shot joins it by case_key; a store from this TPS with
+    every run is skipped unless forced, one from another TPS or missing runs is rewritten."""
     from tearing_physics_suite.analysis.shot_data import open_shot
     keys = np.array(['u_0', 'u_1'], dtype=object)
     main = _store(2).drop_vars('eps_surf').assign(
@@ -120,3 +120,7 @@ def test_pass_store_joined_by_open_shot(tmp_path):
     assert np.isfinite(ds.tau_th_fast_surf.values[0]).all() and np.isnan(ds.tau_th_fast_surf.values[1]).all()
     assert tp.write_shot(str(tmp_path), 100, force=True) == 2
     assert np.isnan(open_shot(str(tmp_path), 100).e_beam_keV.values).all()
+    old = xr.open_zarr(tp.shot_store(str(tmp_path), 100)).load()
+    for stale in (old.assign_attrs(tps_version='other'), old.isel(run_idx=[0])):
+        stale.to_zarr(tp.shot_store(str(tmp_path), 100), mode='w', consolidated=True)
+        assert tp.write_shot(str(tmp_path), 100) == 2

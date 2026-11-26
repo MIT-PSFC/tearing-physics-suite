@@ -7,8 +7,8 @@ analysis.shot_data.open_shot, which joins the result back by case_key.
 
 TABLE: one JSON line per shot {shot, t_s, E_b_keV} (eq_stab claude_findings/fast_ion_times/scripts/e_beam_table.py:
 the beam injection energy per FUSE slice). Each run takes the value at its t_ms, linear between slices; NaN outside
-them or without a table. A store is written whole (a new one replaces the old) and skipped when present, unless
---force.
+them or without a table. A store is written whole (a new one replaces the old) with the TPS that wrote it
+(attrs tps_version), and skipped when it holds every run of the shot's store from this TPS, unless --force.
 """
 import argparse
 import functools
@@ -51,15 +51,18 @@ def e_beam_at(table, shot, t_ms):
 
 
 def write_shot(study, shot, table=None, force=False):
-    """Write <shot>_timescales.zarr; returns the number of runs, None if skipped (present, or no main store)."""
+    """Write <shot>_timescales.zarr; returns the number of runs, None if skipped (current, or no main store)."""
     path, main = shot_store(study, shot), parallel.shot_store(study, shot)
-    if not (os.path.exists(main) or os.path.exists(main + '.zip')) or (os.path.exists(path) and not force):
+    if not (os.path.exists(main) or os.path.exists(main + '.zip')):
+        return None
+    version = parallel._describe(parallel.code_dirs()['tps'])
+    if not force and _current(path, parallel.open_store(main)['case_key'].values.astype(object), version):
         return None
     ds = open_shot(study, shot, variables=list(INPUTS + OPTIONAL_INPUTS) + ['case_key']).load()
     if 'eps_surf' not in ds:                        # no i-file eps in the main or ideal store: NaN nu* and mu
         ds = ds.assign(eps_surf=xr.full_like(ds['avg_R_surf'], np.nan))
     e_b = ds['t_ms'].copy(data=e_beam_at(table or {}, shot, ds['t_ms'].values))
-    out = surface_timescales(ds, e_b).assign(case_key=ds['case_key'])
+    out = surface_timescales(ds, e_b).assign(case_key=ds['case_key']).assign_attrs(tps_version=version or '')
     tmp = f'{path}.tmp.{os.getpid()}'
     parallel._vlen_strings(out).to_zarr(tmp, mode='w', consolidated=True)
     shutil.rmtree(path, ignore_errors=True)
@@ -67,12 +70,21 @@ def write_shot(study, shot, table=None, force=False):
     return out.sizes['run_idx']
 
 
+def _current(path, keys, version):
+    """Whether the store at path exists, was written by TPS version and holds every case_key in keys."""
+    if not os.path.exists(path):
+        return False
+    ts = xr.open_zarr(path)
+    return (bool(version) and ts.attrs.get('tps_version') == version
+            and set(keys) <= set(ts['case_key'].values.astype(object)))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--study', required=True)
     ap.add_argument('--shots', type=int, nargs='*')
     ap.add_argument('--e-beam', default=None, help='beam-energy table (JSON lines)')
-    ap.add_argument('--force', action='store_true', help='rewrite stores that exist')
+    ap.add_argument('--force', action='store_true', help='rewrite current stores too')
     ap.add_argument('--workers', type=int, default=int(os.environ.get('SLURM_CPUS_PER_TASK', 1)),
                     help='shots written at once (~1.5 GB each for a 5700-run shot)')
     a = ap.parse_args(argv)

@@ -133,7 +133,7 @@ def _with_eps_surf(ds):
     name = next((v for v in ('eps', 'ideal_eps') if v in ds), None)
     if name is None or 'psi_n_rational' not in ds:
         return ds
-    psi = ds['psi_n_rational'].transpose('run_idx', ...)
+    psi = ds['psi_n_rational'].transpose('run_idx', ...).compute()      # once, not a store read per run
     out = np.full(psi.shape, np.nan)
     for i, (x, y) in enumerate(zip(ds[f'{name}_psi_n'].values, ds[name].values)):
         ok = np.isfinite(x) & np.isfinite(y)

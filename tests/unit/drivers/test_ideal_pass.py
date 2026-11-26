@@ -150,3 +150,6 @@ def test_open_shot_joins_the_ideal_store(tmp_path):
     xr.Dataset({'Lambda': ('run_idx', [0.7]), 'case_key': ('run_idx', keys[[1]])}).to_zarr(
         st.shot_store(str(tmp_path), 100).replace('100.zarr', '100_core_drive.zarr'), consolidated=True)
     np.testing.assert_array_equal(open_shot(str(tmp_path), 100).Lambda.values, [np.nan, 0.7, np.nan])
+    xr.Dataset({'mse_chi2_direct': ('run_idx', [4.0, 9.0]), 'case_key': ('run_idx', keys[[2, 0]])}).to_zarr(
+        st.shot_store(str(tmp_path), 100).replace('100.zarr', '100_mse.zarr'), consolidated=True)
+    np.testing.assert_array_equal(open_shot(str(tmp_path), 100).mse_chi2_direct.values, [9.0, np.nan, 4.0])

@@ -558,6 +558,42 @@ def feed_codes(study, cfg=None, extra=0, mem_gib=None):
     return n_new
 
 
+def feed_random_only(study, max_items, cfg=None):
+    """Add code-check items for the coin's picks alone (reason 'random' or 'flagged+random'), up to max_items in all,
+    in the coin's order, claimed before the rest (est 2; the others have est 1): a sparse random sample while the
+    flagged tier still waits. A pick not yet in the queue gets its <unit_id>.d<count> item; one already queued (the
+    flagged tier) a twin <unit_id>.r<count>, and whichever runs second finds the draw final. Draws still waiting for a
+    fill are left out. Returns how many were added."""
+    cfg = cfg or load_config(study)
+    check = code_check_config(cfg)
+    if check is None:
+        raise SystemExit('feed --code-check: the study has no code_check')
+    q = fq.Queue(qroot(study, code_check=True))
+    units, done = q.units(refresh=True), q.done_ids()
+    have = sum(1 for it in units.values() if it.get('random_only'))
+    picks = []
+    for _, unit, facts in _feed_facts(study, cfg, q).values():
+        for c, (fill_n, flagged_n) in facts.items():
+            u, reason = _pick(check, dict(shot=unit['shot'], case_key=f"{unit['unit_id']}_{c}",
+                                          stride_flagged_n=flagged_n))
+            d, r = f"{unit['unit_id']}.d{c}", f"{unit['unit_id']}.r{c}"
+            if fill_n is not None or 'random' not in reason or d in done or r in units:
+                continue
+            item = dict(unit, id=r if d in units else d, draws=[int(c)], est=2, reason=reason, random_only=True)
+            if flagged_n:
+                item['flagged_n'] = flagged_n
+            picks.append((u, item['id'], item))
+    items = [it for _, _, it in sorted(picks)][:max(max_items - have, 0)]
+    if check['mem_classes']:
+        def need(it):
+            it['need_gib'] = round(_item_need_gib(study, cfg, it), 1)
+            return it['need_gib']
+        _prefetch_need(study, cfg, q, items, need)
+    n_new = q.add_units(items)
+    print(f'feed: {n_new} random-only code-check item(s) added ({have + n_new} in all)', flush=True)
+    return n_new
+
+
 class Feeder:
     """on_idle hook: feed, unless any worker fed in the last ``every`` seconds (code checks: up to ``workers`` extra
     draws that fit the session's mem_gib; work --feed-extra, else its --workers)."""
@@ -1343,7 +1379,10 @@ def main(argv=None):
     p = add('init', cmd_init, code_check=False)
     p.add_argument('--config', default=None, help='JSON file of settings (see DEFAULTS)')
     p.add_argument('--force', action='store_true')
-    add('feed', lambda a: feed_codes(a.study) if a.code_check else feed(a.study))
+    p = add('feed', lambda a: feed_random_only(a.study, a.random_only) if a.random_only is not None
+            else feed_codes(a.study) if a.code_check else feed(a.study))
+    p.add_argument('--random-only', type=int, metavar='MAX', help="code checks: the coin's picks alone, at most MAX "
+                   "such items in all, before the flagged tier (feed_random_only)")
     p = add('work', cmd_work)
     p.add_argument('--workers', type=int, default=int(os.environ.get('SLURM_CPUS_PER_TASK', 1)))
     p.add_argument('--item-timeout', type=float, default=6 * 3600)

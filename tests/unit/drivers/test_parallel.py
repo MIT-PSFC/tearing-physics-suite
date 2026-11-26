@@ -809,6 +809,30 @@ def test_code_check_feed_order(study, monkeypatch):
     assert st.feed_codes(study) == 0 and nc9 in st.code_check_pending(study, 100)
 
 
+def test_random_only_feed(study):
+    """--random-only MAX: the coin's picks alone, up to MAX in all, in the coin's order and claimed before the flagged
+    tier; a pick already queued as flagged gets a twin .r item; draws waiting for a fill and draws already checked
+    are left out."""
+    uid = '100_1500_base'
+    for c in range(6):
+        _ok_draw(study, uid, c, stride_flagged_n=[1] if c in (0, 1) else [])
+    _ok_draw(study, uid, 6, code_killed={'stride': [2]})                     # waits for its fill
+    _set_code_check(study, fraction=1.0)
+    picked = [c for _, c in sorted((st._coin(0, f'{uid}_{c}'), c) for c in range(6))]
+    q = fq.Queue(st.qroot(study, code_check=True))
+    st.feed_codes(study)                                                    # the fill
+    q.finish(f'{uid}.f6')
+    st.feed_codes(study)                                                    # then the flagged tier: d0, d1
+    st.main(['feed', '--study', study, '--random-only', '2'])
+    units = q.units(refresh=True)
+    ro = [it for it in q.units().values() if it.get('random_only')]
+    assert [it['draws'][0] for it in ro] == picked[:2] and all(it['est'] == 2 for it in ro)
+    assert all(it['id'].endswith(('.r0', '.r1')) == (it['draws'][0] in (0, 1)) for it in ro)
+    assert q.order()[:2] == [it['id'] for it in ro]                         # claimed before the backlog
+    assert st.feed_random_only(study, max_items=2) == 0                     # MAX counts the earlier ones
+    assert f'{uid}.r6' not in units and all(it['draws'] != [6] for it in ro)
+
+
 def test_stride_flag_recorded_and_compiled(study, monkeypatch):
     """With code_check.flag, each draw records its STRIDE-flagged n, and the main store gets stride_flag(nn). A flag
     that cannot be evaluated flags every n and does not fail the draw."""

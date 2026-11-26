@@ -20,7 +20,7 @@ SURFACE_INPUTS = ('taua_surf', 'taur_surf', 'taue_surf', 'taui_surf', 'ftr_surf'
                   'eta_star_surf', 'w_marg_surf', 'wd_at_marg_surf', 'Delta_prime_surf', 'Di_surf', 'avg_r_surf',
                   'avg_nabla_psi_surf')
 INPUTS = SURFACE_INPUTS + ('main_ion_mass', 'impurity_Z', 'impurity_mass')
-OPTIONAL_INPUTS = ('avg_bdotgradB_sq_surf',)      # RDCON's <(b.grad B)^2> (GPEC 355b87c8); Callen's form where absent
+OPTIONAL_INPUTS = ('avg_bdotgradB_sq_surf',)      # RDCON's <(b.grad B)^2> (GPEC 67924e91); Callen's form where absent
 
 
 def callen_mu(nu, nus, ft_on_fc, z, nu_tau, wt):

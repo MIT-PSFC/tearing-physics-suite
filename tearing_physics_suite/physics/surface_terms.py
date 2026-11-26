@@ -21,7 +21,7 @@ _RAW_TO_SURF = {
     'avg_Rsq': 'avg_Rsq_surf', 'avg_1': 'avg_Bsq_on_nabla_psisq_surf', 'avg_5': 'avg_Bsq_surf',
     'avg_7': 'avg_dpsisq_surf',
 }
-# written only by newer RDCON builds (GPEC 355b87c8): on the surfaces when present
+# written only by newer RDCON builds (GPEC 67924e91): on the surfaces when present
 _RAW_TO_SURF_OPTIONAL = {'avg_bdotgradB_sq': 'avg_bdotgradB_sq_surf'}
 
 
